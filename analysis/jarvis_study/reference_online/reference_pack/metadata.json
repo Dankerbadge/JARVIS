@@ -1,0 +1,82 @@
+{
+  "clip_count": 39,
+  "last_isolation_report": [
+    {
+      "analysis_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/reference_online/work/normalized/KUxTstoFd1Q_MCU\uff1a All J.A.R.V.I.S. Lines (Reupload).isolated.wav",
+      "ffmpeg_isolated": true,
+      "input": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/reference_online/KUxTstoFd1Q_MCU\uff1a All J.A.R.V.I.S. Lines (Reupload).wav",
+      "normalized_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/reference_online/work/normalized/KUxTstoFd1Q_MCU\uff1a All J.A.R.V.I.S. Lines (Reupload).wav",
+      "segments_detected": 96,
+      "segments_kept": 35
+    },
+    {
+      "analysis_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/reference_online/work/normalized/zZ0tYNEv0cQ_JARVIS START UP.isolated.wav",
+      "ffmpeg_isolated": true,
+      "input": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/reference_online/zZ0tYNEv0cQ_JARVIS START UP.wav",
+      "normalized_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/reference_online/work/normalized/zZ0tYNEv0cQ_JARVIS START UP.wav",
+      "segments_detected": 4,
+      "segments_kept": 4
+    }
+  ],
+  "supplemental_references": {
+    "count": 1,
+    "history": [
+      {
+        "added_clip_count": 39,
+        "added_clips": [
+          "jarvis_ref_vm_001_0055680_0057120.wav",
+          "jarvis_ref_vm_002_0389080_0393730.wav",
+          "jarvis_ref_vm_003_0110360_0114420.wav",
+          "jarvis_ref_vm_004_0094130_0098430.wav",
+          "jarvis_ref_vm_005_0451650_0454310.wav",
+          "jarvis_ref_vm_006_0329280_0332820.wav",
+          "jarvis_ref_vm_007_0454790_0460330.wav",
+          "jarvis_ref_vm_008_0000300_0003100.wav",
+          "jarvis_ref_vm_009_0051840_0053780.wav",
+          "jarvis_ref_vm_010_0275300_0277840.wav",
+          "jarvis_ref_vm_011_0038420_0042110.wav",
+          "jarvis_ref_vm_012_0259650_0262260.wav",
+          "jarvis_ref_vm_013_0464290_0471290.wav",
+          "jarvis_ref_vm_014_0315270_0317000.wav",
+          "jarvis_ref_vm_015_0179310_0180680.wav",
+          "jarvis_ref_vm_016_0263020_0267100.wav",
+          "jarvis_ref_vm_017_0099260_0103640.wav",
+          "jarvis_ref_vm_018_0399750_0402880.wav",
+          "jarvis_ref_vm_019_0172930_0174900.wav",
+          "jarvis_ref_vm_020_0317370_0324050.wav",
+          "jarvis_ref_vm_021_0439010_0441300.wav",
+          "jarvis_ref_vm_022_0057350_0061140.wav",
+          "jarvis_ref_vm_023_0394140_0395480.wav",
+          "jarvis_ref_vm_024_0376280_0383280.wav",
+          "jarvis_ref_vm_025_0221550_0223590.wav",
+          "jarvis_ref_vm_026_0324290_0325820.wav",
+          "jarvis_ref_vm_027_0022350_0024830.wav",
+          "jarvis_ref_vm_028_0204190_0209320.wav",
+          "jarvis_ref_vm_029_0008560_0010730.wav",
+          "jarvis_ref_vm_030_0068660_0073500.wav",
+          "jarvis_ref_vm_031_0049080_0051460.wav",
+          "jarvis_ref_vm_032_0234100_0236080.wav",
+          "jarvis_ref_vm_033_0062760_0066670.wav",
+          "jarvis_ref_vm_034_0088280_0090440.wav",
+          "jarvis_ref_vm_035_0462200_0464010.wav",
+          "jarvis_ref_vm_036_0004850_0006240.wav",
+          "jarvis_ref_vm_037_0010100_0012480.wav",
+          "jarvis_ref_vm_038_0006550_0009690.wav",
+          "jarvis_ref_vm_039_0012960_0015520.wav"
+        ],
+        "ffmpeg_isolate": true,
+        "ffmpeg_profile": "strong",
+        "ingested_at": "2026-04-17T01:49:59.479122",
+        "inputs": [
+          "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/reference_online/KUxTstoFd1Q_MCU\uff1a All J.A.R.V.I.S. Lines (Reupload).wav",
+          "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/reference_online/zZ0tYNEv0cQ_JARVIS START UP.wav"
+        ],
+        "max_clips_per_input": 120,
+        "rnnoise_model": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/new_actor_refs/rnnoise/sh.rnnn",
+        "work_dir": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/reference_online/work"
+      }
+    ]
+  },
+  "total_duration_sec": 124.43,
+  "updated_at": "2026-04-17T01:49:59.479087"
+}

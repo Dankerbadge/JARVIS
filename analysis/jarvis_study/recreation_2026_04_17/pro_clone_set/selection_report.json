@@ -1,0 +1,109 @@
+{
+  "count": 13,
+  "items": [
+    {
+      "file": "ref_01_jarvis_ref_vm_005_0306980_0313130.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/elevenlabs_creator_bundle/clips/jarvis_ref_vm_005_0306980_0313130.wav",
+      "duration_sec": 6.15,
+      "quality_score": 0.894581,
+      "hiss_ratio": 0.003991,
+      "silence_pct": 9.795918
+    },
+    {
+      "file": "ref_02_jarvis_ref_vm_036_0350440_0357310.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/elevenlabs_creator_bundle/clips/jarvis_ref_vm_036_0350440_0357310.wav",
+      "duration_sec": 6.87,
+      "quality_score": 0.886449,
+      "hiss_ratio": 0.000755,
+      "silence_pct": 12.454212
+    },
+    {
+      "file": "ref_03_jarvis_ref_vm_084_0000070_0007070.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/elevenlabs_creator_bundle/clips/jarvis_ref_vm_084_0000070_0007070.wav",
+      "duration_sec": 7.0,
+      "quality_score": 0.882748,
+      "hiss_ratio": 0.012234,
+      "silence_pct": 10.394265
+    },
+    {
+      "file": "ref_04_jarvis_ref_vm_009_0379260_0384160.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/elevenlabs_creator_bundle/clips/jarvis_ref_vm_009_0379260_0384160.wav",
+      "duration_sec": 4.9,
+      "quality_score": 0.881331,
+      "hiss_ratio": 0.015556,
+      "silence_pct": 8.717949
+    },
+    {
+      "file": "ref_05_jarvis_ref_vm_024_0002560_0010760.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/elevenlabs_creator_bundle/clips/jarvis_ref_vm_024_0002560_0010760.wav",
+      "duration_sec": 8.2,
+      "quality_score": 0.878204,
+      "hiss_ratio": 0.011566,
+      "silence_pct": 11.042945
+    },
+    {
+      "file": "ref_06_jarvis_ref_vm_043_0213400_0218220.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/elevenlabs_creator_bundle/clips/jarvis_ref_vm_043_0213400_0218220.wav",
+      "duration_sec": 4.82,
+      "quality_score": 0.86419,
+      "hiss_ratio": 0.009295,
+      "silence_pct": 13.089005
+    },
+    {
+      "file": "ref_07_jarvis_ref_vm_047_0386410_0394610.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/elevenlabs_creator_bundle/clips/jarvis_ref_vm_047_0386410_0394610.wav",
+      "duration_sec": 8.2,
+      "quality_score": 0.858784,
+      "hiss_ratio": 0.01589,
+      "silence_pct": 12.269939
+    },
+    {
+      "file": "ref_08_jarvis_ref_vm_051_0135020_0143220.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/elevenlabs_creator_bundle/clips/jarvis_ref_vm_051_0135020_0143220.wav",
+      "duration_sec": 8.2,
+      "quality_score": 0.853503,
+      "hiss_ratio": 0.008641,
+      "silence_pct": 14.417178
+    },
+    {
+      "file": "ref_09_jarvis_ref_vm_053_0454780_0460520.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/elevenlabs_creator_bundle/clips/jarvis_ref_vm_053_0454780_0460520.wav",
+      "duration_sec": 5.74,
+      "quality_score": 0.850972,
+      "hiss_ratio": 0.015797,
+      "silence_pct": 13.157895
+    },
+    {
+      "file": "ref_10_jarvis_ref_vm_092_0002550_0009550.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/elevenlabs_creator_bundle/clips/jarvis_ref_vm_092_0002550_0009550.wav",
+      "duration_sec": 7.0,
+      "quality_score": 0.830199,
+      "hiss_ratio": 0.010779,
+      "silence_pct": 11.827957
+    },
+    {
+      "file": "ref_11_JARVIS_FINALIZED_FLOW_SAMPLE_LONG_2026-04-13.isolated.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/JARVIS_FINALIZED_FLOW_SAMPLE_LONG_2026-04-13.isolated.wav",
+      "duration_sec": 12.86,
+      "quality_score": "anchor",
+      "hiss_ratio": 0,
+      "silence_pct": 0
+    },
+    {
+      "file": "ref_12_JARVIS_PRONUNCIATION_REFINEMENT_SAMPLE_2026-04-13.isolated.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/JARVIS_PRONUNCIATION_REFINEMENT_SAMPLE_2026-04-13.isolated.wav",
+      "duration_sec": 12.24,
+      "quality_score": "anchor",
+      "hiss_ratio": 0,
+      "silence_pct": 0
+    },
+    {
+      "file": "ref_13_jarvis_introduction_voicemod.isolated.wav",
+      "src": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/jarvis_introduction_voicemod.isolated.wav",
+      "duration_sec": 17.91,
+      "quality_score": "anchor",
+      "hiss_ratio": 0,
+      "silence_pct": 0
+    }
+  ]
+}

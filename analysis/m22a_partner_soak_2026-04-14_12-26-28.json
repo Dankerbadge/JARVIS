@@ -1,0 +1,171 @@
+{
+  "api_base": "http://127.0.0.1:8765",
+  "failures": [],
+  "generated_at": "2026-04-14T16:30:39.718247+00:00",
+  "ok": true,
+  "records": [
+    {
+      "prompt": "What do you think?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Be straight with me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am tracking two live risks: an academic exam scheduled soon and a market opportunity with low downside. The tradeoff is between protecting your academic deadline and acting on the market chance. What would you like me to prioritize?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am tracking two live priorities: academic exam preparation and a market opportunity with MSFT. The tradeoff is between protecting your academic deadline and acting on the market chance. What would you like me to prioritize?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Push back on me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Strategic read: tradeoff is fast movement versus preserving optionality. Why now: current state is time-sensitive. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Strategic read: tradeoff is fast movement versus preserving optionality. Why now: current state is time-sensitive. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What are you noticing?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Continue from earlier.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. Tradeoff: fast movement versus preserving optionality. Next move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. Tradeoff: fast movement versus preserving optionality. Next move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What's the real tradeoff here?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "The real tradeoff is between protecting academic deadlines and pursuing a market opportunity with low downside risk. You need to decide whether to lock in academic progress or act on the market signal. Would you like to evaluate the market opportunity first?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "The real tradeoff is between protecting academic deadlines and pursuing a market opportunity with low downside risk. You need to decide whether to lock in academic preparation or act on the market signal. Would you like me to evaluate the timing of the next academic action versus the market opportunity?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    }
+  ],
+  "turn_count": 6
+}

@@ -1,0 +1,294 @@
+[
+  {
+    "path": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/JARVIS_1.wav",
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "duration_sec": 480.696,
+    "peak_dbfs": -0.00026507636037961915,
+    "rms_dbfs": -19.503315332945583,
+    "crest_factor_db": 19.5030502565852,
+    "dc_offset": -1.4562875776391593e-06,
+    "clip_percent": 8.667986974442614e-06,
+    "silence_under_minus50db_percent": 2.3093727244356597,
+    "silence_under_minus45db_percent": 3.4900655362529904,
+    "silence_under_minus40db_percent": 5.75262665140955,
+    "frame_rms_p10_dbfs": -35.3578804266996,
+    "frame_rms_p50_dbfs": -23.316069574637332,
+    "frame_rms_p90_dbfs": -15.12521157125209,
+    "frame_rms_dynamic_span_db": 20.232668855447514,
+    "stereo_lr_correlation": 0.8307555275057257,
+    "stereo_lr_level_delta_db": 0.0531893402107047,
+    "short_pauses": 15.0,
+    "medium_pauses": 0.0,
+    "long_pauses": 0.0,
+    "total_pause_time_sec": 16.775000000000002,
+    "spectral_centroid_hz": 2281.9539902740175,
+    "rolloff_85_hz": 5015.625,
+    "band_80_250": 0.09427138153179337,
+    "band_250_1000": 0.3245206813492451,
+    "band_1000_4000": 0.32976536822078995,
+    "band_4000_8000": 0.14373066679756888,
+    "band_8000_16000": 0.05676192372037892,
+    "f0_median_hz": 151.18147729301828,
+    "f0_mean_hz": 169.51130483087474,
+    "f0_std_hz": 65.5664816100677,
+    "top_windows": [
+      {
+        "start_sec": 0.0,
+        "end_sec": 6.0,
+        "score": 100.0,
+        "rms_dbfs": -18.706236774975686,
+        "silence_pct": 6.694560669456067,
+        "hf_to_body_ratio": 0.26455223785037724,
+        "low_mid_ratio": 0.4566357135772705
+      },
+      {
+        "start_sec": 3.0,
+        "end_sec": 9.0,
+        "score": 100.0,
+        "rms_dbfs": -21.58596340929855,
+        "silence_pct": 3.3472803347280333,
+        "hf_to_body_ratio": 0.4189260059915957,
+        "low_mid_ratio": 0.4322926700115204
+      },
+      {
+        "start_sec": 6.0,
+        "end_sec": 12.0,
+        "score": 100.0,
+        "rms_dbfs": -21.42978641690683,
+        "silence_pct": 1.6736401673640167,
+        "hf_to_body_ratio": 0.5139408325243116,
+        "low_mid_ratio": 0.39871692657470703
+      },
+      {
+        "start_sec": 9.0,
+        "end_sec": 15.0,
+        "score": 100.0,
+        "rms_dbfs": -21.793961529771224,
+        "silence_pct": 5.02092050209205,
+        "hf_to_body_ratio": 0.46970268203308224,
+        "low_mid_ratio": 0.3772367537021637
+      },
+      {
+        "start_sec": 12.0,
+        "end_sec": 18.0,
+        "score": 100.0,
+        "rms_dbfs": -22.82718396156199,
+        "silence_pct": 5.857740585774058,
+        "hf_to_body_ratio": 0.3046991086516681,
+        "low_mid_ratio": 0.4028686285018921
+      },
+      {
+        "start_sec": 15.0,
+        "end_sec": 21.0,
+        "score": 100.0,
+        "rms_dbfs": -22.20577275414046,
+        "silence_pct": 1.6736401673640167,
+        "hf_to_body_ratio": 0.25671390793694243,
+        "low_mid_ratio": 0.45272985100746155
+      },
+      {
+        "start_sec": 18.0,
+        "end_sec": 24.0,
+        "score": 100.0,
+        "rms_dbfs": -21.118417921779592,
+        "silence_pct": 2.092050209205021,
+        "hf_to_body_ratio": 0.24952101225687434,
+        "low_mid_ratio": 0.4164108633995056
+      },
+      {
+        "start_sec": 21.0,
+        "end_sec": 27.0,
+        "score": 100.0,
+        "rms_dbfs": -20.82725391411691,
+        "silence_pct": 3.3472803347280333,
+        "hf_to_body_ratio": 0.28634313892260416,
+        "low_mid_ratio": 0.36063551902770996
+      }
+    ],
+    "bottom_windows": [
+      {
+        "start_sec": 474.0,
+        "end_sec": 480.0,
+        "score": 85.05101464747048,
+        "rms_dbfs": -18.970113355940235,
+        "silence_pct": 15.481171548117153,
+        "hf_to_body_ratio": 0.6697631624565744,
+        "low_mid_ratio": 0.3034839928150177
+      },
+      {
+        "start_sec": 336.0,
+        "end_sec": 342.0,
+        "score": 92.3447265625,
+        "rms_dbfs": -20.893687106267258,
+        "silence_pct": 1.6736401673640167,
+        "hf_to_body_ratio": 0.3603072834592111,
+        "low_mid_ratio": 0.2362060546875
+      },
+      {
+        "start_sec": 339.0,
+        "end_sec": 345.0,
+        "score": 94.41379690170288,
+        "rms_dbfs": -22.311740033935404,
+        "silence_pct": 0.8368200836820083,
+        "hf_to_body_ratio": 0.32769525170600683,
+        "low_mid_ratio": 0.2534483075141907
+      },
+      {
+        "start_sec": 333.0,
+        "end_sec": 339.0,
+        "score": 94.9154736995697,
+        "rms_dbfs": -20.812628736377956,
+        "silence_pct": 5.857740585774058,
+        "hf_to_body_ratio": 0.33334203469990653,
+        "low_mid_ratio": 0.2576289474964142
+      },
+      {
+        "start_sec": 225.0,
+        "end_sec": 231.0,
+        "score": 98.99228213078237,
+        "rms_dbfs": -20.011319318688024,
+        "silence_pct": 1.2552301255230125,
+        "hf_to_body_ratio": 0.558397648910147,
+        "low_mid_ratio": 0.3526419997215271
+      },
+      {
+        "start_sec": 435.0,
+        "end_sec": 441.0,
+        "score": 99.42259414225941,
+        "rms_dbfs": -20.52669624315981,
+        "silence_pct": 15.481171548117153,
+        "hf_to_body_ratio": 0.14074105432852374,
+        "low_mid_ratio": 0.5258658528327942
+      },
+      {
+        "start_sec": 468.0,
+        "end_sec": 474.0,
+        "score": 100.0,
+        "rms_dbfs": -17.210112890167412,
+        "silence_pct": 5.857740585774058,
+        "hf_to_body_ratio": 0.49975745320866255,
+        "low_mid_ratio": 0.3758241534233093
+      },
+      {
+        "start_sec": 471.0,
+        "end_sec": 477.0,
+        "score": 100.0,
+        "rms_dbfs": -17.767739668689305,
+        "silence_pct": 5.439330543933055,
+        "hf_to_body_ratio": 0.5039749613364716,
+        "low_mid_ratio": 0.37705641984939575
+      }
+    ]
+  },
+  {
+    "path": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/JARVIS_II.wav",
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "duration_sec": 16.872,
+    "peak_dbfs": -5.099699936577407,
+    "rms_dbfs": -26.693065444017385,
+    "crest_factor_db": 21.59336550743998,
+    "dc_offset": -0.00042438952368684113,
+    "clip_percent": 0.0,
+    "silence_under_minus50db_percent": 2.823179791976226,
+    "silence_under_minus45db_percent": 4.160475482912332,
+    "silence_under_minus40db_percent": 10.401188707280832,
+    "frame_rms_p10_dbfs": -40.20310776150959,
+    "frame_rms_p50_dbfs": -28.941290606507874,
+    "frame_rms_p90_dbfs": -22.90170297130068,
+    "frame_rms_dynamic_span_db": 17.301404790208913,
+    "stereo_lr_correlation": 0.9133178507233143,
+    "stereo_lr_level_delta_db": -0.02128234456833385,
+    "short_pauses": 2.0,
+    "medium_pauses": 0.0,
+    "long_pauses": 0.0,
+    "total_pause_time_sec": 0.7000000000000001,
+    "spectral_centroid_hz": 4431.88016129249,
+    "rolloff_85_hz": 10406.25,
+    "band_80_250": 0.059328294413798915,
+    "band_250_1000": 0.21244326107459796,
+    "band_1000_4000": 0.28249051125576136,
+    "band_4000_8000": 0.18197094857041848,
+    "band_8000_16000": 0.23261671315452448,
+    "f0_median_hz": 179.1044776119403,
+    "f0_mean_hz": 193.95515791846833,
+    "f0_std_hz": 65.66481038147256,
+    "top_windows": [
+      {
+        "start_sec": 6.0,
+        "end_sec": 12.0,
+        "score": 100.0,
+        "rms_dbfs": -26.807121044300292,
+        "silence_pct": 2.510460251046025,
+        "hf_to_body_ratio": 0.32279676541483776,
+        "low_mid_ratio": 0.41039717197418213
+      },
+      {
+        "start_sec": 9.0,
+        "end_sec": 15.0,
+        "score": 100.0,
+        "rms_dbfs": -25.887965872182242,
+        "silence_pct": 0.41841004184100417,
+        "hf_to_body_ratio": 0.5349087319592624,
+        "low_mid_ratio": 0.3360801339149475
+      },
+      {
+        "start_sec": 3.0,
+        "end_sec": 9.0,
+        "score": 79.68367183854889,
+        "rms_dbfs": -27.328609581034623,
+        "silence_pct": 6.694560669456067,
+        "hf_to_body_ratio": 0.7004238396344324,
+        "low_mid_ratio": 0.2811211049556732
+      },
+      {
+        "start_sec": 0.0,
+        "end_sec": 6.0,
+        "score": -115.89301953955126,
+        "rms_dbfs": -27.495064547109433,
+        "silence_pct": 9.205020920502092,
+        "hf_to_body_ratio": 2.1772893576360106,
+        "low_mid_ratio": 0.1281808614730835
+      }
+    ],
+    "bottom_windows": [
+      {
+        "start_sec": 0.0,
+        "end_sec": 6.0,
+        "score": -115.89301953955126,
+        "rms_dbfs": -27.495064547109433,
+        "silence_pct": 9.205020920502092,
+        "hf_to_body_ratio": 2.1772893576360106,
+        "low_mid_ratio": 0.1281808614730835
+      },
+      {
+        "start_sec": 3.0,
+        "end_sec": 9.0,
+        "score": 79.68367183854889,
+        "rms_dbfs": -27.328609581034623,
+        "silence_pct": 6.694560669456067,
+        "hf_to_body_ratio": 0.7004238396344324,
+        "low_mid_ratio": 0.2811211049556732
+      },
+      {
+        "start_sec": 6.0,
+        "end_sec": 12.0,
+        "score": 100.0,
+        "rms_dbfs": -26.807121044300292,
+        "silence_pct": 2.510460251046025,
+        "hf_to_body_ratio": 0.32279676541483776,
+        "low_mid_ratio": 0.41039717197418213
+      },
+      {
+        "start_sec": 9.0,
+        "end_sec": 15.0,
+        "score": 100.0,
+        "rms_dbfs": -25.887965872182242,
+        "silence_pct": 0.41841004184100417,
+        "hf_to_body_ratio": 0.5349087319592624,
+        "low_mid_ratio": 0.3360801339149475
+      }
+    ]
+  }
+]

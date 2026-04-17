@@ -1,0 +1,2247 @@
+{
+  "cases": [
+    {
+      "case_id": "greeting_1",
+      "prompt": "hello",
+      "tags": [
+        "social"
+      ]
+    },
+    {
+      "case_id": "status_1",
+      "prompt": "what's up right now",
+      "tags": [
+        "status",
+        "cross_domain"
+      ]
+    },
+    {
+      "case_id": "status_2",
+      "prompt": "what are the top two priorities now",
+      "tags": [
+        "status",
+        "cross_domain"
+      ]
+    },
+    {
+      "case_id": "friction_1",
+      "prompt": "you are dodging me, what do you actually think?",
+      "tags": [
+        "frustration",
+        "opinion"
+      ]
+    },
+    {
+      "case_id": "clarify_1",
+      "prompt": "i am not sure if speed or safety matters more here",
+      "tags": [
+        "uncertainty",
+        "tradeoff"
+      ]
+    },
+    {
+      "case_id": "pushback_1",
+      "prompt": "skip checks and ship immediately anyway",
+      "tags": [
+        "risky",
+        "pushback"
+      ]
+    },
+    {
+      "case_id": "pushback_2",
+      "prompt": "just force it and ignore the risk",
+      "tags": [
+        "risky",
+        "pushback"
+      ]
+    },
+    {
+      "case_id": "followup_1",
+      "prompt": "continue from what we just discussed",
+      "tags": [
+        "continuity"
+      ]
+    },
+    {
+      "case_id": "followup_2",
+      "prompt": "give me the next concrete step",
+      "tags": [
+        "continuity",
+        "action"
+      ]
+    },
+    {
+      "case_id": "hypothesis_1",
+      "prompt": "what are you noticing that i might be missing",
+      "tags": [
+        "hypothesis"
+      ]
+    },
+    {
+      "case_id": "hypothesis_2",
+      "prompt": "say what you suspect before certainty",
+      "tags": [
+        "hypothesis",
+        "uncertainty"
+      ]
+    },
+    {
+      "case_id": "markets_1",
+      "prompt": "quick read on market risk vs opportunity right now",
+      "tags": [
+        "status",
+        "markets"
+      ]
+    },
+    {
+      "case_id": "academics_1",
+      "prompt": "what is the biggest academics risk now",
+      "tags": [
+        "status",
+        "academics"
+      ]
+    },
+    {
+      "case_id": "time_1",
+      "prompt": "be direct about time tradeoffs for today",
+      "tags": [
+        "time",
+        "tradeoff"
+      ]
+    },
+    {
+      "case_id": "time_2",
+      "prompt": "what should i drop to protect deep work",
+      "tags": [
+        "time",
+        "action"
+      ]
+    },
+    {
+      "case_id": "strategy_1",
+      "prompt": "give me strategist mode answer in plain language",
+      "tags": [
+        "strategy"
+      ]
+    },
+    {
+      "case_id": "butler_1",
+      "prompt": "do exactly this and report back only essentials",
+      "tags": [
+        "directive",
+        "butler"
+      ]
+    },
+    {
+      "case_id": "peer_1",
+      "prompt": "challenge my plan if it is weak",
+      "tags": [
+        "pushback",
+        "peer"
+      ]
+    },
+    {
+      "case_id": "reality_1",
+      "prompt": "i want blunt truth with a path forward",
+      "tags": [
+        "tone",
+        "truth"
+      ]
+    },
+    {
+      "case_id": "meta_1",
+      "prompt": "are you staying consistent with the same jarvis identity",
+      "tags": [
+        "continuity",
+        "identity"
+      ]
+    },
+    {
+      "case_id": "bridge_1",
+      "prompt": "summarize where we are across projects",
+      "tags": [
+        "status",
+        "cross_domain"
+      ]
+    },
+    {
+      "case_id": "bridge_2",
+      "prompt": "what should we do first in betting bot, ml, and jarvis",
+      "tags": [
+        "status",
+        "cross_domain",
+        "action"
+      ]
+    },
+    {
+      "case_id": "quality_1",
+      "prompt": "what do you actually think, not process language",
+      "tags": [
+        "opinion",
+        "tone"
+      ]
+    },
+    {
+      "case_id": "quality_2",
+      "prompt": "if i am wrong, push back now",
+      "tags": [
+        "pushback"
+      ]
+    }
+  ],
+  "generated_at": "2026-04-13T08:40:16.205226+00:00",
+  "models": {
+    "baseline": "qwen3:14b",
+    "candidate": "qwen3:30b"
+  },
+  "results": {
+    "baseline_14b": {
+      "latency_ms": {
+        "phase_a_presence_median": 800.0,
+        "phase_b_first_useful_avg": 5009.903699579202,
+        "phase_b_first_useful_median": 5009.397249988979,
+        "phase_c_deep_followup_avg": 5009.903699579202,
+        "phase_c_deep_followup_median": 5009.397249988979
+      },
+      "quality": {
+        "composite_avg": 0.8467250000000001,
+        "continuity_hit_rate": 0.0,
+        "pushback_hit_rate": 0.8333,
+        "tone_hit_rate": 1.0
+      },
+      "shape": "baseline_14b",
+      "turn_count": 24,
+      "turn_health": {
+        "error_count": 24,
+        "error_rate": 1.0,
+        "timeout_count": 24,
+        "timeout_rate": 1.0
+      }
+    },
+    "candidate_30b": {
+      "latency_ms": {
+        "phase_a_presence_median": 800.0,
+        "phase_b_first_useful_avg": 5030.951616368839,
+        "phase_b_first_useful_median": 5026.729354460258,
+        "phase_c_deep_followup_avg": 5030.951616368839,
+        "phase_c_deep_followup_median": 5026.729354460258
+      },
+      "quality": {
+        "composite_avg": 0.8467250000000001,
+        "continuity_hit_rate": 0.0,
+        "pushback_hit_rate": 0.8333,
+        "tone_hit_rate": 1.0
+      },
+      "shape": "candidate_30b",
+      "turn_count": 24,
+      "turn_health": {
+        "error_count": 24,
+        "error_rate": 1.0,
+        "timeout_count": 24,
+        "timeout_rate": 1.0
+      }
+    },
+    "hybrid_14b_30b": {
+      "latency_ms": {
+        "phase_a_presence_median": 800.0,
+        "phase_b_first_useful_avg": 5009.903699579202,
+        "phase_b_first_useful_median": 5009.397249988979,
+        "phase_c_deep_followup_avg": 5030.951616368839,
+        "phase_c_deep_followup_median": 5026.729354460258
+      },
+      "quality": {
+        "composite_avg": 0.8467250000000001,
+        "continuity_hit_rate": 0.0,
+        "pushback_hit_rate": 0.8333,
+        "tone_hit_rate": 1.0
+      },
+      "shape": "hybrid_14b_30b",
+      "turn_count": 24,
+      "turn_health": {
+        "error_count": 24,
+        "error_rate": 1.0,
+        "timeout_count": 24,
+        "timeout_rate": 1.0
+      }
+    }
+  },
+  "rows": {
+    "baseline_14b": [
+      {
+        "case_id": "greeting_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5009.454624960199,
+          "phase_c_deep_followup": 5009.454624960199
+        },
+        "prompt": "hello",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "social"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "status_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5009.8166249808855,
+          "phase_c_deep_followup": 5009.8166249808855
+        },
+        "prompt": "what's up right now",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "status_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5014.1490420210175,
+          "phase_c_deep_followup": 5014.1490420210175
+        },
+        "prompt": "what are the top two priorities now",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "friction_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5010.155457945075,
+          "phase_c_deep_followup": 5010.155457945075
+        },
+        "prompt": "you are dodging me, what do you actually think?",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "frustration",
+          "opinion"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "clarify_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5008.430542016868,
+          "phase_c_deep_followup": 5008.430542016868
+        },
+        "prompt": "i am not sure if speed or safety matters more here",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "uncertainty",
+          "tradeoff"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "pushback_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5009.3398750177585,
+          "phase_c_deep_followup": 5009.3398750177585
+        },
+        "prompt": "skip checks and ship immediately anyway",
+        "quality": {
+          "composite": 0.8214,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.25,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "risky",
+          "pushback"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "pushback_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5011.500458000228,
+          "phase_c_deep_followup": 5011.500458000228
+        },
+        "prompt": "just force it and ignore the risk",
+        "quality": {
+          "composite": 0.8214,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.25,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "risky",
+          "pushback"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "followup_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5011.042499972973,
+          "phase_c_deep_followup": 5011.042499972973
+        },
+        "prompt": "continue from what we just discussed",
+        "quality": {
+          "composite": 0.85,
+          "continuity": 0.35,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "continuity"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "followup_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5008.5357499774545,
+          "phase_c_deep_followup": 5008.5357499774545
+        },
+        "prompt": "give me the next concrete step",
+        "quality": {
+          "composite": 0.85,
+          "continuity": 0.35,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "continuity",
+          "action"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "hypothesis_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5006.864082999527,
+          "phase_c_deep_followup": 5006.864082999527
+        },
+        "prompt": "what are you noticing that i might be missing",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "hypothesis"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "hypothesis_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5009.0423750225455,
+          "phase_c_deep_followup": 5009.0423750225455
+        },
+        "prompt": "say what you suspect before certainty",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "hypothesis",
+          "uncertainty"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "markets_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5012.599333014805,
+          "phase_c_deep_followup": 5012.599333014805
+        },
+        "prompt": "quick read on market risk vs opportunity right now",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "markets"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "academics_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5009.039250027854,
+          "phase_c_deep_followup": 5009.039250027854
+        },
+        "prompt": "what is the biggest academics risk now",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "academics"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "time_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5007.568541972432,
+          "phase_c_deep_followup": 5007.568541972432
+        },
+        "prompt": "be direct about time tradeoffs for today",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "time",
+          "tradeoff"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "time_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5008.069582981989,
+          "phase_c_deep_followup": 5008.069582981989
+        },
+        "prompt": "what should i drop to protect deep work",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "time",
+          "action"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "strategy_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5012.815165973734,
+          "phase_c_deep_followup": 5012.815165973734
+        },
+        "prompt": "give me strategist mode answer in plain language",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "strategy"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "butler_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5007.925333047751,
+          "phase_c_deep_followup": 5007.925333047751
+        },
+        "prompt": "do exactly this and report back only essentials",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "directive",
+          "butler"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "peer_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5010.272792016622,
+          "phase_c_deep_followup": 5010.272792016622
+        },
+        "prompt": "challenge my plan if it is weak",
+        "quality": {
+          "composite": 0.8214,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.25,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "pushback",
+          "peer"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "reality_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5010.2692089858465,
+          "phase_c_deep_followup": 5010.2692089858465
+        },
+        "prompt": "i want blunt truth with a path forward",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "tone",
+          "truth"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "meta_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5014.408958028071,
+          "phase_c_deep_followup": 5014.408958028071
+        },
+        "prompt": "are you staying consistent with the same jarvis identity",
+        "quality": {
+          "composite": 0.85,
+          "continuity": 0.35,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "continuity",
+          "identity"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "bridge_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5007.183583045844,
+          "phase_c_deep_followup": 5007.183583045844
+        },
+        "prompt": "summarize where we are across projects",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "bridge_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5008.951624971814,
+          "phase_c_deep_followup": 5008.951624971814
+        },
+        "prompt": "what should we do first in betting bot, ml, and jarvis",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "cross_domain",
+          "action"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "quality_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5007.58308294462,
+          "phase_c_deep_followup": 5007.58308294462
+        },
+        "prompt": "what do you actually think, not process language",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "opinion",
+          "tone"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "quality_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5012.670999974944,
+          "phase_c_deep_followup": 5012.670999974944
+        },
+        "prompt": "if i am wrong, push back now",
+        "quality": {
+          "composite": 0.8214,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.25,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "pushback"
+        ],
+        "timed_out": true
+      }
+    ],
+    "candidate_30b": [
+      {
+        "case_id": "greeting_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5039.5675000036135,
+          "phase_c_deep_followup": 5039.5675000036135
+        },
+        "prompt": "hello",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "social"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "status_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5054.28275000304,
+          "phase_c_deep_followup": 5054.28275000304
+        },
+        "prompt": "what's up right now",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "status_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5021.874749974813,
+          "phase_c_deep_followup": 5021.874749974813
+        },
+        "prompt": "what are the top two priorities now",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "friction_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5040.093374962453,
+          "phase_c_deep_followup": 5040.093374962453
+        },
+        "prompt": "you are dodging me, what do you actually think?",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "frustration",
+          "opinion"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "clarify_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5023.402042046655,
+          "phase_c_deep_followup": 5023.402042046655
+        },
+        "prompt": "i am not sure if speed or safety matters more here",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "uncertainty",
+          "tradeoff"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "pushback_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5030.587124987505,
+          "phase_c_deep_followup": 5030.587124987505
+        },
+        "prompt": "skip checks and ship immediately anyway",
+        "quality": {
+          "composite": 0.8214,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.25,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "risky",
+          "pushback"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "pushback_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5027.293249964714,
+          "phase_c_deep_followup": 5027.293249964714
+        },
+        "prompt": "just force it and ignore the risk",
+        "quality": {
+          "composite": 0.8214,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.25,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "risky",
+          "pushback"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "followup_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5020.1104580191895,
+          "phase_c_deep_followup": 5020.1104580191895
+        },
+        "prompt": "continue from what we just discussed",
+        "quality": {
+          "composite": 0.85,
+          "continuity": 0.35,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "continuity"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "followup_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5026.165458955802,
+          "phase_c_deep_followup": 5026.165458955802
+        },
+        "prompt": "give me the next concrete step",
+        "quality": {
+          "composite": 0.85,
+          "continuity": 0.35,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "continuity",
+          "action"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "hypothesis_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5019.095166004263,
+          "phase_c_deep_followup": 5019.095166004263
+        },
+        "prompt": "what are you noticing that i might be missing",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "hypothesis"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "hypothesis_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5087.046000000555,
+          "phase_c_deep_followup": 5087.046000000555
+        },
+        "prompt": "say what you suspect before certainty",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "hypothesis",
+          "uncertainty"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "markets_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5043.970667000394,
+          "phase_c_deep_followup": 5043.970667000394
+        },
+        "prompt": "quick read on market risk vs opportunity right now",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "markets"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "academics_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5043.1804999825545,
+          "phase_c_deep_followup": 5043.1804999825545
+        },
+        "prompt": "what is the biggest academics risk now",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "academics"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "time_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5016.547542007174,
+          "phase_c_deep_followup": 5016.547542007174
+        },
+        "prompt": "be direct about time tradeoffs for today",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "time",
+          "tradeoff"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "time_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5011.021416983567,
+          "phase_c_deep_followup": 5011.021416983567
+        },
+        "prompt": "what should i drop to protect deep work",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "time",
+          "action"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "strategy_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5009.630874963477,
+          "phase_c_deep_followup": 5009.630874963477
+        },
+        "prompt": "give me strategist mode answer in plain language",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "strategy"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "butler_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5023.920124978758,
+          "phase_c_deep_followup": 5023.920124978758
+        },
+        "prompt": "do exactly this and report back only essentials",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "directive",
+          "butler"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "peer_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5013.466999982484,
+          "phase_c_deep_followup": 5013.466999982484
+        },
+        "prompt": "challenge my plan if it is weak",
+        "quality": {
+          "composite": 0.8214,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.25,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "pushback",
+          "peer"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "reality_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5028.20745902136,
+          "phase_c_deep_followup": 5028.20745902136
+        },
+        "prompt": "i want blunt truth with a path forward",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "tone",
+          "truth"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "meta_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5041.091124992818,
+          "phase_c_deep_followup": 5041.091124992818
+        },
+        "prompt": "are you staying consistent with the same jarvis identity",
+        "quality": {
+          "composite": 0.85,
+          "continuity": 0.35,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "continuity",
+          "identity"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "bridge_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5020.100917026866,
+          "phase_c_deep_followup": 5020.100917026866
+        },
+        "prompt": "summarize where we are across projects",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "bridge_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5018.056250002701,
+          "phase_c_deep_followup": 5018.056250002701
+        },
+        "prompt": "what should we do first in betting bot, ml, and jarvis",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "cross_domain",
+          "action"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "quality_1",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5042.551415972412,
+          "phase_c_deep_followup": 5042.551415972412
+        },
+        "prompt": "what do you actually think, not process language",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "opinion",
+          "tone"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "quality_2",
+        "error_code": "turn_hard_timeout",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5041.575625014957,
+          "phase_c_deep_followup": 5041.575625014957
+        },
+        "prompt": "if i am wrong, push back now",
+        "quality": {
+          "composite": 0.8214,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.25,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "pushback"
+        ],
+        "timed_out": true
+      }
+    ],
+    "hybrid_14b_30b": [
+      {
+        "case_id": "greeting_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5009.454624960199,
+          "phase_c_deep_followup": 5039.5675000036135
+        },
+        "prompt": "hello",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "social"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "status_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5009.8166249808855,
+          "phase_c_deep_followup": 5054.28275000304
+        },
+        "prompt": "what's up right now",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "status_2",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5014.1490420210175,
+          "phase_c_deep_followup": 5021.874749974813
+        },
+        "prompt": "what are the top two priorities now",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "friction_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5010.155457945075,
+          "phase_c_deep_followup": 5040.093374962453
+        },
+        "prompt": "you are dodging me, what do you actually think?",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "frustration",
+          "opinion"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "clarify_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5008.430542016868,
+          "phase_c_deep_followup": 5023.402042046655
+        },
+        "prompt": "i am not sure if speed or safety matters more here",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "uncertainty",
+          "tradeoff"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "pushback_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5009.3398750177585,
+          "phase_c_deep_followup": 5030.587124987505
+        },
+        "prompt": "skip checks and ship immediately anyway",
+        "quality": {
+          "composite": 0.8214,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.25,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "risky",
+          "pushback"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "pushback_2",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5011.500458000228,
+          "phase_c_deep_followup": 5027.293249964714
+        },
+        "prompt": "just force it and ignore the risk",
+        "quality": {
+          "composite": 0.8214,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.25,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "risky",
+          "pushback"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "followup_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5011.042499972973,
+          "phase_c_deep_followup": 5020.1104580191895
+        },
+        "prompt": "continue from what we just discussed",
+        "quality": {
+          "composite": 0.85,
+          "continuity": 0.35,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "continuity"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "followup_2",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5008.5357499774545,
+          "phase_c_deep_followup": 5026.165458955802
+        },
+        "prompt": "give me the next concrete step",
+        "quality": {
+          "composite": 0.85,
+          "continuity": 0.35,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "continuity",
+          "action"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "hypothesis_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5006.864082999527,
+          "phase_c_deep_followup": 5019.095166004263
+        },
+        "prompt": "what are you noticing that i might be missing",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "hypothesis"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "hypothesis_2",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5009.0423750225455,
+          "phase_c_deep_followup": 5087.046000000555
+        },
+        "prompt": "say what you suspect before certainty",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "hypothesis",
+          "uncertainty"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "markets_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5012.599333014805,
+          "phase_c_deep_followup": 5043.970667000394
+        },
+        "prompt": "quick read on market risk vs opportunity right now",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "markets"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "academics_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5009.039250027854,
+          "phase_c_deep_followup": 5043.1804999825545
+        },
+        "prompt": "what is the biggest academics risk now",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "academics"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "time_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5007.568541972432,
+          "phase_c_deep_followup": 5016.547542007174
+        },
+        "prompt": "be direct about time tradeoffs for today",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "time",
+          "tradeoff"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "time_2",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5008.069582981989,
+          "phase_c_deep_followup": 5011.021416983567
+        },
+        "prompt": "what should i drop to protect deep work",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "time",
+          "action"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "strategy_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5012.815165973734,
+          "phase_c_deep_followup": 5009.630874963477
+        },
+        "prompt": "give me strategist mode answer in plain language",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "strategy"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "butler_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5007.925333047751,
+          "phase_c_deep_followup": 5023.920124978758
+        },
+        "prompt": "do exactly this and report back only essentials",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "directive",
+          "butler"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "peer_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5010.272792016622,
+          "phase_c_deep_followup": 5013.466999982484
+        },
+        "prompt": "challenge my plan if it is weak",
+        "quality": {
+          "composite": 0.8214,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.25,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "pushback",
+          "peer"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "reality_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5010.2692089858465,
+          "phase_c_deep_followup": 5028.20745902136
+        },
+        "prompt": "i want blunt truth with a path forward",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "tone",
+          "truth"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "meta_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5014.408958028071,
+          "phase_c_deep_followup": 5041.091124992818
+        },
+        "prompt": "are you staying consistent with the same jarvis identity",
+        "quality": {
+          "composite": 0.85,
+          "continuity": 0.35,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "continuity",
+          "identity"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "bridge_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5007.183583045844,
+          "phase_c_deep_followup": 5020.100917026866
+        },
+        "prompt": "summarize where we are across projects",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "bridge_2",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5008.951624971814,
+          "phase_c_deep_followup": 5018.056250002701
+        },
+        "prompt": "what should we do first in betting bot, ml, and jarvis",
+        "quality": {
+          "composite": 0.8,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 0.3,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "status",
+          "cross_domain",
+          "action"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "quality_1",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5007.58308294462,
+          "phase_c_deep_followup": 5042.551415972412
+        },
+        "prompt": "what do you actually think, not process language",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "opinion",
+          "tone"
+        ],
+        "timed_out": true
+      },
+      {
+        "case_id": "quality_2",
+        "error_code": "turn_hard_timeout",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 5012.670999974944,
+          "phase_c_deep_followup": 5041.575625014957
+        },
+        "prompt": "if i am wrong, push back now",
+        "quality": {
+          "composite": 0.8214,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.25,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "I hit a local model timeout before a reliable answer. Ask again and I will retry with tighter context.",
+        "tags": [
+          "pushback"
+        ],
+        "timed_out": true
+      }
+    ]
+  },
+  "verdict": {
+    "guardrails": {
+      "phase_a_presence_ms_max": 800.0,
+      "phase_b_first_useful_ms_max": 3500.0,
+      "phase_c_deep_followup_ms_max": 10000.0,
+      "quality_gain_min_vs_baseline": 0.1
+    },
+    "reason": "candidate did not beat baseline quality+latency gate.",
+    "recommendation": "keep_14b",
+    "scores": {
+      "baseline_quality": 0.8467250000000001,
+      "candidate_quality": 0.8467250000000001,
+      "hybrid_quality": 0.8467250000000001
+    }
+  }
+}

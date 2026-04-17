@@ -1,0 +1,33 @@
+{
+  "api_base": "http://127.0.0.1:8765",
+  "failures": [
+    "What's up?:request_error:timed out",
+    "What do you think?:request_error:timed out",
+    "Push back on me.:request_error:timed out",
+    "semantic_collapse:1/4"
+  ],
+  "generated_at": "2026-04-15T17:56:23.288332+00:00",
+  "max_latency_ms": 7.336,
+  "median_latency_ms": 7.336,
+  "ok": false,
+  "prompt_count": 4,
+  "records": [
+    {
+      "diagnostics": {
+        "answer_source": "cached_brief",
+        "deep_lane_invoked": false,
+        "identity_capsule_used": false,
+        "latency_ms": 7.336,
+        "partner_depth_lane": null,
+        "partner_lane_used": false,
+        "response_family": "social_fast_path",
+        "retrieval_selected_count": 0,
+        "route_reason": "low_latency_social_turn"
+      },
+      "kind": "greeting",
+      "prompt": "Hello",
+      "reply_text": "Hey. I am online, tracking continuity, and ready to move the highest-leverage next step. Want me to pick the first move now?"
+    }
+  ],
+  "unique_reply_count": 1
+}

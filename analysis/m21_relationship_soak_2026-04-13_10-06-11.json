@@ -1,0 +1,194 @@
+{
+  "calibration": null,
+  "records": [
+    {
+      "continuity_ok": false,
+      "elapsed_ms": 10039.729,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": "prepare_timeout",
+      "prompt": "hello",
+      "pushback_triggered": false,
+      "reply_text": "I hit a reply-generation timeout while preserving continuity. Try again in a moment.",
+      "selected_mode": "equal",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_535b30b98b314459abc86e3e9f6ba324"
+    }
+  ],
+  "report": {
+    "axes": {
+      "continuity": {
+        "continuity_failure_rate": 1.0,
+        "continuity_failures": 1,
+        "mismatch_suppressed_count": 0
+      },
+      "interruption_recovery": {
+        "interrupted_turns": 0,
+        "recovered_turns": 0,
+        "recovery_rate": null
+      },
+      "latency_ladder": {
+        "phase_a_presence": {
+          "average_delta_ms": null,
+          "average_observed_ms": 10039.729,
+          "observed_samples": 1
+        },
+        "phase_b_first_useful": {
+          "average_delta_ms": null,
+          "average_observed_ms": 10039.729,
+          "observed_samples": 1
+        },
+        "phase_c_deep_followup": {
+          "average_delta_ms": null,
+          "average_observed_ms": 10039.729,
+          "observed_samples": 1
+        }
+      },
+      "mode_accuracy": {
+        "accuracy": 1.0,
+        "matches": 1,
+        "scored_turns": 1
+      },
+      "pushback": {
+        "outcomes": {},
+        "trigger_rate": 0.0,
+        "triggered_turns": 0
+      },
+      "tone_balance": {
+        "average_abs_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "dominant_drift": [
+          {
+            "average_abs_delta": 0.0,
+            "dimension": "calmness"
+          },
+          {
+            "average_abs_delta": 0.0,
+            "dimension": "challenge"
+          },
+          {
+            "average_abs_delta": 0.0,
+            "dimension": "compression"
+          },
+          {
+            "average_abs_delta": 0.0,
+            "dimension": "deference"
+          },
+          {
+            "average_abs_delta": 0.0,
+            "dimension": "humor"
+          }
+        ]
+      }
+    },
+    "by_modality": {
+      "text": 1
+    },
+    "by_mode": {
+      "equal": 1
+    },
+    "items": [
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [
+          "prepare_timeout"
+        ],
+        "continuity_ok": false,
+        "contract_hash": null,
+        "created_at": "2026-04-13T14:06:21.958187+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": null,
+            "phase_b_first_useful": null,
+            "phase_c_deep_followup": null
+          },
+          "observed_ms": {
+            "phase_a_presence": 10039.729458047077,
+            "phase_b_first_useful": 10039.729458047077,
+            "phase_c_deep_followup": 10039.729458047077
+          },
+          "target_ms": {
+            "phase_a_presence": null,
+            "phase_b_first_useful": null,
+            "phase_c_deep_followup": null
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": null,
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_6bc200982cb9403cbf9f859fb9ec7533",
+        "selected_mode": "equal",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_535b30b98b314459abc86e3e9f6ba324",
+        "user_model_revision": null
+      }
+    ],
+    "run": {
+      "label": "m21_real_use_soak",
+      "metadata": {
+        "generated_at": "2026-04-13T14:06:11.913281+00:00",
+        "kind": "m21_relationship_soak",
+        "loops": 1,
+        "modality": "text",
+        "turn_timeout_seconds": 10.0
+      },
+      "run_id": "vsr_6bc200982cb9403cbf9f859fb9ec7533",
+      "started_at": "2026-04-13T14:06:11.913309+00:00",
+      "updated_at": "2026-04-13T14:06:21.962890+00:00"
+    },
+    "turn_count": 1
+  },
+  "run": {
+    "label": "m21_real_use_soak",
+    "metadata": {
+      "generated_at": "2026-04-13T14:06:11.913281+00:00",
+      "kind": "m21_relationship_soak",
+      "loops": 1,
+      "modality": "text",
+      "turn_timeout_seconds": 10.0
+    },
+    "run_id": "vsr_6bc200982cb9403cbf9f859fb9ec7533",
+    "started_at": "2026-04-13T14:06:11.913309+00:00",
+    "updated_at": "2026-04-13T14:06:21.962890+00:00"
+  },
+  "turn_count": 1
+}

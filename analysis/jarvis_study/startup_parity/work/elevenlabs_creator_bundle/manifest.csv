@@ -1,0 +1,8 @@
+rank,clip_filename,duration_sec,silence_pct,hiss_ratio,harmonicity,quality_score,source_path
+1,jarvis_ref_vm_001_0010100_0011900.wav,1.800000,5.633803,0.008132,0.716054,0.902290,/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/startup_parity/reference_pack/clips/jarvis_ref_vm_001_0010100_0011900.wav
+2,jarvis_ref_vm_002_0007750_0009550.wav,1.800000,7.042254,0.006001,0.690862,0.893743,/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/startup_parity/reference_pack/clips/jarvis_ref_vm_002_0007750_0009550.wav
+3,jarvis_ref_vm_003_0004850_0006240.wav,1.390000,5.555556,0.011193,0.706394,0.892793,/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/startup_parity/reference_pack/clips/jarvis_ref_vm_003_0004850_0006240.wav
+4,jarvis_ref_vm_004_0006550_0008350.wav,1.800000,21.126761,0.008536,0.679813,0.772212,/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/startup_parity/reference_pack/clips/jarvis_ref_vm_004_0006550_0008350.wav
+5,jarvis_ref_vm_005_0011300_0012470.wav,1.170000,15.555556,0.019677,0.600068,0.769275,/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/startup_parity/reference_pack/clips/jarvis_ref_vm_005_0011300_0012470.wav
+6,jarvis_ref_vm_006_0012960_0014760.wav,1.800000,14.084507,0.143748,0.814664,0.563478,/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/startup_parity/reference_pack/clips/jarvis_ref_vm_006_0012960_0014760.wav
+7,jarvis_ref_vm_007_0014160_0015520.wav,1.360000,18.867925,0.151056,0.794950,0.501684,/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/startup_parity/reference_pack/clips/jarvis_ref_vm_007_0014160_0015520.wav

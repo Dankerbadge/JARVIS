@@ -1,0 +1,204 @@
+{
+  "api_base": "http://127.0.0.1:8765",
+  "failures": [],
+  "generated_at": "2026-04-14T22:28:08.252827+00:00",
+  "max_signature_reuse": 4,
+  "min_retrieval": 5,
+  "ok": true,
+  "records": [
+    {
+      "prompt": "What do you think?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Be straight with me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "Uncomfortable read: you may be rationalizing speed while the risk is fast movement versus preserving optionality. Best correction now: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "Uncomfortable read: you may be rationalizing speed while the risk is fast movement versus preserving optionality. Best correction now: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Push back on me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What are you noticing?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    }
+  ],
+  "require_model_answer": true,
+  "signature_usage": {
+    "text": {
+      "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement": 1,
+      "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement": 2,
+      "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|statement": 1
+    },
+    "voice": {
+      "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement": 1,
+      "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement": 2,
+      "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|statement": 1
+    }
+  },
+  "turn_count": 4
+}

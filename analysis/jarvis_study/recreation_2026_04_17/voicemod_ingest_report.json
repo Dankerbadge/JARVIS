@@ -1,0 +1,69 @@
+{
+  "added_clip_count": 10,
+  "creator_bundle": {
+    "actual_total_sec": 301.429664,
+    "bundle_dir": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/elevenlabs_creator_bundle",
+    "clip_count": 82,
+    "manifest": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/elevenlabs_creator_bundle/manifest.csv",
+    "target_total_sec": 300.0
+  },
+  "ffmpeg_isolate": true,
+  "ffmpeg_profile": "strong",
+  "ingested_at": "2026-04-17T01:02:35.152957",
+  "input_count": 5,
+  "isolation_report": [
+    {
+      "analysis_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/JARVIS_FINALIZED_FLOW_SAMPLE_2026-04-13.isolated.wav",
+      "ffmpeg_isolated": true,
+      "input": "/Users/dankerbadge/Documents/J.A.R.V.I.S/exports/JARVIS_FINALIZED_FLOW_SAMPLE_2026-04-13.wav",
+      "normalized_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/JARVIS_FINALIZED_FLOW_SAMPLE_2026-04-13.wav",
+      "segments_detected": 1,
+      "segments_kept": 1
+    },
+    {
+      "analysis_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/JARVIS_FINALIZED_FLOW_SAMPLE_LONG_2026-04-13.isolated.wav",
+      "ffmpeg_isolated": true,
+      "input": "/Users/dankerbadge/Documents/J.A.R.V.I.S/exports/JARVIS_FINALIZED_FLOW_SAMPLE_LONG_2026-04-13.wav",
+      "normalized_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/JARVIS_FINALIZED_FLOW_SAMPLE_LONG_2026-04-13.wav",
+      "segments_detected": 3,
+      "segments_kept": 3
+    },
+    {
+      "analysis_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/JARVIS_PRONUNCIATION_REFINEMENT_SAMPLE_2026-04-13.isolated.wav",
+      "ffmpeg_isolated": true,
+      "input": "/Users/dankerbadge/Documents/J.A.R.V.I.S/exports/JARVIS_PRONUNCIATION_REFINEMENT_SAMPLE_2026-04-13.wav",
+      "normalized_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/JARVIS_PRONUNCIATION_REFINEMENT_SAMPLE_2026-04-13.wav",
+      "segments_detected": 2,
+      "segments_kept": 2
+    },
+    {
+      "analysis_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/jarvis_introduction_voicemod.isolated.wav",
+      "ffmpeg_isolated": true,
+      "input": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/new_actor_refs/jarvis_introduction_voicemod.wav",
+      "normalized_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/jarvis_introduction_voicemod.wav",
+      "segments_detected": 5,
+      "segments_kept": 4
+    },
+    {
+      "analysis_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/jarvis_power_source_voicemod.isolated.wav",
+      "ffmpeg_isolated": true,
+      "input": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/new_actor_refs/jarvis_power_source_voicemod.wav",
+      "normalized_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/recreation_2026_04_17/normalized/jarvis_power_source_voicemod.wav",
+      "segments_detected": 1,
+      "segments_kept": 0
+    }
+  ],
+  "new_clip_paths": [
+    "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_083_0000000_0004380.wav",
+    "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_084_0000070_0007070.wav",
+    "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_085_0008950_0012860.wav",
+    "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_086_0006470_0008730.wav",
+    "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_087_0007660_0012180.wav",
+    "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_088_0001360_0007330.wav",
+    "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_089_0015470_0017900.wav",
+    "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_090_0000840_0002240.wav",
+    "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_091_0012690_0015090.wav",
+    "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_092_0002550_0009550.wav"
+  ],
+  "rnnoise_model": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/new_actor_refs/rnnoise/sh.rnnn"
+}

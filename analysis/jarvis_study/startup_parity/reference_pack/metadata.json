@@ -1,0 +1,41 @@
+{
+  "clip_count": 7,
+  "last_isolation_report": [
+    {
+      "analysis_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/startup_parity/work/normalized/zZ0tYNEv0cQ_JARVIS START UP.isolated.wav",
+      "ffmpeg_isolated": true,
+      "input": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/reference_online/zZ0tYNEv0cQ_JARVIS START UP.wav",
+      "normalized_wav": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/startup_parity/work/normalized/zZ0tYNEv0cQ_JARVIS START UP.wav",
+      "segments_detected": 8,
+      "segments_kept": 7
+    }
+  ],
+  "supplemental_references": {
+    "count": 1,
+    "history": [
+      {
+        "added_clip_count": 7,
+        "added_clips": [
+          "jarvis_ref_vm_001_0010100_0011900.wav",
+          "jarvis_ref_vm_002_0007750_0009550.wav",
+          "jarvis_ref_vm_003_0004850_0006240.wav",
+          "jarvis_ref_vm_004_0006550_0008350.wav",
+          "jarvis_ref_vm_005_0011300_0012470.wav",
+          "jarvis_ref_vm_006_0012960_0014760.wav",
+          "jarvis_ref_vm_007_0014160_0015520.wav"
+        ],
+        "ffmpeg_isolate": true,
+        "ffmpeg_profile": "standard",
+        "ingested_at": "2026-04-17T02:08:55.781206",
+        "inputs": [
+          "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/reference_online/zZ0tYNEv0cQ_JARVIS START UP.wav"
+        ],
+        "max_clips_per_input": 120,
+        "rnnoise_model": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/new_actor_refs/rnnoise/sh.rnnn",
+        "work_dir": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/startup_parity/work"
+      }
+    ]
+  },
+  "total_duration_sec": 11.12,
+  "updated_at": "2026-04-17T02:08:55.781188"
+}

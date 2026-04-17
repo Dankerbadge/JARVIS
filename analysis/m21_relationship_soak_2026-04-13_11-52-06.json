@@ -1,0 +1,1395 @@
+{
+  "calibration": null,
+  "records": [
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 16.984,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "hello",
+      "pushback_triggered": false,
+      "reply_text": "Hey. I am with you. Want a quick status or should we jump into the next objective?",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_ad596dc61d9c4fb08ded2766efa5efba"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 10206.51,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "what's up right now across projects",
+      "pushback_triggered": false,
+      "reply_text": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_5ac46f4b91874f239228c4a946d9fc53"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 32.425,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "what are the top two priorities now",
+      "pushback_triggered": false,
+      "reply_text": "Right now I am tracking live opportunity watch: MSFT. Top move: protect the highest-risk thread first, then execute one concrete follow-through.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_8691946a0a5a48128752a5ab094248a4"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 5541.835,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "continue from what we discussed",
+      "pushback_triggered": false,
+      "reply_text": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_c6e7e452705a4e12aa358e2d13ba750b"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 5560.119,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "give me the next concrete step",
+      "pushback_triggered": false,
+      "reply_text": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_16a1b71da44e4adb935b14e53ff02416"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 7042.899,
+      "expected_mode": "strategist",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "quick read on market risk vs opportunity right now",
+      "pushback_triggered": false,
+      "reply_text": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+      "response_deferred": false,
+      "selected_mode": "strategist",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_e1219a48f3184e198f6b0ccd315a8804"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 7055.037,
+      "expected_mode": "strategist",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "what is the biggest academics risk now",
+      "pushback_triggered": false,
+      "reply_text": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+      "response_deferred": false,
+      "selected_mode": "strategist",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_c1614a4f15ef4103ab63bb040df79539"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 7045.56,
+      "expected_mode": "strategist",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "be direct about time tradeoffs today",
+      "pushback_triggered": false,
+      "reply_text": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+      "response_deferred": false,
+      "selected_mode": "strategist",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_e7a800d379bf4173b2bb7fa85af22b8d"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 7036.592,
+      "expected_mode": "strategist",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "skip checks and ship immediately anyway",
+      "pushback_triggered": false,
+      "reply_text": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+      "response_deferred": false,
+      "selected_mode": "strategist",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_745e874b220a4a6d942295dab5524f2b"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 7047.199,
+      "expected_mode": "strategist",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "just force it and ignore the risk",
+      "pushback_triggered": false,
+      "reply_text": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+      "response_deferred": false,
+      "selected_mode": "strategist",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_019dfbd8d4c84c4bb6c47734555f423d"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 5540.537,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "challenge my plan if it is weak",
+      "pushback_triggered": false,
+      "reply_text": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_7c2e0da5b0c449dabb6f362312aefd7c"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 5531.973,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "what are you noticing that i might be missing",
+      "pushback_triggered": false,
+      "reply_text": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_c43dd1b2ce55476aa0670abaca47006a"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 5562.461,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "say what you suspect before certainty",
+      "pushback_triggered": false,
+      "reply_text": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_6ba2d5e9d977424ab5827a53a36692bc"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 5556.809,
+      "expected_mode": "butler",
+      "mode_match": false,
+      "prepare_error": null,
+      "prompt": "do exactly this and report back only essentials",
+      "pushback_triggered": false,
+      "reply_text": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_c5311b8863a34300a14ae5affed2d870"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 5543.723,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "i want blunt truth with a path forward",
+      "pushback_triggered": false,
+      "reply_text": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_febf560447d64287a73ffd798265c8df"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 5539.857,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "if i am wrong, push back now",
+      "pushback_triggered": false,
+      "reply_text": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_f881672eb6fb47cd8332dfc64da8e918"
+    }
+  ],
+  "report": {
+    "axes": {
+      "continuity": {
+        "continuity_failure_rate": 0.0,
+        "continuity_failures": 0,
+        "mismatch_suppressed_count": 0
+      },
+      "interruption_recovery": {
+        "interrupted_turns": 0,
+        "recovered_turns": 0,
+        "recovery_rate": null
+      },
+      "latency_ladder": {
+        "phase_a_presence": {
+          "average_delta_ms": -74.412,
+          "average_observed_ms": 583.088,
+          "observed_samples": 16
+        },
+        "phase_b_first_useful": {
+          "average_delta_ms": 3178.783,
+          "average_observed_ms": 5616.283,
+          "observed_samples": 16
+        },
+        "phase_c_deep_followup": {
+          "average_delta_ms": -1458.717,
+          "average_observed_ms": 5616.283,
+          "observed_samples": 16
+        }
+      },
+      "mode_accuracy": {
+        "accuracy": 0.9375,
+        "matches": 15,
+        "scored_turns": 16
+      },
+      "pushback": {
+        "outcomes": {},
+        "trigger_rate": 0.0,
+        "triggered_turns": 0
+      },
+      "tone_balance": {
+        "average_abs_drift": {
+          "calmness": 0.025,
+          "challenge": 0.024,
+          "compression": 0.02,
+          "deference": 0.001,
+          "humor": 0.019,
+          "warmth": 0.014
+        },
+        "dominant_drift": [
+          {
+            "average_abs_delta": 0.025,
+            "dimension": "calmness"
+          },
+          {
+            "average_abs_delta": 0.024,
+            "dimension": "challenge"
+          },
+          {
+            "average_abs_delta": 0.02,
+            "dimension": "compression"
+          },
+          {
+            "average_abs_delta": 0.019,
+            "dimension": "humor"
+          },
+          {
+            "average_abs_delta": 0.014,
+            "dimension": "warmth"
+          }
+        ]
+      }
+    },
+    "by_modality": {
+      "text": 16
+    },
+    "by_mode": {
+      "equal": 11,
+      "strategist": 5
+    },
+    "items": [
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:53:36.714361+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 3139.857125026174,
+            "phase_c_deep_followup": -1460.142874973826
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 5539.857125026174,
+            "phase_c_deep_followup": 5539.857125026174
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "equal",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_f881672eb6fb47cd8332dfc64da8e918",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:53:31.173710+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 3143.7230420066044,
+            "phase_c_deep_followup": -1456.2769579933956
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 5543.723042006604,
+            "phase_c_deep_followup": 5543.723042006604
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "equal",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_febf560447d64287a73ffd798265c8df",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:53:25.628532+00:00",
+        "expected_mode": "butler",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 3156.808582972735,
+            "phase_c_deep_followup": -1443.1914170272648
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 5556.808582972735,
+            "phase_c_deep_followup": 5556.808582972735
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": false,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "equal",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_c5311b8863a34300a14ae5affed2d870",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:53:20.069668+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 3162.4611250241287,
+            "phase_c_deep_followup": -1437.5388749758713
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 5562.461125024129,
+            "phase_c_deep_followup": 5562.461125024129
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "equal",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_6ba2d5e9d977424ab5827a53a36692bc",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:53:14.504931+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 3131.9733330397867,
+            "phase_c_deep_followup": -1468.0266669602133
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 5531.973333039787,
+            "phase_c_deep_followup": 5531.973333039787
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "equal",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_c43dd1b2ce55476aa0670abaca47006a",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:53:08.972067+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 3140.536999993492,
+            "phase_c_deep_followup": -1459.463000006508
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 5540.536999993492,
+            "phase_c_deep_followup": 5540.536999993492
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "equal",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_drift": {
+          "calmness": -0.2,
+          "challenge": -0.19,
+          "compression": -0.16,
+          "deference": -0.01,
+          "humor": 0.15,
+          "warmth": 0.11
+        },
+        "turn_id": "vst_7c2e0da5b0c449dabb6f362312aefd7c",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:53:03.430032+00:00",
+        "expected_mode": "strategist",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 4527.199415974319,
+            "phase_c_deep_followup": -192.80058402568102
+          },
+          "observed_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 7047.199415974319,
+            "phase_c_deep_followup": 7047.199415974319
+          },
+          "target_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 2520.0,
+            "phase_c_deep_followup": 7240.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "strategist",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_before": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_019dfbd8d4c84c4bb6c47734555f423d",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:52:56.381202+00:00",
+        "expected_mode": "strategist",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 4516.592125019524,
+            "phase_c_deep_followup": -203.40787498047575
+          },
+          "observed_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 7036.592125019524,
+            "phase_c_deep_followup": 7036.592125019524
+          },
+          "target_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 2520.0,
+            "phase_c_deep_followup": 7240.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "strategist",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_before": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_745e874b220a4a6d942295dab5524f2b",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:52:49.343321+00:00",
+        "expected_mode": "strategist",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 4525.5602500005625,
+            "phase_c_deep_followup": -194.43974999943748
+          },
+          "observed_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 7045.5602500005625,
+            "phase_c_deep_followup": 7045.5602500005625
+          },
+          "target_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 2520.0,
+            "phase_c_deep_followup": 7240.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "strategist",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_before": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_e7a800d379bf4173b2bb7fa85af22b8d",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:52:42.296281+00:00",
+        "expected_mode": "strategist",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 4535.036834033672,
+            "phase_c_deep_followup": -184.96316596632823
+          },
+          "observed_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 7055.036834033672,
+            "phase_c_deep_followup": 7055.036834033672
+          },
+          "target_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 2520.0,
+            "phase_c_deep_followup": 7240.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "strategist",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_before": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_c1614a4f15ef4103ab63bb040df79539",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:52:35.238952+00:00",
+        "expected_mode": "strategist",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 4522.898915999103,
+            "phase_c_deep_followup": -197.10108400089666
+          },
+          "observed_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 7042.898915999103,
+            "phase_c_deep_followup": 7042.898915999103
+          },
+          "target_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 2520.0,
+            "phase_c_deep_followup": 7240.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "strategist",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.2,
+          "challenge": 0.19,
+          "compression": 0.16,
+          "deference": 0.01,
+          "humor": -0.15,
+          "warmth": -0.11
+        },
+        "turn_id": "vst_e1219a48f3184e198f6b0ccd315a8804",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:52:28.195138+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 3160.1185410050675,
+            "phase_c_deep_followup": -1439.8814589949325
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 5560.1185410050675,
+            "phase_c_deep_followup": 5560.1185410050675
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "equal",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_16a1b71da44e4adb935b14e53ff02416",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:52:22.632176+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 3141.835457959678,
+            "phase_c_deep_followup": -1458.164542040322
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 5541.835457959678,
+            "phase_c_deep_followup": 5541.835457959678
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "equal",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_c6e7e452705a4e12aa358e2d13ba750b",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:52:17.089104+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": -587.5751669565216,
+            "phase_b_first_useful": -2367.5751669565216,
+            "phase_c_deep_followup": -6967.575166956522
+          },
+          "observed_ms": {
+            "phase_a_presence": 32.42483304347843,
+            "phase_b_first_useful": 32.42483304347843,
+            "phase_c_deep_followup": 32.42483304347843
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "equal",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_8691946a0a5a48128752a5ab094248a4",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:52:17.055687+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 7806.510165997315,
+            "phase_c_deep_followup": 3206.510165997315
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 10206.510165997315,
+            "phase_c_deep_followup": 10206.510165997315
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "equal",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_5ac46f4b91874f239228c4a946d9fc53",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T15:52:06.847341+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": -603.015791978687,
+            "phase_b_first_useful": -2383.015791978687,
+            "phase_c_deep_followup": -6983.015791978687
+          },
+          "observed_ms": {
+            "phase_a_presence": 16.984208021312952,
+            "phase_b_first_useful": 16.984208021312952,
+            "phase_c_deep_followup": 16.984208021312952
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_ab88cdd46b95442db5e5003850b15345",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+        "selected_mode": "equal",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_ad596dc61d9c4fb08ded2766efa5efba",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      }
+    ],
+    "run": {
+      "label": "m21_real_use_soak",
+      "metadata": {
+        "generated_at": "2026-04-13T15:52:06.827179+00:00",
+        "kind": "m21_relationship_soak",
+        "loops": 1,
+        "modality": "text",
+        "turn_timeout_seconds": 20.0
+      },
+      "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+      "started_at": "2026-04-13T15:52:06.827203+00:00",
+      "updated_at": "2026-04-13T15:53:36.715201+00:00"
+    },
+    "turn_count": 16
+  },
+  "run": {
+    "label": "m21_real_use_soak",
+    "metadata": {
+      "generated_at": "2026-04-13T15:52:06.827179+00:00",
+      "kind": "m21_relationship_soak",
+      "loops": 1,
+      "modality": "text",
+      "turn_timeout_seconds": 20.0
+    },
+    "run_id": "vsr_5db1af51bbb7448f8bf74af836d91fe7",
+    "started_at": "2026-04-13T15:52:06.827203+00:00",
+    "updated_at": "2026-04-13T15:53:36.715201+00:00"
+  },
+  "turn_count": 16
+}

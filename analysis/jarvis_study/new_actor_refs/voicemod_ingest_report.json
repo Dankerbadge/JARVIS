@@ -1,0 +1,57 @@
+{
+  "generated_at": "2026-04-13T00:47:01.643133",
+  "reference_files": [
+    "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/new_actor_refs/normalized/jarvis-introduciton-made-with-Voicemod.wav",
+    "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/new_actor_refs/normalized/jarvis-power-source-made-with-Voicemod.wav"
+  ],
+  "clip_count": 4,
+  "clips": [
+    {
+      "clip": "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_001_0000710_0007710.wav",
+      "duration_sec": 7.0,
+      "silence_pct": 2.150538,
+      "hiss_ratio": 0.069692,
+      "presence_ratio": 0.211818,
+      "harmonicity": 0.490715,
+      "centroid_hz": 2467.245,
+      "mfcc_cosine_to_reference": 0.994172
+    },
+    {
+      "clip": "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_002_0007110_0014110.wav",
+      "duration_sec": 7.0,
+      "silence_pct": 0.0,
+      "hiss_ratio": 0.074124,
+      "presence_ratio": 0.171988,
+      "harmonicity": 0.483456,
+      "centroid_hz": 2401.557,
+      "mfcc_cosine_to_reference": 0.987535
+    },
+    {
+      "clip": "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_003_0013510_0017904.wav",
+      "duration_sec": 4.394,
+      "silence_pct": 0.0,
+      "hiss_ratio": 0.083276,
+      "presence_ratio": 0.229283,
+      "harmonicity": 0.521443,
+      "centroid_hz": 2641.075,
+      "mfcc_cosine_to_reference": 0.994345
+    },
+    {
+      "clip": "/Users/dankerbadge/Documents/J.A.R.V.I.S/.jarvis/voice/training_assets/jarvis_actor_isolated_actor_match/clips/jarvis_ref_vm_004_0000030_0004120.wav",
+      "duration_sec": 4.09,
+      "silence_pct": 9.259259,
+      "hiss_ratio": 0.061124,
+      "presence_ratio": 0.196905,
+      "harmonicity": 0.390489,
+      "centroid_hz": 2633.195,
+      "mfcc_cosine_to_reference": 0.998369
+    }
+  ],
+  "aggregate": {
+    "mean_mfcc_cosine": 0.993605,
+    "min_mfcc_cosine": 0.987535,
+    "mean_hiss_ratio": 0.072054,
+    "max_hiss_ratio": 0.083276,
+    "mean_silence_pct": 2.852449
+  }
+}

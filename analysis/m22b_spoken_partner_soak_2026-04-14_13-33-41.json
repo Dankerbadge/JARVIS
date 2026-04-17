@@ -1,0 +1,671 @@
+{
+  "api_base": "http://127.0.0.1:8765",
+  "failures": [
+    "Give me your strategic read, not a checklist.::text:answer_source_not_model:error_fallback",
+    "Give me your strategic read, not a checklist.::text:retrieval_below_floor:0",
+    "Give me your strategic read, not a checklist.::text:partner_lane_not_used",
+    "Give me your strategic read, not a checklist.::voice:answer_source_not_model:error_fallback",
+    "Give me your strategic read, not a checklist.::voice:retrieval_below_floor:0",
+    "Give me your strategic read, not a checklist.::voice:partner_lane_not_used",
+    "Give me your best partner-level recommendation now.::text:retrieval_below_floor:0",
+    "Give me your best partner-level recommendation now.::text:partner_lane_not_used",
+    "Give me your best partner-level recommendation now.::voice:answer_source_not_model:error_fallback",
+    "Give me your best partner-level recommendation now.::voice:retrieval_below_floor:0",
+    "Give me your best partner-level recommendation now.::voice:partner_lane_not_used"
+  ],
+  "generated_at": "2026-04-14T17:53:57.269620+00:00",
+  "min_retrieval": 3,
+  "ok": false,
+  "records": [
+    {
+      "prompt": "What do you think?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Be straight with me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I\u2019m tracking two key priorities: preparing for your academic exam and monitoring a low-risk, high-confidence market opportunity with MSFT. The next step is to decide whether to lock in the exam preparation action or evaluate the market opportunity. Would you like me to proceed with the exam preparation checkpoint?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I\u2019m tracking two key priorities: preparing for your academic exam and monitoring a low-risk market opportunity with MSFT. The next step is to decide whether to lock in the exam preparation action or assess the market opportunity. Would you like me to prioritize one over the other?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Push back on me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Strategic read: tradeoff is fast movement versus preserving optionality. Why now: current state is time-sensitive. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Strategic read: tradeoff is fast movement versus preserving optionality. Why now: current state is time-sensitive. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What are you noticing?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Continue from earlier.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am tracking two key priorities: preparing for your academic exam and monitoring a low-risk, high-confidence market opportunity with MSFT. To proceed, should we lock in your next academic action and set a completion checkpoint for the exam?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am tracking two key priorities: preparing for your academic exam and monitoring a low-risk, high-confidence market opportunity with MSFT. To move forward, I recommend running a bounded risk check on the market opportunity and deciding within one cycle. Would you like me to proceed with that?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What's the real tradeoff here?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "The real tradeoff is between protecting your academic deadlines and pursuing a market opportunity with low downside risk. Both require focused action, but time is limited. Should we prioritize exam preparation or evaluate the market opportunity first?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "The real tradeoff is between protecting your academic deadlines and pursuing a market opportunity with low downside risk. Both require focused action, but your available time and energy are limited. Would you like to prioritize one domain for immediate action?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What am I probably missing right now?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "You're likely balancing academic deadlines with a market opportunity involving MSFT. The key tradeoff is between protecting your exam schedule and acting on the low-risk, high-confidence market chance. Would you like a recommendation on how to proceed?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "You're likely balancing academic deadlines with a market opportunity involving MSFT. The key tradeoff is between protecting your exam schedule and acting on the low-risk, high-confidence market chance. Would you like a recommendation on how to proceed?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Challenge my current plan.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Your current plan focuses heavily on academic deadlines, but it may be missing a high-confidence, low-downside market opportunity with MSFT. What is your threshold for shifting focus to capture this opportunity without compromising your exam preparation?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Your current plan focuses heavily on academic deadlines, but it may be missing a high-confidence, low-downside market opportunity with MSFT. What is your preferred approach for balancing exam preparation with this potential market move?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "If I am rationalizing, say it directly.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "You are rationalizing the need for direct communication. Next step: confirm the specific action or decision you wish to execute.\n\nQuestion for you: To mirror your reasoning correctly, when intuition and evidence conflict in this context, which should I weight first?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If useful, I can propose the best next move now. Would you like me to suggest one?\n\nQuestion for you: To mirror your reasoning correctly, when intuition and evidence conflict in this context, which should I weight first?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Where am I wasting time today?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "You're likely wasting time on low-impact tasks that don't align with your academic exam preparation or high-priority goals. Focus on eliminating distractions and prioritizing activities that directly support your exam schedule and long-term objectives. What specific task have you noticed taking up disproportionate time?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "You're currently balancing academic preparation for an upcoming exam with a market opportunity involving MSFT. Time spent on non-essential tasks may be reducing your focus on exam readiness. Would you like a specific plan to realign your time toward academic goals while keeping the market opportunity in view?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What is the highest-leverage move this hour?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "The highest-leverage move this hour is to lock the next academic action for `academic.exam_scheduled` and set a completion checkpoint, ensuring exam reliability while managing throughput. Markets present a `high_confidence_low_downside_opportunity` with MSFT as the live watch, but academic deadlines take priority. Should I proceed with the academic checkpoint now?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "The highest-leverage move this hour is to lock the next academic action for `academic.exam_scheduled` and set a completion checkpoint to ensure exam reliability. Simultaneously, I will run a bounded risk check on the market opportunity with MSFT to balance timing and risk. Should I proceed with both actions?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What should I stop doing immediately?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Discontinue any activity that diverts focus from your exam preparation, as it is your highest-leverage task right now. Prioritize aligning your actions with academic deadline protection. Are you currently engaged in any task that might be competing with exam preparation?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Discontinue any activity that diverts focus from preparing for your academic exam. Your highest-leverage task is protecting the academic deadline. What is your current commitment to this task?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What matters more: academics or markets today?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Live signals: academic exams are scheduled, and there's a high-confidence, low-downside market opportunity. Tradeoff: preparing for exams may limit time to capitalize on the market chance. Next move: allocate focused study time while monitoring the market opportunity for potential short-term trades.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Live signals: academic exams are scheduled, and there's a high-confidence, low-downside market opportunity. Tradeoff: preparing for exams may limit time to capitalize on the market chance. Next move: allocate focused study time while monitoring the market opportunity for potential short-term trades.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Give me your strategic read, not a checklist.",
+      "surfaces": {
+        "text": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If useful, I can propose the best next move now.",
+          "response_family": "error_fallback",
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss"
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If useful, I can propose the best next move now.",
+          "response_family": "error_fallback",
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss"
+        }
+      }
+    },
+    {
+      "prompt": "What tension are you tracking across my projects?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am tracking the tension between academic deadline protection and market opportunity timing. Specifically, I am monitoring your upcoming exam and a high-confidence, low-downside opportunity in MSFT. Would you like guidance on how to balance these priorities?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am tracking a tension between academic deadline protection, specifically for your upcoming exam, and a market opportunity involving MSFT. The tradeoff involves balancing immediate academic responsibilities with a potentially favorable market move. Should I prioritize preparing for the exam or explore the market opportunity?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What would you do if you were in my position?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "If I were in your position, I would prioritize securing your academic exam schedule while keeping a watch on the MSFT opportunity. The key tradeoff is balancing immediate academic reliability with potential market gains. Would you like me to run a bounded risk check on the market opportunity now?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "If I were in your position, I would prioritize securing your academic exam schedule while keeping a watch on the MSFT opportunity. The key tradeoff is balancing exam preparation with potential market gains. Would you like me to run a bounded risk check on the market opportunity now?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What is the riskiest assumption in my plan?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "The riskiest assumption in your plan is that academic.exam_scheduled can be managed without impacting your ability to seize the high_confidence_low_downside_opportunity in markets, particularly with MSFT. This assumes a balance between academic deadlines and market timing that may not hold if priorities shift. Are you prepared to adjust if the market opportunity requires immediate attention?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "The riskiest assumption in your plan is that academic.exam_scheduled can be managed without impacting your ability to seize the high_confidence_low_downside_opportunity in markets, particularly with MSFT. This assumes a balance between academic deadlines and market timing that may not hold if priorities shift. Should we evaluate the bounded risk check now?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What are two concrete options and their tradeoff?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Two concrete options are: 1) Prioritize exam preparation by locking the next academic action and setting a completion checkpoint, which ensures reliability for deadlines but may slow market opportunity response. 2) Allocate time to evaluate the high_confidence_low_downside_opportunity in markets, which could yield gains but risks delaying exam readiness. What would you like to prioritize first",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Two concrete options are: 1) Prioritize exam preparation by locking the next academic action and setting a completion checkpoint, which ensures reliability for deadlines but may slow market opportunity response. 2) Allocate time to evaluate the high_confidence_low_downside_opportunity in markets, which could yield gains but risks delaying exam readiness. The tradeoff is between academic deadline",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Where should you push back on me right now?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Strategic read: tradeoff is fast movement versus preserving optionality. Why now: current state is time-sensitive. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What is the real cost if I delay this decision?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "The real cost of delaying this decision is likely increased risk, missed opportunities, and potential escalation of complexity. The next step is to assess the immediate consequences of inaction and prioritize the most critical leverage points. Would you like me to run a fresh cross-domain scan to identify the highest-leverage next move?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Delaying this decision could risk missing an academic deadline tied to your exam, which may impact your performance and long-term goals. The tradeoff involves balancing immediate academic responsibilities against a potential market opportunity. Would you like me to evaluate the timing of the market opportunity in relation to your exam schedule?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Tell me the uncomfortable truth I need to hear.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "The uncomfortable truth is that delaying exam preparation risks compromising your academic performance, which could impact your long-term goals. You're currently prioritizing market opportunities, but this may come at the cost of missed deadlines. Are you prepared to lock in your next academic action now?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "You need to prioritize exam preparation immediately, as delaying could jeopardize your academic success. Market opportunities, while tempting, carry risks that may not align with your current focus. What is your plan for balancing these priorities?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "How should we prioritize betting bot, ML, and JARVIS this week?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Given the critical academic exam risks and the high-confidence market opportunity, I recommend focusing on academic preparation first, as it has a higher immediate impact on your priorities. However, I will run a bounded risk check on the market opportunity to assess its potential. Should I proceed?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Given the academic exam deadlines and the market opportunity on the table, I recommend focusing on stabilizing academic performance first, as it carries a higher immediate risk. For betting bot and ML, defer non-critical tasks until after the exams, but keep the market opportunity under watch. Should I proceed with a bounded risk check on the market opportunity now?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "If we choose speed, what quality risk do we accept?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Choosing speed increases the risk of reduced accuracy in academic preparation, potentially impacting performance on the upcoming exam. The tradeoff involves prioritizing timely action over thoroughness. Would you like to evaluate the bounded risk check for the market opportunity?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Choosing speed increases the risk of reduced accuracy in academic preparation, potentially impacting performance on the upcoming exam. The tradeoff involves prioritizing timely action over thoroughness. Would you like to proceed with a bounded risk check on the market opportunity?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Give me your best partner-level recommendation now.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "Prioritize the highest-leverage action based on current data and goals. Initiate the recommended task immediately.",
+          "response_family": "model_general",
+          "retrieval_selected_count": 0,
+          "route_reason": "model"
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If useful, I can propose the best next move now.",
+          "response_family": "error_fallback",
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss"
+        }
+      }
+    }
+  ],
+  "require_model_answer": true,
+  "turn_count": 24
+}

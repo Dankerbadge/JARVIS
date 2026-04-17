@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-04-13T13:30:27.562330Z",
+  "profile_name": "daily_dialogue_frozen_2026-04-13",
+  "decision": "keep_14b_primary",
+  "reason": "30b quality delta small vs major latency regression on local hardware",
+  "stack": {
+    "backend": "ollama",
+    "primary_model": "qwen3:14b",
+    "deep_model_optional": "qwen3:30b",
+    "presence_model_first": true,
+    "presence_model_timeout_seconds": 20,
+    "embed_rerank_enabled": true,
+    "embed_model": "mxbai-embed-large",
+    "flag_rerank_enabled": true,
+    "flag_rerank_model": "BAAI/bge-reranker-v2-m3",
+    "retrieve_limit": 8,
+    "retrieve_candidate_limit": 32,
+    "embed_blend_weight": 0.3,
+    "flag_blend_weight": 0.4,
+    "min_score": 0.0
+  },
+  "source_trial": "analysis/m20b_dialogue_model_trial_2026-04-13_production-profile.json"
+}

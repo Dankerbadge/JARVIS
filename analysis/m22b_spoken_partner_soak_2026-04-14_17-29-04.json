@@ -1,0 +1,319 @@
+{
+  "api_base": "http://127.0.0.1:8765",
+  "failures": [
+    "What do you think?::text:contract_gate_failed",
+    "What do you think?::voice:contract_gate_failed",
+    "Be straight with me.::text:answer_source_not_model:limited_state_context",
+    "Be straight with me.::text:retrieval_below_floor:0",
+    "Be straight with me.::text:contract_gate_failed",
+    "Be straight with me.::text:identity_capsule_missing",
+    "Be straight with me.::text:partner_context_mix_missing",
+    "Be straight with me.::text:missing_bucket:live_state",
+    "Be straight with me.::text:missing_bucket:thread_memory",
+    "Be straight with me.::text:missing_bucket:identity_long_horizon",
+    "Be straight with me.::text:response_family_invalid:partner_limited_context",
+    "Be straight with me.::voice:answer_source_not_model:limited_state_context",
+    "Be straight with me.::voice:retrieval_below_floor:0",
+    "Be straight with me.::voice:contract_gate_failed",
+    "Be straight with me.::voice:identity_capsule_missing",
+    "Be straight with me.::voice:partner_context_mix_missing",
+    "Be straight with me.::voice:missing_bucket:live_state",
+    "Be straight with me.::voice:missing_bucket:thread_memory",
+    "Be straight with me.::voice:missing_bucket:identity_long_horizon",
+    "Be straight with me.::voice:response_family_invalid:partner_limited_context",
+    "What are you noticing?::text:contract_gate_failed",
+    "What are you noticing?::voice:contract_gate_failed",
+    "Continue from earlier.::text:answer_source_not_model:limited_state_context",
+    "Continue from earlier.::text:retrieval_below_floor:0",
+    "Continue from earlier.::text:contract_gate_failed",
+    "Continue from earlier.::text:identity_capsule_missing",
+    "Continue from earlier.::text:partner_context_mix_missing",
+    "Continue from earlier.::text:missing_bucket:live_state",
+    "Continue from earlier.::text:missing_bucket:thread_memory",
+    "Continue from earlier.::text:missing_bucket:identity_long_horizon",
+    "Continue from earlier.::text:response_family_invalid:partner_limited_context",
+    "Continue from earlier.::voice:answer_source_not_model:limited_state_context",
+    "Continue from earlier.::voice:retrieval_below_floor:0",
+    "Continue from earlier.::voice:contract_gate_failed",
+    "Continue from earlier.::voice:identity_capsule_missing",
+    "Continue from earlier.::voice:partner_context_mix_missing",
+    "Continue from earlier.::voice:missing_bucket:live_state",
+    "Continue from earlier.::voice:missing_bucket:thread_memory",
+    "Continue from earlier.::voice:missing_bucket:identity_long_horizon",
+    "Continue from earlier.::voice:response_family_invalid:partner_limited_context"
+  ],
+  "generated_at": "2026-04-14T21:34:43.340823+00:00",
+  "max_signature_reuse": 4,
+  "min_retrieval": 5,
+  "ok": false,
+  "records": [
+    {
+      "prompt": "What do you think?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": false,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": false,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Be straight with me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "limited_state_context",
+          "contract_gate_passed": false,
+          "identity_capsule_hash": null,
+          "identity_capsule_used": false,
+          "partner_context_mix_ok": false,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "I am operating from limited state context right now. I am with you. Reply generation exceeded budget; continuing with the next best step.",
+          "response_family": "partner_limited_context",
+          "retrieval_bucket_counts": {},
+          "retrieval_selected_count": 0,
+          "route_reason": "partner_context_required",
+          "semantic_signature": "subfamily:truth|no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "limited_state_context",
+          "contract_gate_passed": false,
+          "identity_capsule_hash": null,
+          "identity_capsule_used": false,
+          "partner_context_mix_ok": false,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "I am operating from limited state context right now. I am with you. Reply generation exceeded budget; continuing with the next best step.",
+          "response_family": "partner_limited_context",
+          "retrieval_bucket_counts": {},
+          "retrieval_selected_count": 0,
+          "route_reason": "partner_context_required",
+          "semantic_signature": "subfamily:truth|no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Push back on me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What are you noticing?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": false,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": false,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Continue from earlier.",
+      "surfaces": {
+        "text": {
+          "answer_source": "limited_state_context",
+          "contract_gate_passed": false,
+          "identity_capsule_hash": null,
+          "identity_capsule_used": false,
+          "partner_context_mix_ok": false,
+          "partner_lane_used": true,
+          "partner_subfamily": "identity",
+          "reply_text": "I am operating from limited state context right now. I am with you. Reply generation exceeded budget; continuing with the next best step.",
+          "response_family": "partner_limited_context",
+          "retrieval_bucket_counts": {},
+          "retrieval_selected_count": 0,
+          "route_reason": "partner_context_required",
+          "semantic_signature": "subfamily:identity|no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "limited_state_context",
+          "contract_gate_passed": false,
+          "identity_capsule_hash": null,
+          "identity_capsule_used": false,
+          "partner_context_mix_ok": false,
+          "partner_lane_used": true,
+          "partner_subfamily": "identity",
+          "reply_text": "I am operating from limited state context right now. I am with you. Reply generation exceeded budget; continuing with the next best step.",
+          "response_family": "partner_limited_context",
+          "retrieval_bucket_counts": {},
+          "retrieval_selected_count": 0,
+          "route_reason": "partner_context_required",
+          "semantic_signature": "subfamily:identity|no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What's the real tradeoff here?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The tradeoff is between preparing for an upcoming exam and capitalizing on a low-risk market opportunity. Next step: Prioritize task allocation based on urgency and potential impact.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:tradeoff|tradeoff|next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The tradeoff involves balancing academic commitments with market opportunities. Next step: Prioritize tasks based on deadlines and opportunity timelines.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:tradeoff|tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    }
+  ],
+  "require_model_answer": true,
+  "signature_usage": {
+    "text": {
+      "subfamily:identity|no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement": 1,
+      "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement": 1,
+      "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement": 2,
+      "subfamily:tradeoff|tradeoff|next_move|pushback|no_uncertainty|statement": 1,
+      "subfamily:truth|no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement": 1
+    },
+    "voice": {
+      "subfamily:identity|no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement": 1,
+      "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement": 1,
+      "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement": 2,
+      "subfamily:tradeoff|tradeoff|next_move|no_pushback|no_uncertainty|statement": 1,
+      "subfamily:truth|no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement": 1
+    }
+  },
+  "turn_count": 6
+}

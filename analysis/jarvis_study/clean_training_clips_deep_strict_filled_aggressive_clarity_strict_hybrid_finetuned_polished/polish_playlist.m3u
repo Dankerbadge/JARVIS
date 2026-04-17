@@ -1,0 +1,67 @@
+#EXTM3U
+#EXTINF:-1,JARVIS_1 start=0.000s sel=input dScore=-0.112 dClr=+0.038
+jarvis_1_001_0000000_0006000.wav
+#EXTINF:-1,JARVIS_1 start=12.000s sel=polished dScore=+0.885 dClr=+0.090
+jarvis_1_002_0012000_0018000.wav
+#EXTINF:-1,JARVIS_1 start=21.000s sel=polished dScore=+1.245 dClr=+0.598
+jarvis_1_003_0021000_0027000.wav
+#EXTINF:-1,JARVIS_1 start=39.000s sel=polished dScore=+0.286 dClr=-0.078
+jarvis_1_005_0039000_0045000.wav
+#EXTINF:-1,JARVIS_1 start=48.000s sel=polished dScore=+0.046 dClr=-0.182
+jarvis_1_006_0048000_0054000.wav
+#EXTINF:-1,JARVIS_1 start=90.000s sel=polished dScore=+0.850 dClr=+0.179
+jarvis_1_010_0090000_0096000.wav
+#EXTINF:-1,JARVIS_1 start=114.000s sel=input dScore=-0.018 dClr=-0.025
+jarvis_1_012_0114000_0120000.wav
+#EXTINF:-1,JARVIS_1 start=129.000s sel=input dScore=-0.050 dClr=-0.007
+jarvis_1_013_0129000_0135000.wav
+#EXTINF:-1,JARVIS_1 start=138.000s sel=polished dScore=+0.397 dClr=+0.255
+jarvis_1_014_0138000_0144000.wav
+#EXTINF:-1,JARVIS_1 start=147.000s sel=polished dScore=+0.959 dClr=-0.235
+jarvis_1_015_0147000_0153000.wav
+#EXTINF:-1,JARVIS_1 start=156.000s sel=polished dScore=+0.200 dClr=-0.204
+jarvis_1_016_0156000_0162000.wav
+#EXTINF:-1,JARVIS_1 start=168.000s sel=input dScore=+0.683 dClr=-0.344
+jarvis_1_017_0168000_0174000.wav
+#EXTINF:-1,JARVIS_1 start=177.000s sel=input dScore=-0.170 dClr=-0.038
+jarvis_1_018_0177000_0183000.wav
+#EXTINF:-1,JARVIS_1 start=198.000s sel=polished dScore=+0.762 dClr=+0.208
+jarvis_1_020_0198000_0204000.wav
+#EXTINF:-1,JARVIS_1 start=207.000s sel=polished dScore=+0.778 dClr=+0.014
+jarvis_1_021_0207000_0213000.wav
+#EXTINF:-1,JARVIS_1 start=231.000s sel=input dScore=-0.358 dClr=+0.068
+jarvis_1_023_0231000_0237000.wav
+#EXTINF:-1,JARVIS_1 start=243.000s sel=polished dScore=+0.024 dClr=+0.136
+jarvis_1_024_0243000_0249000.wav
+#EXTINF:-1,JARVIS_1 start=255.000s sel=polished dScore=+0.525 dClr=+0.236
+jarvis_1_025_0255000_0261000.wav
+#EXTINF:-1,JARVIS_1 start=264.000s sel=polished dScore=+0.639 dClr=+0.137
+jarvis_1_026_0264000_0270000.wav
+#EXTINF:-1,JARVIS_1 start=288.000s sel=polished dScore=+0.632 dClr=+0.212
+jarvis_1_028_0288000_0294000.wav
+#EXTINF:-1,JARVIS_1 start=297.000s sel=polished dScore=+0.734 dClr=+0.179
+jarvis_1_029_0297000_0303000.wav
+#EXTINF:-1,JARVIS_1 start=306.000s sel=polished dScore=+0.552 dClr=+0.088
+jarvis_1_030_0306000_0312000.wav
+#EXTINF:-1,JARVIS_1 start=330.000s sel=polished dScore=+0.856 dClr=+0.114
+jarvis_1_032_0330000_0336000.wav
+#EXTINF:-1,JARVIS_1 start=342.000s sel=input dScore=-0.076 dClr=-0.183
+jarvis_1_033_0342000_0348000.wav
+#EXTINF:-1,JARVIS_1 start=351.000s sel=input dScore=-0.019 dClr=-0.161
+jarvis_1_034_0351000_0357000.wav
+#EXTINF:-1,JARVIS_1 start=363.000s sel=polished dScore=+0.021 dClr=+0.107
+jarvis_1_035_0363000_0369000.wav
+#EXTINF:-1,JARVIS_1 start=396.000s sel=polished dScore=+0.384 dClr=+0.071
+jarvis_1_038_0396000_0402000.wav
+#EXTINF:-1,JARVIS_1 start=408.000s sel=polished dScore=+1.118 dClr=+0.315
+jarvis_1_039_0408000_0414000.wav
+#EXTINF:-1,JARVIS_1 start=420.000s sel=input dScore=+2.012 dClr=+0.134
+jarvis_1_040_0420000_0426000.wav
+#EXTINF:-1,JARVIS_1 start=441.000s sel=polished dScore=+0.722 dClr=-0.274
+jarvis_1_042_0441000_0447000.wav
+#EXTINF:-1,JARVIS_1 start=450.000s sel=polished dScore=+0.716 dClr=-0.025
+jarvis_1_043_0450000_0456000.wav
+#EXTINF:-1,JARVIS_1 start=462.000s sel=input dScore=+0.237 dClr=+0.090
+jarvis_1_044_0462000_0468000.wav
+#EXTINF:-1,JARVIS_II start=6.000s sel=polished dScore=+0.132 dClr=+0.083
+jarvis_ii_001_0006000_0012000.wav

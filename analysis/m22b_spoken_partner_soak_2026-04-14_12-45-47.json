@@ -1,0 +1,369 @@
+{
+  "api_base": "http://127.0.0.1:8765",
+  "failures": [
+    "What am I probably missing right now?::text:answer_source_not_model:error_fallback",
+    "What am I probably missing right now?::text:retrieval_below_floor:0",
+    "What am I probably missing right now?::text:partner_lane_not_used",
+    "What am I probably missing right now?::voice:answer_source_not_model:error_fallback",
+    "What am I probably missing right now?::voice:retrieval_below_floor:0",
+    "What am I probably missing right now?::voice:partner_lane_not_used",
+    "Challenge my current plan.::text:retrieval_below_floor:0",
+    "Challenge my current plan.::text:partner_lane_not_used",
+    "Challenge my current plan.::voice:answer_source_not_model:error_fallback",
+    "Challenge my current plan.::voice:retrieval_below_floor:0",
+    "Challenge my current plan.::voice:partner_lane_not_used",
+    "If I am rationalizing, say it directly.::text:answer_source_not_model:error_fallback",
+    "If I am rationalizing, say it directly.::text:retrieval_below_floor:0",
+    "If I am rationalizing, say it directly.::text:partner_lane_not_used",
+    "If I am rationalizing, say it directly.::voice:answer_source_not_model:error_fallback",
+    "If I am rationalizing, say it directly.::voice:retrieval_below_floor:0",
+    "If I am rationalizing, say it directly.::voice:partner_lane_not_used",
+    "Where am I wasting time today?::text:retrieval_below_floor:0",
+    "Where am I wasting time today?::text:partner_lane_not_used",
+    "Where am I wasting time today?::voice:answer_source_not_model:error_fallback",
+    "Where am I wasting time today?::voice:retrieval_below_floor:0",
+    "Where am I wasting time today?::voice:partner_lane_not_used",
+    "What is the highest-leverage move this hour?::text:answer_source_not_model:error_fallback",
+    "What is the highest-leverage move this hour?::text:retrieval_below_floor:0",
+    "What is the highest-leverage move this hour?::text:partner_lane_not_used",
+    "What is the highest-leverage move this hour?::voice:answer_source_not_model:error_fallback",
+    "What is the highest-leverage move this hour?::voice:retrieval_below_floor:0",
+    "What is the highest-leverage move this hour?::voice:partner_lane_not_used",
+    "What should I stop doing immediately?::text:retrieval_below_floor:0",
+    "What should I stop doing immediately?::text:partner_lane_not_used",
+    "What should I stop doing immediately?::voice:answer_source_not_model:error_fallback",
+    "What should I stop doing immediately?::voice:retrieval_below_floor:0",
+    "What should I stop doing immediately?::voice:partner_lane_not_used"
+  ],
+  "generated_at": "2026-04-14T16:53:29.229105+00:00",
+  "min_retrieval": 3,
+  "ok": false,
+  "records": [
+    {
+      "prompt": "What do you think?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Be straight with me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I\u2019m tracking two key priorities: preparing for your academic exam and monitoring a low-risk, high-confidence market opportunity with MSFT. The next step is to decide whether to lock in the exam preparation action or evaluate the market opportunity. Would you like me to proceed with the exam preparation checkpoint?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I\u2019m tracking two key priorities: preparing for your academic exam and monitoring a low-risk market opportunity with MSFT. The next step is to decide whether to lock in the exam preparation action or assess the market opportunity. Would you like me to prioritize one over the other?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Push back on me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Strategic read: tradeoff is fast movement versus preserving optionality. Why now: current state is time-sensitive. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Strategic read: tradeoff is fast movement versus preserving optionality. Why now: current state is time-sensitive. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What are you noticing?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "Continue from earlier.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am tracking two key priorities: preparing for your academic exam and monitoring a low-risk, high-confidence market opportunity with MSFT. To proceed, should we lock in your next academic action and set a completion checkpoint for the exam?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am tracking two key priorities: preparing for your academic exam and monitoring a low-risk, high-confidence market opportunity with MSFT. To move forward, I recommend running a bounded risk check on the market opportunity and deciding within one cycle. Would you like me to proceed with that?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What's the real tradeoff here?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "The real tradeoff is between protecting your academic deadlines and pursuing a market opportunity with low downside risk. Both require focused action, but time is limited. Should we prioritize exam preparation or evaluate the market opportunity first?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "The real tradeoff is between protecting your academic deadlines and pursuing a market opportunity with low downside risk. Both require focused action, but your available time and energy are limited. Would you like to prioritize one domain for immediate action?",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 3,
+          "route_reason": "partner_model"
+        }
+      }
+    },
+    {
+      "prompt": "What am I probably missing right now?",
+      "surfaces": {
+        "text": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If you want, I will give you my best next move.",
+          "response_family": "error_fallback",
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss"
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If you want, I will give you my best next move.",
+          "response_family": "error_fallback",
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss"
+        }
+      }
+    },
+    {
+      "prompt": "Challenge my current plan.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "Analyze your current plan's alignment with your long-term goals and identify the most impactful adjustment. Next step: Evaluate the feasibility of accelerating your highest-leverage action.",
+          "response_family": "model_general",
+          "retrieval_selected_count": 0,
+          "route_reason": "model"
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If useful, I can propose the best next move now.",
+          "response_family": "error_fallback",
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss"
+        }
+      }
+    },
+    {
+      "prompt": "If I am rationalizing, say it directly.",
+      "surfaces": {
+        "text": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If useful, I can propose the best next move now.\n\nQuestion for you: To mirror your reasoning correctly, when intuition and evidence conflict in this context, which should I weight first?",
+          "response_family": "error_fallback",
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss"
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If useful, I can propose the best next move now.\n\nQuestion for you: To mirror your reasoning correctly, when intuition and evidence conflict in this context, which should I weight first?",
+          "response_family": "error_fallback",
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss"
+        }
+      }
+    },
+    {
+      "prompt": "Where am I wasting time today?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "Review your task list and identify the activity with the lowest impact relative to the time invested. Start by eliminating or delegating that task.",
+          "response_family": "model_general",
+          "retrieval_selected_count": 0,
+          "route_reason": "model"
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If you want, I will give you my best next move.",
+          "response_family": "error_fallback",
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss"
+        }
+      }
+    },
+    {
+      "prompt": "What is the highest-leverage move this hour?",
+      "surfaces": {
+        "text": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If you want, I will give you my best next move.",
+          "response_family": "error_fallback",
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss"
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If you want, I will give you my best next move.",
+          "response_family": "error_fallback",
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss"
+        }
+      }
+    },
+    {
+      "prompt": "What should I stop doing immediately?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "Discontinue any activity that diverts focus from your highest-leverage task. Prioritize aligning actions with your most impactful goal.",
+          "response_family": "model_general",
+          "retrieval_selected_count": 0,
+          "route_reason": "model"
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": false,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If you want, I will give you my best next move.",
+          "response_family": "error_fallback",
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss"
+        }
+      }
+    }
+  ],
+  "require_model_answer": true,
+  "turn_count": 12
+}

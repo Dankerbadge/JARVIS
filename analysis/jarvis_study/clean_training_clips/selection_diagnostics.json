@@ -1,0 +1,98 @@
+{
+  "window_sec": 6.0,
+  "hop_sec": 3.0,
+  "min_gap_sec": 0.12,
+  "target_rms_dbfs": -23.0,
+  "peak_ceiling_dbfs": -1.0,
+  "fade_ms": 12.0,
+  "sources": {
+    "JARVIS_1": {
+      "config": {
+        "path": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/JARVIS_1.wav",
+        "score_min": 99.0,
+        "silence_max": 10.0,
+        "hf_ratio_max": 0.58,
+        "max_count": 60,
+        "min_count": 40,
+        "avoid_first_n_sec": 0.0
+      },
+      "window_count": 159,
+      "selection": {
+        "target_max": 60.0,
+        "target_min": 40.0,
+        "selected": 45.0,
+        "met_min_target": 1.0
+      },
+      "relaxation_passes": [
+        {
+          "pass": 1,
+          "score_min": 99.0,
+          "silence_max": 10.0,
+          "hf_ratio_max": 0.58
+        },
+        {
+          "pass": 2,
+          "score_min": 97.0,
+          "silence_max": 11.5,
+          "hf_ratio_max": 0.61
+        },
+        {
+          "pass": 3,
+          "score_min": 95.0,
+          "silence_max": 13.0,
+          "hf_ratio_max": 0.6399999999999999
+        },
+        {
+          "pass": 4,
+          "score_min": 92.0,
+          "silence_max": 14.5,
+          "hf_ratio_max": 0.6799999999999999
+        }
+      ]
+    },
+    "JARVIS_II": {
+      "config": {
+        "path": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/JARVIS_II.wav",
+        "score_min": 96.0,
+        "silence_max": 9.0,
+        "hf_ratio_max": 0.58,
+        "max_count": 2,
+        "min_count": 1,
+        "avoid_first_n_sec": 3.0
+      },
+      "window_count": 4,
+      "selection": {
+        "target_max": 2.0,
+        "target_min": 1.0,
+        "selected": 1.0,
+        "met_min_target": 1.0
+      },
+      "relaxation_passes": [
+        {
+          "pass": 1,
+          "score_min": 96.0,
+          "silence_max": 9.0,
+          "hf_ratio_max": 0.58
+        },
+        {
+          "pass": 2,
+          "score_min": 94.0,
+          "silence_max": 10.5,
+          "hf_ratio_max": 0.61
+        },
+        {
+          "pass": 3,
+          "score_min": 92.0,
+          "silence_max": 12.0,
+          "hf_ratio_max": 0.6399999999999999
+        },
+        {
+          "pass": 4,
+          "score_min": 89.0,
+          "silence_max": 13.5,
+          "hf_ratio_max": 0.6799999999999999
+        }
+      ]
+    }
+  }
+}

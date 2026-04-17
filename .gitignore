@@ -1,0 +1,29 @@
+# Runtime state and local execution artifacts
+.jarvis/
+.jarvis_demo_repo/
+.jarvis_target_repo/
+.venv-voice/
+tmp/
+output/
+worktrees/
+archive/
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Local packaged artifacts
+*.zip
+*.manifest.json
+*.scan_report.json
+
+# Local machine / secrets
+.DS_Store
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12

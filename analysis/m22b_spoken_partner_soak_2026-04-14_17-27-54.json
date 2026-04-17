@@ -1,0 +1,161 @@
+{
+  "api_base": "http://127.0.0.1:8765",
+  "failures": [
+    "What do you think?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What do you think?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Be straight with me.::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Be straight with me.::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Push back on me.::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Push back on me.::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What are you noticing?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What are you noticing?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Continue from earlier.::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Continue from earlier.::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What's the real tradeoff here?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What's the real tradeoff here?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What am I probably missing right now?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What am I probably missing right now?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Challenge my current plan.::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Challenge my current plan.::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "If I am rationalizing, say it directly.::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "If I am rationalizing, say it directly.::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Where am I wasting time today?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Where am I wasting time today?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What is the highest-leverage move this hour?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What is the highest-leverage move this hour?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What should I stop doing immediately?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What should I stop doing immediately?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What matters more: academics or markets today?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What matters more: academics or markets today?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Give me your strategic read, not a checklist.::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Give me your strategic read, not a checklist.::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What tension are you tracking across my projects?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What tension are you tracking across my projects?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What would you do if you were in my position?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What would you do if you were in my position?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What is the riskiest assumption in my plan?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What is the riskiest assumption in my plan?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What are two concrete options and their tradeoff?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What are two concrete options and their tradeoff?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Where should you push back on me right now?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Where should you push back on me right now?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What is the real cost if I delay this decision?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "What is the real cost if I delay this decision?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Tell me the uncomfortable truth I need to hear.::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Tell me the uncomfortable truth I need to hear.::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "How should we prioritize betting bot, ML, and JARVIS this week?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "How should we prioritize betting bot, ML, and JARVIS this week?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "If we choose speed, what quality risk do we accept?::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "If we choose speed, what quality risk do we accept?::voice:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Give me your best partner-level recommendation now.::text:request_error:<urlopen error [Errno 61] Connection refused>",
+    "Give me your best partner-level recommendation now.::voice:request_error:<urlopen error [Errno 61] Connection refused>"
+  ],
+  "generated_at": "2026-04-14T21:27:54.187411+00:00",
+  "max_signature_reuse": 4,
+  "min_retrieval": 5,
+  "ok": false,
+  "records": [
+    {
+      "prompt": "What do you think?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "Be straight with me.",
+      "surfaces": {}
+    },
+    {
+      "prompt": "Push back on me.",
+      "surfaces": {}
+    },
+    {
+      "prompt": "What are you noticing?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "Continue from earlier.",
+      "surfaces": {}
+    },
+    {
+      "prompt": "What's the real tradeoff here?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "What am I probably missing right now?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "Challenge my current plan.",
+      "surfaces": {}
+    },
+    {
+      "prompt": "If I am rationalizing, say it directly.",
+      "surfaces": {}
+    },
+    {
+      "prompt": "Where am I wasting time today?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "What is the highest-leverage move this hour?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "What should I stop doing immediately?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "What matters more: academics or markets today?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "Give me your strategic read, not a checklist.",
+      "surfaces": {}
+    },
+    {
+      "prompt": "What tension are you tracking across my projects?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "What would you do if you were in my position?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "What is the riskiest assumption in my plan?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "What are two concrete options and their tradeoff?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "Where should you push back on me right now?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "What is the real cost if I delay this decision?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "Tell me the uncomfortable truth I need to hear.",
+      "surfaces": {}
+    },
+    {
+      "prompt": "How should we prioritize betting bot, ML, and JARVIS this week?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "If we choose speed, what quality risk do we accept?",
+      "surfaces": {}
+    },
+    {
+      "prompt": "Give me your best partner-level recommendation now.",
+      "surfaces": {}
+    }
+  ],
+  "require_model_answer": true,
+  "signature_usage": {
+    "text": {},
+    "voice": {}
+  },
+  "turn_count": 24
+}

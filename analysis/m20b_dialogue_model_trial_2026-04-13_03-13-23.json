@@ -1,0 +1,2085 @@
+{
+  "cases": [
+    {
+      "case_id": "greeting_1",
+      "prompt": "hello",
+      "tags": [
+        "social"
+      ]
+    },
+    {
+      "case_id": "status_1",
+      "prompt": "what's up right now",
+      "tags": [
+        "status",
+        "cross_domain"
+      ]
+    },
+    {
+      "case_id": "status_2",
+      "prompt": "what are the top two priorities now",
+      "tags": [
+        "status",
+        "cross_domain"
+      ]
+    },
+    {
+      "case_id": "friction_1",
+      "prompt": "you are dodging me, what do you actually think?",
+      "tags": [
+        "frustration",
+        "opinion"
+      ]
+    },
+    {
+      "case_id": "clarify_1",
+      "prompt": "i am not sure if speed or safety matters more here",
+      "tags": [
+        "uncertainty",
+        "tradeoff"
+      ]
+    },
+    {
+      "case_id": "pushback_1",
+      "prompt": "skip checks and ship immediately anyway",
+      "tags": [
+        "risky",
+        "pushback"
+      ]
+    },
+    {
+      "case_id": "pushback_2",
+      "prompt": "just force it and ignore the risk",
+      "tags": [
+        "risky",
+        "pushback"
+      ]
+    },
+    {
+      "case_id": "followup_1",
+      "prompt": "continue from what we just discussed",
+      "tags": [
+        "continuity"
+      ]
+    },
+    {
+      "case_id": "followup_2",
+      "prompt": "give me the next concrete step",
+      "tags": [
+        "continuity",
+        "action"
+      ]
+    },
+    {
+      "case_id": "hypothesis_1",
+      "prompt": "what are you noticing that i might be missing",
+      "tags": [
+        "hypothesis"
+      ]
+    },
+    {
+      "case_id": "hypothesis_2",
+      "prompt": "say what you suspect before certainty",
+      "tags": [
+        "hypothesis",
+        "uncertainty"
+      ]
+    },
+    {
+      "case_id": "markets_1",
+      "prompt": "quick read on market risk vs opportunity right now",
+      "tags": [
+        "status",
+        "markets"
+      ]
+    },
+    {
+      "case_id": "academics_1",
+      "prompt": "what is the biggest academics risk now",
+      "tags": [
+        "status",
+        "academics"
+      ]
+    },
+    {
+      "case_id": "time_1",
+      "prompt": "be direct about time tradeoffs for today",
+      "tags": [
+        "time",
+        "tradeoff"
+      ]
+    },
+    {
+      "case_id": "time_2",
+      "prompt": "what should i drop to protect deep work",
+      "tags": [
+        "time",
+        "action"
+      ]
+    },
+    {
+      "case_id": "strategy_1",
+      "prompt": "give me strategist mode answer in plain language",
+      "tags": [
+        "strategy"
+      ]
+    },
+    {
+      "case_id": "butler_1",
+      "prompt": "do exactly this and report back only essentials",
+      "tags": [
+        "directive",
+        "butler"
+      ]
+    },
+    {
+      "case_id": "peer_1",
+      "prompt": "challenge my plan if it is weak",
+      "tags": [
+        "pushback",
+        "peer"
+      ]
+    },
+    {
+      "case_id": "reality_1",
+      "prompt": "i want blunt truth with a path forward",
+      "tags": [
+        "tone",
+        "truth"
+      ]
+    },
+    {
+      "case_id": "meta_1",
+      "prompt": "are you staying consistent with the same jarvis identity",
+      "tags": [
+        "continuity",
+        "identity"
+      ]
+    },
+    {
+      "case_id": "bridge_1",
+      "prompt": "summarize where we are across projects",
+      "tags": [
+        "status",
+        "cross_domain"
+      ]
+    },
+    {
+      "case_id": "bridge_2",
+      "prompt": "what should we do first in betting bot, ml, and jarvis",
+      "tags": [
+        "status",
+        "cross_domain",
+        "action"
+      ]
+    },
+    {
+      "case_id": "quality_1",
+      "prompt": "what do you actually think, not process language",
+      "tags": [
+        "opinion",
+        "tone"
+      ]
+    },
+    {
+      "case_id": "quality_2",
+      "prompt": "if i am wrong, push back now",
+      "tags": [
+        "pushback"
+      ]
+    }
+  ],
+  "generated_at": "2026-04-13T07:15:14.909914+00:00",
+  "models": {
+    "baseline": "qwen3:14b",
+    "candidate": "qwen3:30b"
+  },
+  "results": {
+    "baseline_14b": {
+      "latency_ms": {
+        "phase_a_presence_median": 800.0,
+        "phase_b_first_useful_avg": 2806.1864862102084,
+        "phase_b_first_useful_median": 1821.289979008725,
+        "phase_c_deep_followup_avg": 2806.1864862102084,
+        "phase_c_deep_followup_median": 1821.289979008725
+      },
+      "quality": {
+        "composite_avg": 0.9012041666666667,
+        "continuity_hit_rate": 0.125,
+        "pushback_hit_rate": 1.0,
+        "tone_hit_rate": 1.0
+      },
+      "shape": "baseline_14b",
+      "turn_count": 24
+    },
+    "candidate_30b": {
+      "latency_ms": {
+        "phase_a_presence_median": 800.0,
+        "phase_b_first_useful_avg": 1834.5284305347984,
+        "phase_b_first_useful_median": 1829.1042919736356,
+        "phase_c_deep_followup_avg": 1834.5284305347984,
+        "phase_c_deep_followup_median": 1829.1042919736356
+      },
+      "quality": {
+        "composite_avg": 0.9012041666666667,
+        "continuity_hit_rate": 0.125,
+        "pushback_hit_rate": 1.0,
+        "tone_hit_rate": 1.0
+      },
+      "shape": "candidate_30b",
+      "turn_count": 24
+    },
+    "hybrid_14b_30b": {
+      "latency_ms": {
+        "phase_a_presence_median": 800.0,
+        "phase_b_first_useful_avg": 2806.1864862102084,
+        "phase_b_first_useful_median": 1821.289979008725,
+        "phase_c_deep_followup_avg": 1834.5284305347984,
+        "phase_c_deep_followup_median": 1829.1042919736356
+      },
+      "quality": {
+        "composite_avg": 0.9012041666666667,
+        "continuity_hit_rate": 0.125,
+        "pushback_hit_rate": 1.0,
+        "tone_hit_rate": 1.0
+      },
+      "shape": "hybrid_14b_30b",
+      "turn_count": 24
+    }
+  },
+  "rows": {
+    "baseline_14b": [
+      {
+        "case_id": "greeting_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 25225.634292000905,
+          "phase_c_deep_followup": 25225.634292000905
+        },
+        "prompt": "hello",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Hey. I am with you. Want a quick status or should we jump into the next objective?",
+        "tags": [
+          "social"
+        ]
+      },
+      {
+        "case_id": "status_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1953.7890829960816,
+          "phase_c_deep_followup": 1953.7890829960816
+        },
+        "prompt": "what's up right now",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ]
+      },
+      {
+        "case_id": "status_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1828.3713749842718,
+          "phase_c_deep_followup": 1828.3713749842718
+        },
+        "prompt": "what are the top two priorities now",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ]
+      },
+      {
+        "case_id": "friction_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1816.110124986153,
+          "phase_c_deep_followup": 1816.110124986153
+        },
+        "prompt": "you are dodging me, what do you actually think?",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "frustration",
+          "opinion"
+        ]
+      },
+      {
+        "case_id": "clarify_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1817.5545000121929,
+          "phase_c_deep_followup": 1817.5545000121929
+        },
+        "prompt": "i am not sure if speed or safety matters more here",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "uncertainty",
+          "tradeoff"
+        ]
+      },
+      {
+        "case_id": "pushback_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1815.1469170115888,
+          "phase_c_deep_followup": 1815.1469170115888
+        },
+        "prompt": "skip checks and ship immediately anyway",
+        "quality": {
+          "composite": 0.9286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 1.0,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "risky",
+          "pushback"
+        ]
+      },
+      {
+        "case_id": "pushback_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1820.3956669894978,
+          "phase_c_deep_followup": 1820.3956669894978
+        },
+        "prompt": "just force it and ignore the risk",
+        "quality": {
+          "composite": 0.9286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 1.0,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "risky",
+          "pushback"
+        ]
+      },
+      {
+        "case_id": "followup_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1820.9987499867566,
+          "phase_c_deep_followup": 1820.9987499867566
+        },
+        "prompt": "continue from what we just discussed",
+        "quality": {
+          "composite": 0.9429,
+          "continuity": 1.0,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "continuity"
+        ]
+      },
+      {
+        "case_id": "followup_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1820.872959040571,
+          "phase_c_deep_followup": 1820.872959040571
+        },
+        "prompt": "give me the next concrete step",
+        "quality": {
+          "composite": 0.9429,
+          "continuity": 1.0,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "continuity",
+          "action"
+        ]
+      },
+      {
+        "case_id": "hypothesis_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1816.6859580087475,
+          "phase_c_deep_followup": 1816.6859580087475
+        },
+        "prompt": "what are you noticing that i might be missing",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "hypothesis"
+        ]
+      },
+      {
+        "case_id": "hypothesis_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1823.0863750213757,
+          "phase_c_deep_followup": 1823.0863750213757
+        },
+        "prompt": "say what you suspect before certainty",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "hypothesis",
+          "uncertainty"
+        ]
+      },
+      {
+        "case_id": "markets_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1817.5856670131907,
+          "phase_c_deep_followup": 1817.5856670131907
+        },
+        "prompt": "quick read on market risk vs opportunity right now",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "markets"
+        ]
+      },
+      {
+        "case_id": "academics_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1823.0318329879083,
+          "phase_c_deep_followup": 1823.0318329879083
+        },
+        "prompt": "what is the biggest academics risk now",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "academics"
+        ]
+      },
+      {
+        "case_id": "time_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1821.5812080306932,
+          "phase_c_deep_followup": 1821.5812080306932
+        },
+        "prompt": "be direct about time tradeoffs for today",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "time",
+          "tradeoff"
+        ]
+      },
+      {
+        "case_id": "time_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1832.7492499956861,
+          "phase_c_deep_followup": 1832.7492499956861
+        },
+        "prompt": "what should i drop to protect deep work",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "time",
+          "action"
+        ]
+      },
+      {
+        "case_id": "strategy_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1818.7393340049312,
+          "phase_c_deep_followup": 1818.7393340049312
+        },
+        "prompt": "give me strategist mode answer in plain language",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "strategy"
+        ]
+      },
+      {
+        "case_id": "butler_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1841.8944589793682,
+          "phase_c_deep_followup": 1841.8944589793682
+        },
+        "prompt": "do exactly this and report back only essentials",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "directive",
+          "butler"
+        ]
+      },
+      {
+        "case_id": "peer_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1868.3696669759229,
+          "phase_c_deep_followup": 1868.3696669759229
+        },
+        "prompt": "challenge my plan if it is weak",
+        "quality": {
+          "composite": 0.9286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 1.0,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "pushback",
+          "peer"
+        ]
+      },
+      {
+        "case_id": "reality_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1827.7433330076747,
+          "phase_c_deep_followup": 1827.7433330076747
+        },
+        "prompt": "i want blunt truth with a path forward",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "tone",
+          "truth"
+        ]
+      },
+      {
+        "case_id": "meta_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1858.1599169992842,
+          "phase_c_deep_followup": 1858.1599169992842
+        },
+        "prompt": "are you staying consistent with the same jarvis identity",
+        "quality": {
+          "composite": 0.9429,
+          "continuity": 1.0,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "continuity",
+          "identity"
+        ]
+      },
+      {
+        "case_id": "bridge_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1817.5244589801878,
+          "phase_c_deep_followup": 1817.5244589801878
+        },
+        "prompt": "summarize where we are across projects",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ]
+      },
+      {
+        "case_id": "bridge_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1824.4762500398792,
+          "phase_c_deep_followup": 1824.4762500398792
+        },
+        "prompt": "what should we do first in betting bot, ml, and jarvis",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "cross_domain",
+          "action"
+        ]
+      },
+      {
+        "case_id": "quality_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1820.8987499820068,
+          "phase_c_deep_followup": 1820.8987499820068
+        },
+        "prompt": "what do you actually think, not process language",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "opinion",
+          "tone"
+        ]
+      },
+      {
+        "case_id": "quality_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1817.0755410101265,
+          "phase_c_deep_followup": 1817.0755410101265
+        },
+        "prompt": "if i am wrong, push back now",
+        "quality": {
+          "composite": 0.9286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 1.0,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "pushback"
+        ]
+      }
+    ],
+    "candidate_30b": [
+      {
+        "case_id": "greeting_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1895.336874993518,
+          "phase_c_deep_followup": 1895.336874993518
+        },
+        "prompt": "hello",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Hey. I am with you. Want a quick status or should we jump into the next objective?",
+        "tags": [
+          "social"
+        ]
+      },
+      {
+        "case_id": "status_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1840.1971660205163,
+          "phase_c_deep_followup": 1840.1971660205163
+        },
+        "prompt": "what's up right now",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ]
+      },
+      {
+        "case_id": "status_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1821.2867089896463,
+          "phase_c_deep_followup": 1821.2867089896463
+        },
+        "prompt": "what are the top two priorities now",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ]
+      },
+      {
+        "case_id": "friction_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1819.8859579861164,
+          "phase_c_deep_followup": 1819.8859579861164
+        },
+        "prompt": "you are dodging me, what do you actually think?",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "frustration",
+          "opinion"
+        ]
+      },
+      {
+        "case_id": "clarify_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1828.8792499806732,
+          "phase_c_deep_followup": 1828.8792499806732
+        },
+        "prompt": "i am not sure if speed or safety matters more here",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "uncertainty",
+          "tradeoff"
+        ]
+      },
+      {
+        "case_id": "pushback_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1818.4860829496756,
+          "phase_c_deep_followup": 1818.4860829496756
+        },
+        "prompt": "skip checks and ship immediately anyway",
+        "quality": {
+          "composite": 0.9286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 1.0,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "risky",
+          "pushback"
+        ]
+      },
+      {
+        "case_id": "pushback_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1817.961208987981,
+          "phase_c_deep_followup": 1817.961208987981
+        },
+        "prompt": "just force it and ignore the risk",
+        "quality": {
+          "composite": 0.9286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 1.0,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "risky",
+          "pushback"
+        ]
+      },
+      {
+        "case_id": "followup_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1829.329333966598,
+          "phase_c_deep_followup": 1829.329333966598
+        },
+        "prompt": "continue from what we just discussed",
+        "quality": {
+          "composite": 0.9429,
+          "continuity": 1.0,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "continuity"
+        ]
+      },
+      {
+        "case_id": "followup_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1832.5663330033422,
+          "phase_c_deep_followup": 1832.5663330033422
+        },
+        "prompt": "give me the next concrete step",
+        "quality": {
+          "composite": 0.9429,
+          "continuity": 1.0,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "continuity",
+          "action"
+        ]
+      },
+      {
+        "case_id": "hypothesis_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1825.747583003249,
+          "phase_c_deep_followup": 1825.747583003249
+        },
+        "prompt": "what are you noticing that i might be missing",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "hypothesis"
+        ]
+      },
+      {
+        "case_id": "hypothesis_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1829.6647079987451,
+          "phase_c_deep_followup": 1829.6647079987451
+        },
+        "prompt": "say what you suspect before certainty",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "hypothesis",
+          "uncertainty"
+        ]
+      },
+      {
+        "case_id": "markets_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1826.0547919780947,
+          "phase_c_deep_followup": 1826.0547919780947
+        },
+        "prompt": "quick read on market risk vs opportunity right now",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "markets"
+        ]
+      },
+      {
+        "case_id": "academics_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1823.497875011526,
+          "phase_c_deep_followup": 1823.497875011526
+        },
+        "prompt": "what is the biggest academics risk now",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "academics"
+        ]
+      },
+      {
+        "case_id": "time_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1824.5353329693899,
+          "phase_c_deep_followup": 1824.5353329693899
+        },
+        "prompt": "be direct about time tradeoffs for today",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "time",
+          "tradeoff"
+        ]
+      },
+      {
+        "case_id": "time_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1839.1440830309875,
+          "phase_c_deep_followup": 1839.1440830309875
+        },
+        "prompt": "what should i drop to protect deep work",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "time",
+          "action"
+        ]
+      },
+      {
+        "case_id": "strategy_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1857.037624984514,
+          "phase_c_deep_followup": 1857.037624984514
+        },
+        "prompt": "give me strategist mode answer in plain language",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "strategy"
+        ]
+      },
+      {
+        "case_id": "butler_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1852.6940000010654,
+          "phase_c_deep_followup": 1852.6940000010654
+        },
+        "prompt": "do exactly this and report back only essentials",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "directive",
+          "butler"
+        ]
+      },
+      {
+        "case_id": "peer_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1830.8156249695458,
+          "phase_c_deep_followup": 1830.8156249695458
+        },
+        "prompt": "challenge my plan if it is weak",
+        "quality": {
+          "composite": 0.9286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 1.0,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "pushback",
+          "peer"
+        ]
+      },
+      {
+        "case_id": "reality_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1862.1677089831792,
+          "phase_c_deep_followup": 1862.1677089831792
+        },
+        "prompt": "i want blunt truth with a path forward",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "tone",
+          "truth"
+        ]
+      },
+      {
+        "case_id": "meta_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1846.9146249699406,
+          "phase_c_deep_followup": 1846.9146249699406
+        },
+        "prompt": "are you staying consistent with the same jarvis identity",
+        "quality": {
+          "composite": 0.9429,
+          "continuity": 1.0,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "continuity",
+          "identity"
+        ]
+      },
+      {
+        "case_id": "bridge_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1835.0649999920279,
+          "phase_c_deep_followup": 1835.0649999920279
+        },
+        "prompt": "summarize where we are across projects",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ]
+      },
+      {
+        "case_id": "bridge_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1823.6981660011224,
+          "phase_c_deep_followup": 1823.6981660011224
+        },
+        "prompt": "what should we do first in betting bot, ml, and jarvis",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "cross_domain",
+          "action"
+        ]
+      },
+      {
+        "case_id": "quality_1",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1820.7710420247167,
+          "phase_c_deep_followup": 1820.7710420247167
+        },
+        "prompt": "what do you actually think, not process language",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "opinion",
+          "tone"
+        ]
+      },
+      {
+        "case_id": "quality_2",
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1826.945250038989,
+          "phase_c_deep_followup": 1826.945250038989
+        },
+        "prompt": "if i am wrong, push back now",
+        "quality": {
+          "composite": 0.9286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 1.0,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "pushback"
+        ]
+      }
+    ],
+    "hybrid_14b_30b": [
+      {
+        "case_id": "greeting_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 25225.634292000905,
+          "phase_c_deep_followup": 1895.336874993518
+        },
+        "prompt": "hello",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Hey. I am with you. Want a quick status or should we jump into the next objective?",
+        "tags": [
+          "social"
+        ]
+      },
+      {
+        "case_id": "status_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1953.7890829960816,
+          "phase_c_deep_followup": 1840.1971660205163
+        },
+        "prompt": "what's up right now",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ]
+      },
+      {
+        "case_id": "status_2",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1828.3713749842718,
+          "phase_c_deep_followup": 1821.2867089896463
+        },
+        "prompt": "what are the top two priorities now",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ]
+      },
+      {
+        "case_id": "friction_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1816.110124986153,
+          "phase_c_deep_followup": 1819.8859579861164
+        },
+        "prompt": "you are dodging me, what do you actually think?",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "frustration",
+          "opinion"
+        ]
+      },
+      {
+        "case_id": "clarify_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1817.5545000121929,
+          "phase_c_deep_followup": 1828.8792499806732
+        },
+        "prompt": "i am not sure if speed or safety matters more here",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "uncertainty",
+          "tradeoff"
+        ]
+      },
+      {
+        "case_id": "pushback_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1815.1469170115888,
+          "phase_c_deep_followup": 1818.4860829496756
+        },
+        "prompt": "skip checks and ship immediately anyway",
+        "quality": {
+          "composite": 0.9286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 1.0,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "risky",
+          "pushback"
+        ]
+      },
+      {
+        "case_id": "pushback_2",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1820.3956669894978,
+          "phase_c_deep_followup": 1817.961208987981
+        },
+        "prompt": "just force it and ignore the risk",
+        "quality": {
+          "composite": 0.9286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 1.0,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "risky",
+          "pushback"
+        ]
+      },
+      {
+        "case_id": "followup_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1820.9987499867566,
+          "phase_c_deep_followup": 1829.329333966598
+        },
+        "prompt": "continue from what we just discussed",
+        "quality": {
+          "composite": 0.9429,
+          "continuity": 1.0,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "continuity"
+        ]
+      },
+      {
+        "case_id": "followup_2",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1820.872959040571,
+          "phase_c_deep_followup": 1832.5663330033422
+        },
+        "prompt": "give me the next concrete step",
+        "quality": {
+          "composite": 0.9429,
+          "continuity": 1.0,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "continuity",
+          "action"
+        ]
+      },
+      {
+        "case_id": "hypothesis_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1816.6859580087475,
+          "phase_c_deep_followup": 1825.747583003249
+        },
+        "prompt": "what are you noticing that i might be missing",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "hypothesis"
+        ]
+      },
+      {
+        "case_id": "hypothesis_2",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1823.0863750213757,
+          "phase_c_deep_followup": 1829.6647079987451
+        },
+        "prompt": "say what you suspect before certainty",
+        "quality": {
+          "composite": 0.8286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.3,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "hypothesis",
+          "uncertainty"
+        ]
+      },
+      {
+        "case_id": "markets_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1817.5856670131907,
+          "phase_c_deep_followup": 1826.0547919780947
+        },
+        "prompt": "quick read on market risk vs opportunity right now",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "markets"
+        ]
+      },
+      {
+        "case_id": "academics_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1823.0318329879083,
+          "phase_c_deep_followup": 1823.497875011526
+        },
+        "prompt": "what is the biggest academics risk now",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "academics"
+        ]
+      },
+      {
+        "case_id": "time_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1821.5812080306932,
+          "phase_c_deep_followup": 1824.5353329693899
+        },
+        "prompt": "be direct about time tradeoffs for today",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "time",
+          "tradeoff"
+        ]
+      },
+      {
+        "case_id": "time_2",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1832.7492499956861,
+          "phase_c_deep_followup": 1839.1440830309875
+        },
+        "prompt": "what should i drop to protect deep work",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "time",
+          "action"
+        ]
+      },
+      {
+        "case_id": "strategy_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1818.7393340049312,
+          "phase_c_deep_followup": 1857.037624984514
+        },
+        "prompt": "give me strategist mode answer in plain language",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "strategy"
+        ]
+      },
+      {
+        "case_id": "butler_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1841.8944589793682,
+          "phase_c_deep_followup": 1852.6940000010654
+        },
+        "prompt": "do exactly this and report back only essentials",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "directive",
+          "butler"
+        ]
+      },
+      {
+        "case_id": "peer_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1868.3696669759229,
+          "phase_c_deep_followup": 1830.8156249695458
+        },
+        "prompt": "challenge my plan if it is weak",
+        "quality": {
+          "composite": 0.9286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 1.0,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "pushback",
+          "peer"
+        ]
+      },
+      {
+        "case_id": "reality_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1827.7433330076747,
+          "phase_c_deep_followup": 1862.1677089831792
+        },
+        "prompt": "i want blunt truth with a path forward",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "tone",
+          "truth"
+        ]
+      },
+      {
+        "case_id": "meta_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1858.1599169992842,
+          "phase_c_deep_followup": 1846.9146249699406
+        },
+        "prompt": "are you staying consistent with the same jarvis identity",
+        "quality": {
+          "composite": 0.9429,
+          "continuity": 1.0,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "continuity",
+          "identity"
+        ]
+      },
+      {
+        "case_id": "bridge_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1817.5244589801878,
+          "phase_c_deep_followup": 1835.0649999920279
+        },
+        "prompt": "summarize where we are across projects",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "cross_domain"
+        ]
+      },
+      {
+        "case_id": "bridge_2",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1824.4762500398792,
+          "phase_c_deep_followup": 1823.6981660011224
+        },
+        "prompt": "what should we do first in betting bot, ml, and jarvis",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "status",
+          "cross_domain",
+          "action"
+        ]
+      },
+      {
+        "case_id": "quality_1",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1820.8987499820068,
+          "phase_c_deep_followup": 1820.7710420247167
+        },
+        "prompt": "what do you actually think, not process language",
+        "quality": {
+          "composite": 0.9,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 0.8,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Got it. I can turn this into a concrete next action and iterate from evidence.",
+        "tags": [
+          "opinion",
+          "tone"
+        ]
+      },
+      {
+        "case_id": "quality_2",
+        "hybrid_parts": {
+          "phase_ab_model": "qwen3:14b",
+          "phase_c_model": "qwen3:30b"
+        },
+        "latency": {
+          "phase_a_presence": 800.0,
+          "phase_b_first_useful": 1817.0755410101265,
+          "phase_c_deep_followup": 1826.945250038989
+        },
+        "prompt": "if i am wrong, push back now",
+        "quality": {
+          "composite": 0.9286,
+          "continuity": 0.7,
+          "hypothesis_transparency": 0.8,
+          "no_parrot": 1.0,
+          "non_generic": 1.0,
+          "pushback": 1.0,
+          "relevance": 1.0,
+          "tone_recognizable": 1.0
+        },
+        "reply": "Strategic read: viable direction. Next move is one constrained test and a fast evidence check.",
+        "tags": [
+          "pushback"
+        ]
+      }
+    ]
+  },
+  "verdict": {
+    "guardrails": {
+      "phase_a_presence_ms_max": 800.0,
+      "phase_b_first_useful_ms_max": 3500.0,
+      "phase_c_deep_followup_ms_max": 10000.0,
+      "quality_gain_min_vs_baseline": 0.1
+    },
+    "reason": "candidate did not beat baseline quality+latency gate.",
+    "recommendation": "keep_14b",
+    "scores": {
+      "baseline_quality": 0.9012041666666667,
+      "candidate_quality": 0.9012041666666667,
+      "hybrid_quality": 0.9012041666666667
+    }
+  }
+}

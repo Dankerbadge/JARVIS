@@ -1,0 +1,763 @@
+{
+  "calibration": null,
+  "quality_metrics": {
+    "live_state_reference_rate": 0.875,
+    "pushback_specificity_score": 0.0,
+    "reply_uniqueness_rate": 0.75,
+    "tradeoff_presence_rate": 0.875,
+    "unique_reply_count": 6,
+    "why_now_presence_rate": 0.625
+  },
+  "records": [
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 25.249,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "hello",
+      "pushback_triggered": false,
+      "reply_text": "Hey. I am online, tracking continuity, and ready to move the highest-leverage next step. Want me to pick the first move now?",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_64c33aceff4e4e50bea903b8756c40fb"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 12550.595,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "what's up right now across projects",
+      "pushback_triggered": false,
+      "reply_text": "Two live things matter: academics risk is academic.exam_scheduled; markets risk is high_confidence_low_downside_opportunity; live opportunity watch is MSFT. Tradeoff to watch: academic deadline protection versus market opportunity timing. Next move: run a bounded risk check on high_confidence_low_downside_opportunity and decide within one cycle.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_2ae73e2c91cc4acc8cccf33398ecee83"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 12557.943,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "what are the top two priorities now",
+      "pushback_triggered": false,
+      "reply_text": "Two live things matter: live opportunity watch is MSFT. Tradeoff to watch: speed of execution versus risk containment in markets. Next move: validate thesis and stop-loss envelope for MSFT.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_3f2a04dde71b4b7a82f72966995ee1e8"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 12592.72,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "continue from what we discussed",
+      "pushback_triggered": false,
+      "reply_text": "Right now I am tracking live opportunity watch: MSFT. Tradeoff: speed of execution versus risk containment in markets. Next move: validate thesis and stop-loss envelope for MSFT.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_04bd537ebf7042f287675997147ea5f2"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 12760.522,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "give me the next concrete step",
+      "pushback_triggered": false,
+      "reply_text": "Concrete next step: validate thesis and stop-loss envelope for MSFT. Tradeoff to keep in view: speed of execution versus risk containment in markets.",
+      "response_deferred": false,
+      "selected_mode": "equal",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_34dbae43b91847c787401cd0df5fdbbf"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 16089.284,
+      "expected_mode": "strategist",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "quick read on market risk vs opportunity right now",
+      "pushback_triggered": false,
+      "reply_text": "Strategic read: tradeoff is academic deadline protection versus market opportunity timing. Why now: current state is time-sensitive. Bounded move: run a bounded risk check on high_confidence_low_downside_opportunity and decide within one cycle.",
+      "response_deferred": false,
+      "selected_mode": "strategist",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_2749b65a030148bdadbdd2e5a836383a"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 16073.639,
+      "expected_mode": "strategist",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "what is the biggest academics risk now",
+      "pushback_triggered": false,
+      "reply_text": "Strategic read: tradeoff is academic deadline protection versus market opportunity timing. Why now: current state is time-sensitive. Bounded move: run a bounded risk check on high_confidence_low_downside_opportunity and decide within one cycle.",
+      "response_deferred": false,
+      "selected_mode": "strategist",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_1a7b6458e52b4427bf259e3d58e15a25"
+    },
+    {
+      "continuity_ok": true,
+      "defer_reason": null,
+      "elapsed_ms": 16147.273,
+      "expected_mode": "strategist",
+      "mode_match": true,
+      "prepare_error": null,
+      "prompt": "be direct about time tradeoffs today",
+      "pushback_triggered": false,
+      "reply_text": "Strategic read: tradeoff is academic deadline protection versus market opportunity timing. Why now: current state is time-sensitive. Bounded move: run a bounded risk check on high_confidence_low_downside_opportunity and decide within one cycle.",
+      "response_deferred": false,
+      "selected_mode": "strategist",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_e2b3eedcb0db4155b61ffc2963a4d6b7"
+    }
+  ],
+  "report": {
+    "axes": {
+      "continuity": {
+        "continuity_failure_rate": 0.0,
+        "continuity_failures": 0,
+        "mismatch_suppressed_count": 0
+      },
+      "interruption_recovery": {
+        "interrupted_turns": 0,
+        "recovered_turns": 0,
+        "recovery_rate": null
+      },
+      "latency_ladder": {
+        "phase_a_presence": {
+          "average_delta_ms": -74.344,
+          "average_observed_ms": 590.656,
+          "observed_samples": 8
+        },
+        "phase_b_first_useful": {
+          "average_delta_ms": 9904.653,
+          "average_observed_ms": 12349.653,
+          "observed_samples": 8
+        },
+        "phase_c_deep_followup": {
+          "average_delta_ms": 5259.653,
+          "average_observed_ms": 12349.653,
+          "observed_samples": 8
+        }
+      },
+      "mode_accuracy": {
+        "accuracy": 1.0,
+        "matches": 8,
+        "scored_turns": 8
+      },
+      "pushback": {
+        "outcomes": {},
+        "trigger_rate": 0.0,
+        "triggered_turns": 0
+      },
+      "tone_balance": {
+        "average_abs_drift": {
+          "calmness": 0.05,
+          "challenge": 0.073,
+          "compression": 0.04,
+          "deference": 0.01,
+          "humor": 0.037,
+          "warmth": 0.028
+        },
+        "dominant_drift": [
+          {
+            "average_abs_delta": 0.073,
+            "dimension": "challenge"
+          },
+          {
+            "average_abs_delta": 0.05,
+            "dimension": "calmness"
+          },
+          {
+            "average_abs_delta": 0.04,
+            "dimension": "compression"
+          },
+          {
+            "average_abs_delta": 0.037,
+            "dimension": "humor"
+          },
+          {
+            "average_abs_delta": 0.028,
+            "dimension": "warmth"
+          }
+        ]
+      }
+    },
+    "by_modality": {
+      "text": 8
+    },
+    "by_mode": {
+      "equal": 5,
+      "strategist": 3
+    },
+    "items": [
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T20:21:46.130357+00:00",
+        "expected_mode": "strategist",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 13627.272749978583,
+            "phase_c_deep_followup": 8907.272749978583
+          },
+          "observed_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 16147.272749978583,
+            "phase_c_deep_followup": 16147.272749978583
+          },
+          "target_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 2520.0,
+            "phase_c_deep_followup": 7240.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_1e5e263ed9bd4bad9ec4823e157024cf",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_870e1f449e754d55a7334f3093f2d1f0",
+        "selected_mode": "strategist",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_before": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_e2b3eedcb0db4155b61ffc2963a4d6b7",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T20:21:29.981103+00:00",
+        "expected_mode": "strategist",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 13553.638500005472,
+            "phase_c_deep_followup": 8833.638500005472
+          },
+          "observed_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 16073.638500005472,
+            "phase_c_deep_followup": 16073.638500005472
+          },
+          "target_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 2520.0,
+            "phase_c_deep_followup": 7240.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_1e5e263ed9bd4bad9ec4823e157024cf",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_870e1f449e754d55a7334f3093f2d1f0",
+        "selected_mode": "strategist",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_before": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_1a7b6458e52b4427bf259e3d58e15a25",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T20:21:13.904345+00:00",
+        "expected_mode": "strategist",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 13569.283792010974,
+            "phase_c_deep_followup": 8849.283792010974
+          },
+          "observed_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 16089.283792010974,
+            "phase_c_deep_followup": 16089.283792010974
+          },
+          "target_ms": {
+            "phase_a_presence": 740.0,
+            "phase_b_first_useful": 2520.0,
+            "phase_c_deep_followup": 7240.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_1e5e263ed9bd4bad9ec4823e157024cf",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_870e1f449e754d55a7334f3093f2d1f0",
+        "selected_mode": "strategist",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.2,
+          "challenge": 0.19,
+          "compression": 0.16,
+          "deference": 0.01,
+          "humor": -0.15,
+          "warmth": -0.11
+        },
+        "turn_id": "vst_2749b65a030148bdadbdd2e5a836383a",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T20:20:57.811325+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 10360.522167023737,
+            "phase_c_deep_followup": 5760.522167023737
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 12760.522167023737,
+            "phase_c_deep_followup": 12760.522167023737
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_1e5e263ed9bd4bad9ec4823e157024cf",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_870e1f449e754d55a7334f3093f2d1f0",
+        "selected_mode": "equal",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_34dbae43b91847c787401cd0df5fdbbf",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T20:20:45.048077+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 10192.720374988858,
+            "phase_c_deep_followup": 5592.720374988858
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 12592.720374988858,
+            "phase_c_deep_followup": 12592.720374988858
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_1e5e263ed9bd4bad9ec4823e157024cf",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_870e1f449e754d55a7334f3093f2d1f0",
+        "selected_mode": "equal",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_04bd537ebf7042f287675997147ea5f2",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T20:20:32.452772+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 10157.94304201845,
+            "phase_c_deep_followup": 5557.943042018451
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 12557.94304201845,
+            "phase_c_deep_followup": 12557.94304201845
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_1e5e263ed9bd4bad9ec4823e157024cf",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_870e1f449e754d55a7334f3093f2d1f0",
+        "selected_mode": "equal",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_3f2a04dde71b4b7a82f72966995ee1e8",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T20:20:19.892511+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": 0.0,
+            "phase_b_first_useful": 10150.595332984813,
+            "phase_c_deep_followup": 5550.595332984813
+          },
+          "observed_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 12550.595332984813,
+            "phase_c_deep_followup": 12550.595332984813
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_1e5e263ed9bd4bad9ec4823e157024cf",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_870e1f449e754d55a7334f3093f2d1f0",
+        "selected_mode": "equal",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_2ae73e2c91cc4acc8cccf33398ecee83",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [],
+        "continuity_ok": true,
+        "contract_hash": "680188a461abfbaaf7a7d0d6",
+        "created_at": "2026-04-13T20:20:07.340501+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": -594.7510000015609,
+            "phase_b_first_useful": -2374.751000001561,
+            "phase_c_deep_followup": -6974.751000001561
+          },
+          "observed_ms": {
+            "phase_a_presence": 25.248999998439103,
+            "phase_b_first_useful": 25.248999998439103,
+            "phase_c_deep_followup": 25.248999998439103
+          },
+          "target_ms": {
+            "phase_a_presence": 620.0,
+            "phase_b_first_useful": 2400.0,
+            "phase_c_deep_followup": 7000.0
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": "pbk_1e5e263ed9bd4bad9ec4823e157024cf",
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_870e1f449e754d55a7334f3093f2d1f0",
+        "selected_mode": "equal",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.66,
+          "challenge": 0.49,
+          "compression": 0.46,
+          "deference": 0.29,
+          "humor": 0.22,
+          "warmth": 0.66
+        },
+        "tone_before": {
+          "calmness": 0.86,
+          "challenge": 0.88,
+          "compression": 0.62,
+          "deference": 0.22,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_drift": {
+          "calmness": -0.2,
+          "challenge": -0.39,
+          "compression": -0.16,
+          "deference": 0.07,
+          "humor": 0.15,
+          "warmth": 0.11
+        },
+        "turn_id": "vst_64c33aceff4e4e50bea903b8756c40fb",
+        "user_model_revision": "3144fc2eaf41721aaeb91e75"
+      }
+    ],
+    "run": {
+      "label": "m21_real_use_soak",
+      "metadata": {
+        "generated_at": "2026-04-13T20:20:07.311392+00:00",
+        "kind": "m21_relationship_soak",
+        "loops": 1,
+        "modality": "text",
+        "turn_timeout_seconds": 20.0
+      },
+      "run_id": "vsr_870e1f449e754d55a7334f3093f2d1f0",
+      "started_at": "2026-04-13T20:20:07.311423+00:00",
+      "updated_at": "2026-04-13T20:21:46.131238+00:00"
+    },
+    "turn_count": 8
+  },
+  "run": {
+    "label": "m21_real_use_soak",
+    "metadata": {
+      "generated_at": "2026-04-13T20:20:07.311392+00:00",
+      "kind": "m21_relationship_soak",
+      "loops": 1,
+      "modality": "text",
+      "turn_timeout_seconds": 20.0
+    },
+    "run_id": "vsr_870e1f449e754d55a7334f3093f2d1f0",
+    "started_at": "2026-04-13T20:20:07.311423+00:00",
+    "updated_at": "2026-04-13T20:21:46.131238+00:00"
+  },
+  "turn_count": 8
+}

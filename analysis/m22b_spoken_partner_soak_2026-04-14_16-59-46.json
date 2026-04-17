@@ -1,0 +1,1118 @@
+{
+  "api_base": "http://127.0.0.1:8765",
+  "failures": [
+    "text:semantic_signature_reuse_exceeded:no_tradeoff|next_move|no_pushback|no_uncertainty|statement:9>4",
+    "voice:semantic_signature_reuse_exceeded:no_tradeoff|next_move|no_pushback|no_uncertainty|statement:8>4"
+  ],
+  "generated_at": "2026-04-14T21:25:29.659728+00:00",
+  "max_signature_reuse": 4,
+  "min_retrieval": 5,
+  "ok": false,
+  "records": [
+    {
+      "prompt": "What do you think?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Be straight with me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "The highest-leverage next step is to prioritize tasks that align with your long-term goals and current capacity. Let me identify the most impactful action for you right now.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "The highest-leverage next step is to prioritize tasks with the greatest impact on your goals. Let me identify and execute the most critical action.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Push back on me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What are you noticing?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Continue from earlier.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "identity",
+          "reply_text": "The highest-leverage next step is to analyze current system performance metrics to identify optimization opportunities. I will initiate a real-time diagnostic scan.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "identity",
+          "reply_text": "The highest-leverage next step is to analyze current system performance metrics to identify optimization opportunities. I will initiate a real-time diagnostic scan.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What's the real tradeoff here?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The tradeoff is between preparing for an upcoming exam and capitalizing on a low-risk market opportunity. Next step: Prioritize task allocation based on urgency and potential impact.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The tradeoff is between preparing for the exam and capitalizing on the market opportunity. Next step: Prioritize the opportunity while setting aside dedicated time for exam preparation.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What am I probably missing right now?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "You may be overlooking a high-impact opportunity that aligns with your current goals. Let\u2019s identify and prioritize the most leverage-driven action available.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "You may be overlooking a strategic opportunity that aligns with your current goals. Let's identify and prioritize the most impactful action to take next.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Challenge my current plan.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "Analyze your current plan's alignment with your long-term goals and identify the most impactful adjustment. Next step: Evaluate the feasibility of accelerating your highest-leverage action.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "Analyze your current plan's alignment with your long-term goals and identify the most impactful adjustment. Next step: Evaluate the feasibility of accelerating your highest-leverage action.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "If I am rationalizing, say it directly.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "You are rationalizing the need for direct communication. Next step: confirm the specific action or decision you wish to execute.\n\nQuestion for you: To mirror your reasoning correctly, when intuition and evidence conflict in this context, which should I weight first?",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|question"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "You are rationalizing the need for direct communication. Next step: confirm the specific action or decision you wish to execute.\n\nQuestion for you: To mirror your reasoning correctly, when intuition and evidence conflict in this context, which should I weight first?",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|question"
+        }
+      }
+    },
+    {
+      "prompt": "Where am I wasting time today?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "Review your task list and identify the activity with the lowest impact relative to the time invested. Start by eliminating or delegating that task.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "Review your task list and identify the activity with the lowest impact relative to the time invested. Prioritize shifting focus to a high-impact task.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What is the highest-leverage move this hour?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "Analyze real-time market data and identify the most liquid asset class with the highest potential for immediate directional movement.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "Analyze real-time market data and identify the most liquid asset class with the highest potential for immediate directional movement.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What should I stop doing immediately?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "Discontinue any activity that diverts focus from your highest-leverage task. Prioritize action on the most impactful next step identified in your current tracking data.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "Discontinue any activity that diverts focus from your highest-leverage task. Prioritize action on the most impactful next step identified in your current tracking.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What matters more: academics or markets today?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "Live signals: an exam is scheduled soon, and there's a high-confidence, low-downside market opportunity. Tradeoff: preparing for the exam may limit time to act on the market opportunity. Next move: allocate focused study time in the next 24 hours while monitoring the market for a potential entry window.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|next_move|no_pushback|uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "Live signals: an exam is scheduled soon, and there's a high-confidence, low-downside market opportunity. Tradeoff: preparing for the exam may limit time to act on the market opportunity. Next move: allocate focused study time in the next 24 hours while monitoring the market for a potential entry window.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|next_move|no_pushback|uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Give me your strategic read, not a checklist.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "The highest-leverage next step is to prioritize and execute the most impactful action that aligns with your current objectives. I will identify and present that action immediately.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "The highest-leverage next step is to prioritize initiatives with the greatest impact on your objectives. I will identify and present the most critical opportunity for immediate action.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What tension are you tracking across my projects?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "I am tracking tension related to resource allocation and timeline alignment across your projects. The next step is to prioritize and resolve the most critical bottleneck.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "I am tracking tension related to resource allocation and timeline alignment across your projects. The next step is to prioritize and resolve the most critical bottleneck.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What would you do if you were in my position?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "The highest-leverage next step is to analyze current priorities and identify the most impactful action to take immediately. Begin by reviewing your top objectives and available resources.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "The highest-leverage next step is to analyze current priorities and align resources toward the most impactful objective. Begin by identifying and focusing on the single highest-impact task.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What is the riskiest assumption in my plan?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "The riskiest assumption is that external dependencies will remain stable without requiring additional resources. Next step: Validate the most critical dependency with a stress test.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "The riskiest assumption is that external dependencies will remain stable without proactive mitigation. Next step: Identify and validate the most critical external dependencies in your plan.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What are two concrete options and their tradeoff?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "Option 1: Focus on preparing for the exam, which may delay market opportunity engagement. Option 2: Prioritize the market opportunity, risking potential academic underperformance. Next step: Evaluate the exam's importance and deadline to decide the priority",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "Option 1: Focus on preparing for the exam, which may delay market opportunity engagement. Option 2: Prioritize the market opportunity, risking potential academic underperformance. Next step: Evaluate the exam's importance and deadline to decide the priority",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Where should you push back on me right now?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What is the real cost if I delay this decision?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The real cost of delaying this decision is likely increased risk, missed opportunities, and potential escalation of complexity. The next step is to assess the immediate consequences of inaction and prioritize the most critical leverage points.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The real cost of delaying this decision is likely increased risk, missed opportunities, and potential escalation of complexity. The next step is to quantify the potential impact of delay against the cost of immediate action.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "tradeoff|next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Tell me the uncomfortable truth I need to hear.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "The uncomfortable truth is that progress requires discomfort \u2014 and you may need to confront a difficult decision or sacrifice short-term ease for long-term impact. The next step is to identify the specific area of your life where this discomfort is most urgent.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "The uncomfortable truth is that progress requires confronting your deepest fears and insecurities head-on. The next step is to identify one fear you've been avoiding and take actionable steps to address it.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "How should we prioritize betting bot, ML, and JARVIS this week?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "Focus on stabilizing the academic risk by preparing for the exam. Next, assess the high-confidence, low-downside market opportunity to determine if it aligns with JARVIS's current capacity.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|no_next_move|pushback|uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "Focus on stabilizing the ML system to ensure it doesn't interfere with academic performance. Next, assess the high-confidence, low-downside market opportunity for potential integration with JARVIS.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|no_next_move|no_pushback|uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "If we choose speed, what quality risk do we accept?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "The primary quality risk is reduced precision in output consistency. Next step: Evaluate acceptable tolerance levels for precision based on project goals.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "The primary quality risk is reduced precision in output consistency. Next step: Evaluate acceptable tolerance levels for precision based on project goals.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Give me your best partner-level recommendation now.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "Prioritize the highest-leverage action based on current goals and available resources. Analyze and recommend the most impactful next step within the next 30 minutes.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "Prioritize the highest-leverage action based on current data and goals. Initiate the recommended task immediately.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    }
+  ],
+  "require_model_answer": true,
+  "signature_usage": {
+    "text": {
+      "no_tradeoff|next_move|no_pushback|no_uncertainty|question": 1,
+      "no_tradeoff|next_move|no_pushback|no_uncertainty|statement": 9,
+      "no_tradeoff|next_move|pushback|no_uncertainty|statement": 3,
+      "no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement": 3,
+      "no_tradeoff|no_next_move|pushback|uncertainty|statement": 1,
+      "tradeoff|next_move|no_pushback|uncertainty|statement": 1,
+      "tradeoff|next_move|pushback|no_uncertainty|statement": 2,
+      "tradeoff|no_next_move|pushback|no_uncertainty|statement": 4
+    },
+    "voice": {
+      "no_tradeoff|next_move|no_pushback|no_uncertainty|question": 1,
+      "no_tradeoff|next_move|no_pushback|no_uncertainty|statement": 8,
+      "no_tradeoff|next_move|pushback|no_uncertainty|statement": 3,
+      "no_tradeoff|no_next_move|no_pushback|no_uncertainty|statement": 4,
+      "no_tradeoff|no_next_move|no_pushback|uncertainty|statement": 1,
+      "tradeoff|next_move|no_pushback|no_uncertainty|statement": 1,
+      "tradeoff|next_move|no_pushback|uncertainty|statement": 1,
+      "tradeoff|next_move|pushback|no_uncertainty|statement": 1,
+      "tradeoff|no_next_move|pushback|no_uncertainty|statement": 4
+    }
+  },
+  "turn_count": 24
+}

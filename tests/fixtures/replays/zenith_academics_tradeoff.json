@@ -1,0 +1,44 @@
+{
+  "events": [
+    {
+      "source": "zenith",
+      "source_type": "academic.risk_signal",
+      "payload": {
+        "project": "zenith",
+        "domain": "zenith",
+        "severity": "medium",
+        "reason": "non_blocking_ui_cleanup"
+      }
+    },
+    {
+      "source": "academics",
+      "source_type": "academic.risk_signal",
+      "payload": {
+        "project": "academics",
+        "domain": "academics",
+        "course_id": "CS101",
+        "term_id": "2026-spring",
+        "severity": "high",
+        "reason": "exam_in_36h"
+      }
+    }
+  ],
+  "outcomes": [
+    {
+      "plan_id": "pln_old_1",
+      "repo_id": "zenith",
+      "branch": "main",
+      "status": "regression",
+      "touched_paths": ["ui/zenith_ui.txt"],
+      "summary": "ui regression loop"
+    },
+    {
+      "plan_id": "pln_old_2",
+      "repo_id": "academics",
+      "branch": "current",
+      "status": "success",
+      "touched_paths": ["study_plan.md"],
+      "summary": "study intervention helped"
+    }
+  ]
+}

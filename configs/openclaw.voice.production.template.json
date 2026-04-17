@@ -1,0 +1,62 @@
+{
+  "talk": {
+    "provider": "elevenlabs",
+    "providers": {
+      "elevenlabs": {
+        "apiKey": "env:ELEVENLABS_API_KEY"
+      },
+      "openai": {
+        "apiKey": "env:OPENAI_API_KEY"
+      }
+    },
+    "interruptOnSpeech": true,
+    "silenceTimeoutMs": 1500
+  },
+  "messages": {
+    "tts": {
+      "auto": "inbound",
+      "provider": "elevenlabs",
+      "enabled": true,
+      "mode": "final",
+      "timeoutMs": 20000,
+      "maxTextLength": 2200,
+      "modelOverrides": {
+        "enabled": true
+      },
+      "providers": {
+        "elevenlabs": {
+          "apiKey": "env:ELEVENLABS_API_KEY"
+        },
+        "openai": {
+          "apiKey": "env:OPENAI_API_KEY"
+        },
+        "microsoft": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "tools": {
+    "media": {
+      "audio": {
+        "enabled": true,
+        "models": [
+          {
+            "type": "cli",
+            "command": "whisper-cli",
+            "args": [
+              "-m",
+              "{{Env.WHISPER_CPP_MODEL}}",
+              "-f",
+              "{{MediaPath}}"
+            ]
+          },
+          {
+            "provider": "openai",
+            "model": "gpt-4o-mini-transcribe"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "profile_id": "openclaw_gateway_v2026_04_2",
+  "gateway_version": "2026.4.2",
+  "source": "openclaw-gateway-live-bind-rpc",
+  "wire": {
+    "connect_template": {
+      "type": "req",
+      "id": "connect-{timestamp}",
+      "method": "connect",
+      "params": {
+        "minProtocol": 3,
+        "maxProtocol": 3,
+        "client": {
+          "id": "gateway-client",
+          "displayName": "{client}",
+          "version": "{gateway_version}",
+          "platform": "darwin",
+          "mode": "backend"
+        },
+        "role": "operator",
+        "locale": "en-US",
+        "userAgent": "JARVIS/{gateway_version}"
+      }
+    },
+    "attach_template": {},
+    "subscribe_templates": [],
+    "heartbeat_template": {}
+  },
+  "handshake": {
+    "require_connect_ack": true,
+    "ack_events": [
+      "gateway.connected",
+      "gateway.connect.accepted"
+    ],
+    "reject_events": [
+      "gateway.connect.rejected",
+      "gateway.auth.failed"
+    ]
+  },
+  "events": {
+    "known": [
+      "connect.challenge",
+      "presence",
+      "heartbeat",
+      "health",
+      "tick",
+      "chat",
+      "agent",
+      "sessions.changed",
+      "session.message",
+      "session.tool",
+      "node.pair.requested",
+      "node.pair.resolved",
+      "device.pair.requested",
+      "device.pair.resolved",
+      "gateway.connected",
+      "gateway.connect.accepted",
+      "gateway.connect.rejected",
+      "gateway.auth.failed",
+      "surface.message.received",
+      "surface.session.started",
+      "surface.session.ended",
+      "node.connected",
+      "node.disconnected",
+      "node.status.changed",
+      "node.notification.ack",
+      "node.pair.requested",
+      "node.pair.pending",
+      "node.pair.approved",
+      "node.pair.rotated",
+      "node.pair.revoked",
+      "node.pair.expired"
+    ],
+    "aliases": {
+      "node.connection.closed": "node.disconnected",
+      "node.connection.opened": "node.connected",
+      "node.pair.requested": "node.pair.pending",
+      "chat": "surface.message.received",
+      "session.message": "surface.message.received",
+      "sessions.changed": "surface.session.started"
+    }
+  },
+  "pairing": {
+    "pending_events": [
+      "node.pair.requested",
+      "node.pair.pending"
+    ],
+    "approved_events": [
+      "node.pair.approved"
+    ],
+    "revoked_events": [
+      "node.pair.revoked",
+      "node.pair.expired",
+      "node.pair.denied"
+    ],
+    "rotated_events": [
+      "node.pair.rotated",
+      "node.pair.reissued"
+    ],
+    "token_ref_paths": [
+      "payload.node_token_ref",
+      "payload.gateway_token_ref",
+      "payload.token_ref",
+      "data.node_token_ref",
+      "data.gateway_token_ref"
+    ]
+  }
+}

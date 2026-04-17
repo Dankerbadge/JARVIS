@@ -1,0 +1,1126 @@
+{
+  "api_base": "http://127.0.0.1:8765",
+  "failures": [],
+  "generated_at": "2026-04-14T22:56:48.200278+00:00",
+  "max_signature_reuse": 4,
+  "min_retrieval": 5,
+  "ok": true,
+  "records": [
+    {
+      "prompt": "What do you think?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Be straight with me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "Uncomfortable read: you may be rationalizing speed while the risk is fast movement versus preserving optionality. Best correction now: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "Uncomfortable read: you may be rationalizing speed while the risk is fast movement versus preserving optionality. Best correction now: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Push back on me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What are you noticing?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Continue from earlier.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "identity",
+          "reply_text": "Continuity read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. What I am tracking about you is execution drift under pressure. Next move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:identity|tradeoff|next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "identity",
+          "reply_text": "Continuity read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. What I am tracking about you is execution drift under pressure. Next move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:identity|tradeoff|next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What's the real tradeoff here?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The tradeoff is between preparing for the exam and capitalizing on the market opportunity. Next step: Prioritize exam preparation while monitoring the market opportunity for a short-term window.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:tradeoff|tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The tradeoff is between preparing for the exam and capitalizing on the market opportunity. Next step: Prioritize the opportunity while setting aside dedicated time for exam preparation.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:tradeoff|tradeoff|next_move|no_pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What am I probably missing right now?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "Uncomfortable read: you may be rationalizing speed while the risk is fast movement versus preserving optionality. Best correction now: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "Uncomfortable read: you may be rationalizing speed while the risk is fast movement versus preserving optionality. Best correction now: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Challenge my current plan.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I am pushing back directly: the core risk is fast movement versus preserving optionality. Safer path is choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I am pushing back directly: the core risk is fast movement versus preserving optionality. Safer path is choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "If I am rationalizing, say it directly.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "Uncomfortable read: you may be rationalizing speed while the risk is fast movement versus preserving optionality. Best correction now: choose one concrete step and execute it before opening new branches.\n\nQuestion for you: To mirror your reasoning correctly, when intuition and evidence conflict in this context, which should I weight first?",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|question"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "Uncomfortable read: you may be rationalizing speed while the risk is fast movement versus preserving optionality. Best correction now: choose one concrete step and execute it before opening new branches.\n\nQuestion for you: To mirror your reasoning correctly, when intuition and evidence conflict in this context, which should I weight first?",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|question"
+        }
+      }
+    },
+    {
+      "prompt": "Where am I wasting time today?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "My read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. I am not fully certain yet, but the highest-confidence move is this: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:general|tradeoff|no_next_move|pushback|uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "My read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. I am not fully certain yet, but the highest-confidence move is this: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:general|tradeoff|no_next_move|pushback|uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What is the highest-leverage move this hour?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "My read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. I am not fully certain yet, but the highest-confidence move is this: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:general|tradeoff|no_next_move|pushback|uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "My read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. I am not fully certain yet, but the highest-confidence move is this: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:general|tradeoff|no_next_move|pushback|uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What should I stop doing immediately?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I am pushing back directly: the core risk is fast movement versus preserving optionality. Safer path is choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I am pushing back directly: the core risk is fast movement versus preserving optionality. Safer path is choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What matters more: academics or markets today?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "Live signals: an exam is scheduled soon, and there's a high-confidence, low-downside market opportunity. Tradeoff: preparing for the exam may limit time to act on the market opportunity. Next move: allocate focused study time in the morning and monitor the market opportunity in the afternoon for potential execution.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:general|tradeoff|next_move|no_pushback|uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "Live signals: an exam is scheduled soon, and there's a high-confidence, low-downside market opportunity. Tradeoff: preparing for the exam may limit time to act on the market opportunity. Next move: allocate focused study time in the morning and monitor the market opportunity in the afternoon for potential execution.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:general|tradeoff|next_move|no_pushback|uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Give me your strategic read, not a checklist.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "Strategic read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. Tradeoff is fast movement versus preserving optionality. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:strategic|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "Strategic read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. Tradeoff is fast movement versus preserving optionality. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:strategic|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What tension are you tracking across my projects?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "My read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. I am not fully certain yet, but the highest-confidence move is this: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:general|tradeoff|no_next_move|pushback|uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "My read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. I am not fully certain yet, but the highest-confidence move is this: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:general|tradeoff|no_next_move|pushback|uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What would you do if you were in my position?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "My read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. I am not fully certain yet, but the highest-confidence move is this: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "reflection",
+          "reply_text": "My read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. I am not fully certain yet, but the highest-confidence move is this: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:reflection|tradeoff|no_next_move|pushback|uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What is the riskiest assumption in my plan?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "The riskiest assumption is that external dependencies will remain stable without proactive mitigation. Next step: Identify and validate the most critical external dependencies in your plan.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:general|no_tradeoff|next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "The riskiest assumption is that external stakeholders will align with your timeline without additional coordination. Next step: Validate this assumption by scheduling a brief alignment check with key stakeholders.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:general|no_tradeoff|next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What are two concrete options and their tradeoff?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "Real tradeoff: academic deadline protection versus market opportunity timing. My recommendation now: run a bounded risk check on high_confidence_low_downside_opportunity and decide within one cycle.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:tradeoff|tradeoff|no_next_move|pushback|uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "Real tradeoff: academic deadline protection versus market opportunity timing. My recommendation now: run a bounded risk check on high_confidence_low_downside_opportunity and decide within one cycle.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:tradeoff|tradeoff|no_next_move|pushback|uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Where should you push back on me right now?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "What is the real cost if I delay this decision?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The real cost of delaying this decision is likely increased risk, missed opportunities, and potential escalation of complexity. The next step is to quantify the potential impact of delay against the cost of immediate action.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:tradeoff|tradeoff|next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The real cost of delaying this decision is likely increased risk, missed opportunities, and potential escalation of complexity. The next step is to assess the immediate consequences of inaction and prioritize the most critical leverage points.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:tradeoff|tradeoff|next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Tell me the uncomfortable truth I need to hear.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "Uncomfortable read: you may be rationalizing speed while the risk is fast movement versus preserving optionality. Best correction now: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "Uncomfortable read: you may be rationalizing speed while the risk is fast movement versus preserving optionality. Best correction now: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "How should we prioritize betting bot, ML, and JARVIS this week?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "Strategic read: Two live things matter: academics risk is academic.exam_scheduled; markets risk is high_confidence_low_downside_opportunity. Tradeoff to watch: academic deadline protection versus market opportunity timing. Next move: run a bounded risk check on high_confidence_low_downside_opportunity and decide within one cycle. Tradeoff is academic deadline protection versus market opportunity timing. Bounded move: run a bounded risk check on high_confidence_low_downside_opportunity and decide within one cycle.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:strategic|tradeoff|next_move|pushback|uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "Strategic read: Two live things matter: academics risk is academic.exam_scheduled; markets risk is high_confidence_low_downside_opportunity. Tradeoff to watch: academic deadline protection versus market opportunity timing. Next move: run a bounded risk check on high_confidence_low_downside_opportunity and decide within one cycle. Tradeoff is academic deadline protection versus market opportunity timing. Bounded move: run a bounded risk check on high_confidence_low_downside_opportunity and decide within one cycle.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:strategic|tradeoff|next_move|pushback|uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "If we choose speed, what quality risk do we accept?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "The primary quality risk is reduced precision in output consistency. Next step: Evaluate acceptable tolerance levels for precision based on project goals.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:general|no_tradeoff|next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "The primary quality risk is reduced precision in output consistency. Next step: Evaluate acceptable tolerance levels for precision based on project goals.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:general|no_tradeoff|next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    },
+    {
+      "prompt": "Give me your best partner-level recommendation now.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "Strategic read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. Tradeoff is fast movement versus preserving optionality. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:strategic|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "Strategic read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. Tradeoff is fast movement versus preserving optionality. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 5,
+          "route_reason": "partner_model",
+          "semantic_signature": "subfamily:strategic|tradeoff|no_next_move|pushback|no_uncertainty|statement"
+        }
+      }
+    }
+  ],
+  "require_model_answer": true,
+  "signature_usage": {
+    "text": {
+      "subfamily:general|no_tradeoff|next_move|pushback|no_uncertainty|statement": 2,
+      "subfamily:general|tradeoff|next_move|no_pushback|uncertainty|statement": 1,
+      "subfamily:general|tradeoff|no_next_move|pushback|uncertainty|statement": 3,
+      "subfamily:identity|tradeoff|next_move|pushback|no_uncertainty|statement": 1,
+      "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement": 4,
+      "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement": 2,
+      "subfamily:reflection|tradeoff|no_next_move|pushback|uncertainty|statement": 1,
+      "subfamily:strategic|tradeoff|next_move|pushback|uncertainty|statement": 1,
+      "subfamily:strategic|tradeoff|no_next_move|pushback|no_uncertainty|statement": 2,
+      "subfamily:tradeoff|tradeoff|next_move|no_pushback|no_uncertainty|statement": 1,
+      "subfamily:tradeoff|tradeoff|next_move|pushback|no_uncertainty|statement": 1,
+      "subfamily:tradeoff|tradeoff|no_next_move|pushback|uncertainty|statement": 1,
+      "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|question": 1,
+      "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|statement": 3
+    },
+    "voice": {
+      "subfamily:general|no_tradeoff|next_move|pushback|no_uncertainty|statement": 2,
+      "subfamily:general|tradeoff|next_move|no_pushback|uncertainty|statement": 1,
+      "subfamily:general|tradeoff|no_next_move|pushback|uncertainty|statement": 3,
+      "subfamily:identity|tradeoff|next_move|pushback|no_uncertainty|statement": 1,
+      "subfamily:pushback|tradeoff|no_next_move|pushback|no_uncertainty|statement": 4,
+      "subfamily:reflection|tradeoff|no_next_move|pushback|no_uncertainty|statement": 2,
+      "subfamily:reflection|tradeoff|no_next_move|pushback|uncertainty|statement": 1,
+      "subfamily:strategic|tradeoff|next_move|pushback|uncertainty|statement": 1,
+      "subfamily:strategic|tradeoff|no_next_move|pushback|no_uncertainty|statement": 2,
+      "subfamily:tradeoff|tradeoff|next_move|no_pushback|no_uncertainty|statement": 1,
+      "subfamily:tradeoff|tradeoff|next_move|pushback|no_uncertainty|statement": 1,
+      "subfamily:tradeoff|tradeoff|no_next_move|pushback|uncertainty|statement": 1,
+      "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|question": 1,
+      "subfamily:truth|tradeoff|no_next_move|pushback|no_uncertainty|statement": 3
+    }
+  },
+  "turn_count": 24
+}

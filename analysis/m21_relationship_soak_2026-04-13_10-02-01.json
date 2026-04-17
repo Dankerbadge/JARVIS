@@ -1,0 +1,274 @@
+{
+  "calibration": null,
+  "records": [
+    {
+      "continuity_ok": false,
+      "elapsed_ms": 2.448,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": "prepare_error:ProgrammingError",
+      "prompt": "hello",
+      "pushback_triggered": false,
+      "reply_text": "I hit a reply-generation timeout while preserving continuity. Try again in a moment.",
+      "selected_mode": "equal",
+      "session_id": "m21-dm-main",
+      "surface_id": "dm:owner",
+      "turn_id": "vst_f302f819e2414d128121f6c160f548b4"
+    },
+    {
+      "continuity_ok": false,
+      "elapsed_ms": 0.195,
+      "expected_mode": "equal",
+      "mode_match": true,
+      "prepare_error": "prepare_error:ProgrammingError",
+      "prompt": "what's up right now across projects",
+      "pushback_triggered": false,
+      "reply_text": "I hit a reply-generation timeout while preserving continuity. Try again in a moment.",
+      "selected_mode": "equal",
+      "session_id": "m21-mobile-main",
+      "surface_id": "chat:owner_mobile",
+      "turn_id": "vst_d9aed73f7361469c9640a26222b2d106"
+    }
+  ],
+  "report": {
+    "axes": {
+      "continuity": {
+        "continuity_failure_rate": 1.0,
+        "continuity_failures": 2,
+        "mismatch_suppressed_count": 0
+      },
+      "interruption_recovery": {
+        "interrupted_turns": 0,
+        "recovered_turns": 0,
+        "recovery_rate": null
+      },
+      "latency_ladder": {
+        "phase_a_presence": {
+          "average_delta_ms": null,
+          "average_observed_ms": 1.321,
+          "observed_samples": 2
+        },
+        "phase_b_first_useful": {
+          "average_delta_ms": null,
+          "average_observed_ms": 1.321,
+          "observed_samples": 2
+        },
+        "phase_c_deep_followup": {
+          "average_delta_ms": null,
+          "average_observed_ms": 1.321,
+          "observed_samples": 2
+        }
+      },
+      "mode_accuracy": {
+        "accuracy": 1.0,
+        "matches": 2,
+        "scored_turns": 2
+      },
+      "pushback": {
+        "outcomes": {},
+        "trigger_rate": 0.0,
+        "triggered_turns": 0
+      },
+      "tone_balance": {
+        "average_abs_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "dominant_drift": [
+          {
+            "average_abs_delta": 0.0,
+            "dimension": "calmness"
+          },
+          {
+            "average_abs_delta": 0.0,
+            "dimension": "challenge"
+          },
+          {
+            "average_abs_delta": 0.0,
+            "dimension": "compression"
+          },
+          {
+            "average_abs_delta": 0.0,
+            "dimension": "deference"
+          },
+          {
+            "average_abs_delta": 0.0,
+            "dimension": "humor"
+          }
+        ]
+      }
+    },
+    "by_modality": {
+      "text": 2
+    },
+    "by_mode": {
+      "equal": 2
+    },
+    "items": [
+      {
+        "channel_type": "chat",
+        "continuity_mismatches": [
+          "prepare_timeout"
+        ],
+        "continuity_ok": false,
+        "contract_hash": null,
+        "created_at": "2026-04-13T14:02:01.375428+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": null,
+            "phase_b_first_useful": null,
+            "phase_c_deep_followup": null
+          },
+          "observed_ms": {
+            "phase_a_presence": 0.1948330318555236,
+            "phase_b_first_useful": 0.1948330318555236,
+            "phase_c_deep_followup": 0.1948330318555236
+          },
+          "target_ms": {
+            "phase_a_presence": null,
+            "phase_b_first_useful": null,
+            "phase_c_deep_followup": null
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": null,
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_6ed44678cc9a4b969a97eed3c4aad2ec",
+        "selected_mode": "equal",
+        "session_id": "m21-mobile-main",
+        "surface_id": "chat:owner_mobile",
+        "tone_after": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_before": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_d9aed73f7361469c9640a26222b2d106",
+        "user_model_revision": null
+      },
+      {
+        "channel_type": "dm",
+        "continuity_mismatches": [
+          "prepare_timeout"
+        ],
+        "continuity_ok": false,
+        "contract_hash": null,
+        "created_at": "2026-04-13T14:02:01.374133+00:00",
+        "expected_mode": "equal",
+        "interrupted": false,
+        "interruption_recovered": false,
+        "latency": {
+          "delta_ms": {
+            "phase_a_presence": null,
+            "phase_b_first_useful": null,
+            "phase_c_deep_followup": null
+          },
+          "observed_ms": {
+            "phase_a_presence": 2.44808301795274,
+            "phase_b_first_useful": 2.44808301795274,
+            "phase_c_deep_followup": 2.44808301795274
+          },
+          "target_ms": {
+            "phase_a_presence": null,
+            "phase_b_first_useful": null,
+            "phase_c_deep_followup": null
+          }
+        },
+        "mismatch_suppressed": false,
+        "modality": "text",
+        "mode_match": true,
+        "note": null,
+        "pushback_calibration_revision": null,
+        "pushback_outcome": "none",
+        "pushback_triggered": false,
+        "run_id": "vsr_6ed44678cc9a4b969a97eed3c4aad2ec",
+        "selected_mode": "equal",
+        "session_id": "m21-dm-main",
+        "surface_id": "dm:owner",
+        "tone_after": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_before": {
+          "calmness": 0.86,
+          "challenge": 0.68,
+          "compression": 0.62,
+          "deference": 0.3,
+          "humor": 0.07,
+          "warmth": 0.55
+        },
+        "tone_drift": {
+          "calmness": 0.0,
+          "challenge": 0.0,
+          "compression": 0.0,
+          "deference": 0.0,
+          "humor": 0.0,
+          "warmth": 0.0
+        },
+        "turn_id": "vst_f302f819e2414d128121f6c160f548b4",
+        "user_model_revision": null
+      }
+    ],
+    "run": {
+      "label": "m21_real_use_soak",
+      "metadata": {
+        "generated_at": "2026-04-13T14:02:01.368285+00:00",
+        "kind": "m21_relationship_soak",
+        "loops": 1,
+        "modality": "text",
+        "turn_timeout_seconds": 25.0
+      },
+      "run_id": "vsr_6ed44678cc9a4b969a97eed3c4aad2ec",
+      "started_at": "2026-04-13T14:02:01.368318+00:00",
+      "updated_at": "2026-04-13T14:02:01.375682+00:00"
+    },
+    "turn_count": 2
+  },
+  "run": {
+    "label": "m21_real_use_soak",
+    "metadata": {
+      "generated_at": "2026-04-13T14:02:01.368285+00:00",
+      "kind": "m21_relationship_soak",
+      "loops": 1,
+      "modality": "text",
+      "turn_timeout_seconds": 25.0
+    },
+    "run_id": "vsr_6ed44678cc9a4b969a97eed3c4aad2ec",
+    "started_at": "2026-04-13T14:02:01.368318+00:00",
+    "updated_at": "2026-04-13T14:02:01.375682+00:00"
+  },
+  "turn_count": 2
+}

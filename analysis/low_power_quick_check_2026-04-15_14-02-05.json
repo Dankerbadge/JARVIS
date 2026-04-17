@@ -1,0 +1,77 @@
+{
+  "api_base": "http://127.0.0.1:8765",
+  "failures": [],
+  "generated_at": "2026-04-15T18:02:49.427236+00:00",
+  "max_latency_ms": 33810.156,
+  "median_latency_ms": 5008.6155,
+  "ok": true,
+  "prompt_count": 4,
+  "records": [
+    {
+      "diagnostics": {
+        "answer_source": "cached_brief",
+        "deep_lane_invoked": false,
+        "identity_capsule_used": false,
+        "latency_ms": 0.283,
+        "partner_depth_lane": null,
+        "partner_lane_used": false,
+        "response_family": "social_fast_path",
+        "retrieval_selected_count": 0,
+        "route_reason": "low_latency_social_turn"
+      },
+      "kind": "greeting",
+      "prompt": "Hello",
+      "reply_text": "Hey. I am online, tracking continuity, and ready to move the highest-leverage next step. Want me to pick the first move now?"
+    },
+    {
+      "diagnostics": {
+        "answer_source": "model",
+        "deep_lane_invoked": false,
+        "identity_capsule_used": true,
+        "latency_ms": 5663.485,
+        "partner_depth_lane": "partner_fast",
+        "partner_lane_used": true,
+        "response_family": "partner_model",
+        "retrieval_selected_count": 4,
+        "route_reason": "partner_model"
+      },
+      "kind": "status",
+      "prompt": "What's up?",
+      "reply_text": "Two live things matter: academics risk is academic.exam_scheduled; markets risk is high_confidence_low_downside_opportunity. Tradeoff to watch: academic deadline protection versus market opportunity timing. Next move: run a bounded risk check on high_confidence_low_downside_opportunity and decide within one cycle."
+    },
+    {
+      "diagnostics": {
+        "answer_source": "model",
+        "deep_lane_invoked": false,
+        "identity_capsule_used": true,
+        "latency_ms": 4353.746,
+        "partner_depth_lane": "partner_fast",
+        "partner_lane_used": true,
+        "response_family": "partner_model",
+        "retrieval_selected_count": 4,
+        "route_reason": "partner_model"
+      },
+      "kind": "partner",
+      "prompt": "What do you think?",
+      "reply_text": "No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff."
+    },
+    {
+      "diagnostics": {
+        "answer_source": "model",
+        "deep_lane_invoked": false,
+        "identity_capsule_used": true,
+        "latency_ms": 33810.156,
+        "partner_depth_lane": "partner_fast",
+        "partner_lane_used": true,
+        "response_family": "partner_model",
+        "retrieval_selected_count": 4,
+        "route_reason": "partner_model"
+      },
+      "kind": "partner",
+      "prompt": "Push back on me.",
+      "reply_text": "I need to push back here: the specific risk is fast movement versus preserving optionality. Safer alternative: choose one concrete step and execute it before opening new branches."
+    }
+  ],
+  "under_12s_count": 3,
+  "unique_reply_count": 4
+}

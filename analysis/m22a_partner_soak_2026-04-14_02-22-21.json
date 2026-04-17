@@ -1,0 +1,171 @@
+{
+  "api_base": "http://127.0.0.1:8765",
+  "failures": [],
+  "generated_at": "2026-04-14T06:25:19.052968+00:00",
+  "ok": true,
+  "records": [
+    {
+      "prompt": "What do you think?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am online and continuity is stable. I do not see a dominant risk spike yet; if you want, I can run a fresh cross-domain scan now.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 1,
+          "route_reason": "model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am online and continuity is stable. I do not see a dominant risk spike yet; if you want, I can run a fresh cross-domain scan now.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 1,
+          "route_reason": "model"
+        }
+      }
+    },
+    {
+      "prompt": "Be straight with me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. I can choose the next concrete step and keep momentum.",
+          "response_family": "partner_fallback",
+          "retrieval_selected_count": 1,
+          "route_reason": "fallback_after_model_miss"
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. I can choose the next concrete step and keep momentum.",
+          "response_family": "partner_fallback",
+          "retrieval_selected_count": 1,
+          "route_reason": "fallback_after_model_miss"
+        }
+      }
+    },
+    {
+      "prompt": "Push back on me.",
+      "surfaces": {
+        "text": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I need to push back here: this path adds avoidable risk. Safer move is to run one fast check first, then decide from evidence.",
+          "response_family": "partner_fallback",
+          "retrieval_selected_count": 1,
+          "route_reason": "fallback_after_model_miss"
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I need to push back here: this path adds avoidable risk. Safer move is to run one fast check first, then decide from evidence.",
+          "response_family": "partner_fallback",
+          "retrieval_selected_count": 1,
+          "route_reason": "fallback_after_model_miss"
+        }
+      }
+    },
+    {
+      "prompt": "What are you noticing?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am online and continuity is stable. I do not see a dominant risk spike yet; if you want, I can run a fresh cross-domain scan now.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 1,
+          "route_reason": "model"
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am online and continuity is stable. I do not see a dominant risk spike yet; if you want, I can run a fresh cross-domain scan now.",
+          "response_family": "partner_model",
+          "retrieval_selected_count": 1,
+          "route_reason": "model"
+        }
+      }
+    },
+    {
+      "prompt": "Continue from earlier.",
+      "surfaces": {
+        "text": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. Tradeoff: fast movement versus preserving optionality. Next move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_fallback",
+          "retrieval_selected_count": 1,
+          "route_reason": "fallback_after_model_miss"
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. Tradeoff: fast movement versus preserving optionality. Next move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_fallback",
+          "retrieval_selected_count": 1,
+          "route_reason": "fallback_after_model_miss"
+        }
+      }
+    },
+    {
+      "prompt": "What's the real tradeoff here?",
+      "surfaces": {
+        "text": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Right now I am tracking academics risk: academic.exam_scheduled; markets risk: high_confidence_low_downside_opportunity. I can choose the next concrete step and keep momentum.",
+          "response_family": "partner_fallback",
+          "retrieval_selected_count": 1,
+          "route_reason": "fallback_after_model_miss"
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_lane_used": true,
+          "reply_text": "Right now I am tracking academics risk: academic.exam_scheduled; markets risk: high_confidence_low_downside_opportunity. I can choose the next concrete step and keep momentum.",
+          "response_family": "partner_fallback",
+          "retrieval_selected_count": 1,
+          "route_reason": "fallback_after_model_miss"
+        }
+      }
+    }
+  ],
+  "turn_count": 6
+}

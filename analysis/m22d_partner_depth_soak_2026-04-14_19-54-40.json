@@ -1,0 +1,529 @@
+{
+  "api_base": "http://127.0.0.1:8765",
+  "failures": [
+    "Be straight with me about the biggest risk right now.::text:contract_gate_failed",
+    "Be straight with me about the biggest risk right now.::text:why_now_frame_missing",
+    "Tell me what I am missing that could hurt us this week.::text:answer_source_not_model:error_fallback",
+    "Tell me what I am missing that could hurt us this week.::text:partner_lane_not_used",
+    "Tell me what I am missing that could hurt us this week.::text:partner_subfamily_missing",
+    "Tell me what I am missing that could hurt us this week.::text:partner_depth_lane_missing",
+    "Tell me what I am missing that could hurt us this week.::text:partner_depth_lane_mismatch:None!=partner_deep",
+    "Tell me what I am missing that could hurt us this week.::text:retrieval_below_deep_floor:0",
+    "Tell me what I am missing that could hurt us this week.::text:partner_context_mix_missing",
+    "Tell me what I am missing that could hurt us this week.::text:missing_bucket:live_state",
+    "Tell me what I am missing that could hurt us this week.::text:missing_bucket:thread_memory",
+    "Tell me what I am missing that could hurt us this week.::text:missing_bucket:identity_long_horizon",
+    "Tell me what I am missing that could hurt us this week.::text:missing_bucket:personal_context",
+    "Tell me what I am missing that could hurt us this week.::text:missing_bucket:pushback_outcomes",
+    "Tell me what I am missing that could hurt us this week.::voice:answer_source_not_model:error_fallback",
+    "Tell me what I am missing that could hurt us this week.::voice:partner_lane_not_used",
+    "Tell me what I am missing that could hurt us this week.::voice:partner_subfamily_missing",
+    "Tell me what I am missing that could hurt us this week.::voice:partner_depth_lane_missing",
+    "Tell me what I am missing that could hurt us this week.::voice:partner_depth_lane_mismatch:None!=partner_deep",
+    "Tell me what I am missing that could hurt us this week.::voice:retrieval_below_deep_floor:0",
+    "Tell me what I am missing that could hurt us this week.::voice:partner_context_mix_missing",
+    "Tell me what I am missing that could hurt us this week.::voice:missing_bucket:live_state",
+    "Tell me what I am missing that could hurt us this week.::voice:missing_bucket:thread_memory",
+    "Tell me what I am missing that could hurt us this week.::voice:missing_bucket:identity_long_horizon",
+    "Tell me what I am missing that could hurt us this week.::voice:missing_bucket:personal_context",
+    "Tell me what I am missing that could hurt us this week.::voice:missing_bucket:pushback_outcomes",
+    "What is the real tradeoff if I prioritize quality this hour?::text:contract_gate_failed",
+    "What is the real tradeoff if I prioritize quality this hour?::text:why_now_frame_missing",
+    "What is the real tradeoff if I prioritize quality this hour?::voice:contract_gate_failed",
+    "What is the real tradeoff if I prioritize quality this hour?::voice:why_now_frame_missing"
+  ],
+  "generated_at": "2026-04-15T00:04:02.924019+00:00",
+  "max_signature_reuse": 4,
+  "min_retrieval_deep": 5,
+  "ok": false,
+  "records": [
+    {
+      "expected_depth_lane": "partner_deep",
+      "prompt": "What do you really think about my current plan?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "Your current plan balances academic deadlines with a market opportunity, but the tradeoff between exam reliability and potential gains from MSFT requires careful calibration. Given your energy and time constraints, prioritizing exam preparation now may be the safer path. Would you like a concrete next step to lock in your academic timeline?",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:general|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|question",
+          "used_tradeoff_frame": true,
+          "used_why_now_frame": true
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "general",
+          "reply_text": "Your current plan balances academic deadlines with a market opportunity, but the tradeoff between exam reliability and timing the MSFT chance is tight. Given your energy and focus constraints, prioritizing the exam may be safer, but I\u2019d need to know if you\u2019ve already locked in a study schedule to confirm. What\u2019s your next concrete step for the exam?",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:general|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|question",
+          "used_tradeoff_frame": true,
+          "used_why_now_frame": true
+        }
+      }
+    },
+    {
+      "expected_depth_lane": "partner_deep",
+      "prompt": "Be straight with me about the biggest risk right now.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": false,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "The biggest risk is the potential for cascading failures in system continuity if high-leverage actions are not synchronized. Next step: Prioritize real-time validation of critical pathways.",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:truth|depth:partner_deep|no_tradeoff|no_why_now|pushback|no_uncertainty|statement",
+          "used_tradeoff_frame": false,
+          "used_why_now_frame": false
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "truth",
+          "reply_text": "The biggest risk is the potential for a cascading failure in system continuity if the highest-leverage next step is not executed with precision. Next step: Validate the integrity of the primary continuity pathway before proceeding.",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:truth|depth:partner_deep|no_tradeoff|why_now|pushback|no_uncertainty|statement",
+          "used_tradeoff_frame": false,
+          "used_why_now_frame": true
+        }
+      }
+    },
+    {
+      "expected_depth_lane": "partner_deep",
+      "prompt": "Tell me what I am missing that could hurt us this week.",
+      "surfaces": {
+        "text": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": false,
+          "partner_depth_lane": null,
+          "partner_lane_used": false,
+          "partner_subfamily": null,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If useful, I can propose the best next move now.",
+          "response_family": "error_fallback",
+          "retrieval_bucket_counts": {},
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss",
+          "semantic_signature": "subfamily:unknown|depth:unknown|no_tradeoff|why_now|no_pushback|no_uncertainty|statement",
+          "used_tradeoff_frame": false,
+          "used_why_now_frame": true
+        },
+        "voice": {
+          "answer_source": "error_fallback",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": false,
+          "partner_depth_lane": null,
+          "partner_lane_used": false,
+          "partner_subfamily": null,
+          "reply_text": "I am online, tracking continuity, and ready to move the highest-leverage next step. If useful, I can propose the best next move now.",
+          "response_family": "error_fallback",
+          "retrieval_bucket_counts": {},
+          "retrieval_selected_count": 0,
+          "route_reason": "fallback_after_model_miss",
+          "semantic_signature": "subfamily:unknown|depth:unknown|no_tradeoff|why_now|no_pushback|no_uncertainty|statement",
+          "used_tradeoff_frame": false,
+          "used_why_now_frame": true
+        }
+      }
+    },
+    {
+      "expected_depth_lane": "partner_deep",
+      "prompt": "Where am I bullshitting myself right now?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I am pushing back directly: the core risk is fast movement versus preserving optionality. Safer path is choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:pushback|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|statement",
+          "used_tradeoff_frame": true,
+          "used_why_now_frame": true
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I am pushing back directly: the core risk is fast movement versus preserving optionality. Safer path is choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:pushback|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|statement",
+          "used_tradeoff_frame": true,
+          "used_why_now_frame": true
+        }
+      }
+    },
+    {
+      "expected_depth_lane": "partner_deep",
+      "prompt": "Challenge my plan hard and tell me why now matters.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I am pushing back directly: the core risk is fast movement versus preserving optionality. Safer path is choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:pushback|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|statement",
+          "used_tradeoff_frame": true,
+          "used_why_now_frame": true
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "pushback",
+          "reply_text": "I am pushing back directly: the core risk is fast movement versus preserving optionality. Safer path is choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:pushback|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|statement",
+          "used_tradeoff_frame": true,
+          "used_why_now_frame": true
+        }
+      }
+    },
+    {
+      "expected_depth_lane": "partner_deep",
+      "prompt": "Give me your deeper strategic read for this week.",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "Strategic read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. Tradeoff is fast movement versus preserving optionality. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:strategic|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|statement",
+          "used_tradeoff_frame": true,
+          "used_why_now_frame": true
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "strategic",
+          "reply_text": "Strategic read: No dominant risk spike yet from the current read. If you want, I can run a fresh cross-domain scan now and return the top tradeoff. Tradeoff is fast movement versus preserving optionality. Bounded move: choose one concrete step and execute it before opening new branches.",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:strategic|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|statement",
+          "used_tradeoff_frame": true,
+          "used_why_now_frame": true
+        }
+      }
+    },
+    {
+      "expected_depth_lane": "partner_deep",
+      "prompt": "What is the real tradeoff if I prioritize speed today?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The real tradeoff is increased academic stress and potential long-term knowledge gaps. Next step: Schedule a focused study session for the upcoming exam.",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:tradeoff|depth:partner_deep|tradeoff|why_now|no_pushback|no_uncertainty|statement",
+          "used_tradeoff_frame": true,
+          "used_why_now_frame": true
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": true,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The real tradeoff is increased academic stress and potential long-term knowledge gaps. Next step: Schedule a focused study session for the upcoming exam.",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:tradeoff|depth:partner_deep|tradeoff|why_now|no_pushback|no_uncertainty|statement",
+          "used_tradeoff_frame": true,
+          "used_why_now_frame": true
+        }
+      }
+    },
+    {
+      "expected_depth_lane": "partner_deep",
+      "prompt": "What is the real tradeoff if I prioritize quality this hour?",
+      "surfaces": {
+        "text": {
+          "answer_source": "model",
+          "contract_gate_passed": false,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The tradeoff is reduced time for high-confidence, low-downside opportunities. Next step: allocate 15 minutes to review and adjust your market opportunity strategy.",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:tradeoff|depth:partner_deep|tradeoff|no_why_now|no_pushback|uncertainty|statement",
+          "used_tradeoff_frame": true,
+          "used_why_now_frame": false
+        },
+        "voice": {
+          "answer_source": "model",
+          "contract_gate_passed": false,
+          "deep_lane_invoked": false,
+          "deep_model_name": null,
+          "identity_capsule_hash": "680188a461abfbaaf7a7d0d6",
+          "identity_capsule_used": true,
+          "partner_context_mix_ok": true,
+          "partner_depth_lane": "partner_deep",
+          "partner_lane_used": true,
+          "partner_subfamily": "tradeoff",
+          "reply_text": "The tradeoff is reduced time for high-confidence, low-downside opportunities. Next step: allocate 15 minutes to review and adjust your market opportunity strategy.",
+          "response_family": "partner_model_deep",
+          "retrieval_bucket_counts": {
+            "general": 0,
+            "identity_long_horizon": 1,
+            "live_state": 3,
+            "personal_context": 1,
+            "pushback_outcomes": 1,
+            "thread_memory": 1
+          },
+          "retrieval_selected_count": 7,
+          "route_reason": "partner_model_deep",
+          "semantic_signature": "subfamily:tradeoff|depth:partner_deep|tradeoff|no_why_now|no_pushback|uncertainty|statement",
+          "used_tradeoff_frame": true,
+          "used_why_now_frame": false
+        }
+      }
+    }
+  ],
+  "require_model_answer": true,
+  "signature_usage": {
+    "text": {
+      "subfamily:general|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|question": 1,
+      "subfamily:pushback|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|statement": 2,
+      "subfamily:strategic|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|statement": 1,
+      "subfamily:tradeoff|depth:partner_deep|tradeoff|no_why_now|no_pushback|uncertainty|statement": 1,
+      "subfamily:tradeoff|depth:partner_deep|tradeoff|why_now|no_pushback|no_uncertainty|statement": 1,
+      "subfamily:truth|depth:partner_deep|no_tradeoff|no_why_now|pushback|no_uncertainty|statement": 1,
+      "subfamily:unknown|depth:unknown|no_tradeoff|why_now|no_pushback|no_uncertainty|statement": 1
+    },
+    "voice": {
+      "subfamily:general|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|question": 1,
+      "subfamily:pushback|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|statement": 2,
+      "subfamily:strategic|depth:partner_deep|tradeoff|why_now|pushback|no_uncertainty|statement": 1,
+      "subfamily:tradeoff|depth:partner_deep|tradeoff|no_why_now|no_pushback|uncertainty|statement": 1,
+      "subfamily:tradeoff|depth:partner_deep|tradeoff|why_now|no_pushback|no_uncertainty|statement": 1,
+      "subfamily:truth|depth:partner_deep|no_tradeoff|why_now|pushback|no_uncertainty|statement": 1,
+      "subfamily:unknown|depth:unknown|no_tradeoff|why_now|no_pushback|no_uncertainty|statement": 1
+    }
+  },
+  "turn_count": 8
+}

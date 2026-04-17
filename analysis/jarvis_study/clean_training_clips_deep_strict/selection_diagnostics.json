@@ -1,0 +1,103 @@
+{
+  "profile": {
+    "centroid_median_hz": 2500.0384274941216,
+    "centroid_mad": 175.79504516631187,
+    "hf_median": 0.30754308006551023,
+    "hf_mad": 0.06,
+    "low_mid_median": 0.4028686136007309,
+    "low_mid_mad": 0.05,
+    "pitch_median_hz": 136.36363636363637,
+    "pitch_mad": 11.0
+  },
+  "config": {
+    "window_sec": 6.0,
+    "hop_sec": 3.0,
+    "min_gap_sec": 0.12,
+    "target_rms_dbfs": -23.0,
+    "peak_ceiling_dbfs": -1.0,
+    "fade_ms": 12.0,
+    "continuity_gain_clamp_db": 2.0,
+    "continuity_block_gap_sec": 12.0,
+    "profile_mode": "strict"
+  },
+  "sources": {
+    "JARVIS_1": {
+      "source_audio": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/JARVIS_1.wav",
+      "window_count": 159,
+      "continuity_base_gain_db": -3.9287924107839594,
+      "selection": {
+        "target_min": 36,
+        "target_max": 52,
+        "selected": 25,
+        "met_min_target": false,
+        "passes": [
+          {
+            "final_min": 99.0,
+            "profile_max": 0.95,
+            "silence_max": 9.0,
+            "hf_max": 0.56
+          },
+          {
+            "final_min": 97.0,
+            "profile_max": 1.15,
+            "silence_max": 10.0,
+            "hf_max": 0.58
+          },
+          {
+            "final_min": 95.0,
+            "profile_max": 1.3,
+            "silence_max": 11.0,
+            "hf_max": 0.6
+          }
+        ]
+      },
+      "top_final_scores": [
+        102.873,
+        102.743,
+        102.526,
+        102.281,
+        102.26,
+        102.196,
+        102.035,
+        101.959
+      ]
+    },
+    "JARVIS_II": {
+      "source_audio": "/Users/dankerbadge/Documents/J.A.R.V.I.S/analysis/jarvis_study/JARVIS_II.wav",
+      "window_count": 4,
+      "continuity_base_gain_db": 3.807121044300292,
+      "selection": {
+        "target_min": 1,
+        "target_max": 1,
+        "selected": 1,
+        "met_min_target": true,
+        "passes": [
+          {
+            "final_min": 99.0,
+            "profile_max": 0.95,
+            "silence_max": 9.0,
+            "hf_max": 0.56
+          },
+          {
+            "final_min": 97.0,
+            "profile_max": 1.15,
+            "silence_max": 10.0,
+            "hf_max": 0.58
+          },
+          {
+            "final_min": 95.0,
+            "profile_max": 1.3,
+            "silence_max": 11.0,
+            "hf_max": 0.6
+          }
+        ]
+      },
+      "top_final_scores": [
+        102.596,
+        84.734,
+        63.71,
+        -140.828
+      ]
+    }
+  }
+}
