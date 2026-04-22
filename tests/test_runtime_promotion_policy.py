@@ -656,8 +656,11 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                     db_path=root / "jarvis.db",
                 )
                 captured_all = io.StringIO()
-                with redirect_stdout(captured_all):
-                    cmd_plans_gate_status_all(args_all)
+                # Keep baseline expectations deterministic across local runs and GitHub Actions,
+                # where GITHUB_STEP_SUMMARY may be set automatically.
+                with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}, clear=False):
+                    with redirect_stdout(captured_all):
+                        cmd_plans_gate_status_all(args_all)
                 payload_all = json.loads(captured_all.getvalue())
                 self.assertFalse(bool(payload_all.get("only_blocked")))
                 self.assertFalse(bool(payload_all.get("fail_on_blocked")))
