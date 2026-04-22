@@ -109,6 +109,44 @@ Scheduling-friendly wrapper:
   --output-path ./output/improvement/fitness_leaderboard_seed_report.json
 ```
 
+Draft controlled experiment jobs directly from that seed report (artifact templates + guardrails + target sample size):
+
+```bash
+python3 -m jarvis.cli improvement draft-experiment-jobs \
+  --seed-report-path ./output/improvement/fitness_leaderboard_seed_report.json \
+  --pipeline-config-path ./configs/improvement_fitness_market_live_example.json \
+  --artifacts-dir ./analysis/improvement/experiment_artifacts \
+  --output-path ./output/improvement/fitness_experiment_draft_report.json
+```
+
+You can also prioritize draft selection from benchmark-ranked frustrations (for multi-domain next-step automation):
+
+```bash
+python3 -m jarvis.cli improvement draft-experiment-jobs \
+  --benchmark-report-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/frustration_benchmark_report.json \
+  --benchmark-min-opportunity 2.0 \
+  --pipeline-config-path ./configs/improvement_fitness_market_live_example.json \
+  --output-path ./output/improvement/benchmark_priority_draft_report.json
+```
+
+This command also writes an updated pipeline config (`*.drafted.json` by default) with appended
+`experiment_jobs` stubs so you can run controlled tests in one step, then execute:
+
+```bash
+python3 -m jarvis.cli improvement daily-pipeline \
+  --config-path ./configs/improvement_fitness_market_live_example.drafted.json
+```
+
+Scheduling-friendly wrapper:
+
+```bash
+./scripts/run_improvement_draft_experiment_jobs.sh \
+  ./output/improvement/fitness_leaderboard_seed_report.json \
+  --benchmark-report-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/frustration_benchmark_report.json \
+  --pipeline-config-path ./configs/improvement_fitness_market_live_example.json \
+  --output-path ./output/improvement/fitness_experiment_draft_report.json
+```
+
 Run a config-driven daily pipeline (multiple feedback feeds + experiment artifacts):
 
 ```bash
@@ -176,6 +214,42 @@ Operator-cycle wrapper:
   --strict
 ```
 
+Enable auto-seeding + auto-drafting inside operator-cycle
+(`pull-feeds -> fitness-leaderboard -> seed-from-leaderboard -> draft-experiment-jobs -> daily-pipeline -> execute-retests`):
+
+```bash
+python3 -m jarvis.cli improvement operator-cycle \
+  --config-path ./configs/improvement_pipeline_example.json \
+  --output-dir ./output/improvement/operator_cycle \
+  --seed-enable \
+  --draft-enable \
+  --strict
+```
+
+Run the same seed+draft flow across all knowledge-stack domains in one pass:
+
+```bash
+python3 -m jarvis.cli improvement operator-cycle \
+  --config-path ./configs/improvement_operator_knowledge_stack.json \
+  --output-dir ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded \
+  --seed-enable \
+  --seed-domains quant_finance,kalshi_weather,fitness_apps,market_ml \
+  --draft-enable \
+  --draft-statuses queued,validated \
+  --strict
+```
+
+If you already generated a seed report, you can still draft directly from that report:
+
+```bash
+python3 -m jarvis.cli improvement operator-cycle \
+  --config-path ./configs/improvement_pipeline_example.json \
+  --output-dir ./output/improvement/operator_cycle \
+  --draft-enable \
+  --draft-seed-report-path ./output/improvement/fitness_leaderboard_seed_report.json \
+  --strict
+```
+
 ### Knowledge-Stack Operator Pack (Quant + Kalshi + Fitness + Market ML)
 
 Seed reusable cross-domain hypotheses:
@@ -231,6 +305,22 @@ python3 -m jarvis.cli improvement verify-matrix-alert \
   --report-path ./configs/improvement_operator_knowledge_stack/output/daily_pipeline_report.json \
   --output-path ./configs/improvement_operator_knowledge_stack/output/matrix_drift_alert_report.json \
   --strict
+```
+
+Generate a cross-domain benchmark that ranks recurring pains, trend acceleration, and implementation win-rates:
+
+```bash
+python3 -m jarvis.cli improvement benchmark-frustrations \
+  --report-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/operator_inbox_summary.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/frustration_benchmark_report.json
+```
+
+Wrapper:
+
+```bash
+./scripts/run_improvement_benchmark_frustrations.sh \
+  ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/operator_inbox_summary.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/frustration_benchmark_report.json
 ```
 
 `verify-matrix-alert` now classifies drift severity as `warn` or `critical` and auto-scales

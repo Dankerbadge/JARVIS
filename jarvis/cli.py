@@ -2943,6 +2943,595 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
         runtime.close()
 
 
+def _resolve_path_from_base(raw_path: Any, *, base_dir: Path | None = None) -> Path:
+    candidate = Path(str(raw_path)).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    anchor = base_dir.resolve() if isinstance(base_dir, Path) else Path.cwd()
+    return (anchor / candidate).resolve()
+
+
+def _default_controlled_environment_for_domain(domain: str) -> str:
+    normalized = str(domain or "").strip().lower()
+    if normalized in {"fitness", "fitness_apps"}:
+        return "controlled_rollout"
+    if normalized in {
+        "quant_finance",
+        "quantitative_finance",
+        "kalshi_weather",
+        "weather_betting",
+        "kalshi",
+        "market_ml",
+        "market_machine_learning",
+    }:
+        return "controlled_backtest"
+    return "sandbox"
+
+
+def _normalize_guardrail_rows(raw_rows: Any) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for raw_row in list(raw_rows or []):
+        if not isinstance(raw_row, dict):
+            continue
+        metric = str(raw_row.get("metric") or "").strip()
+        if not metric:
+            continue
+        op = str(raw_row.get("op") or "<=").strip() or "<="
+        threshold_raw = raw_row.get("value")
+        if threshold_raw is None:
+            threshold_raw = raw_row.get("threshold")
+        threshold_value: float | None = None
+        if threshold_raw is not None:
+            try:
+                threshold_value = float(threshold_raw)
+            except (TypeError, ValueError):
+                threshold_value = None
+        rows.append(
+            {
+                "metric": metric,
+                "op": op,
+                "value": threshold_value,
+            }
+        )
+    return rows
+
+
+def _collect_benchmark_priority_targets(
+    benchmark_payload: dict[str, Any],
+    *,
+    min_opportunity_score: float | None = None,
+) -> list[dict[str, Any]]:
+    recurring_rows = [row for row in list(benchmark_payload.get("recurring_pains") or []) if isinstance(row, dict)]
+    recurring_by_key: dict[str, dict[str, Any]] = {}
+    for row in recurring_rows:
+        domain = str(row.get("domain") or "").strip().lower()
+        friction_key = _normalize_friction_key(row.get("friction_key"))
+        if not domain or not friction_key:
+            continue
+        recurring_by_key[f"{domain}:{friction_key}"] = row
+
+    targets: list[dict[str, Any]] = []
+    priority_rows = [row for row in list(benchmark_payload.get("priority_board") or []) if isinstance(row, dict)]
+    for index, row in enumerate(priority_rows):
+        domain = str(row.get("domain") or "").strip().lower()
+        friction_key = _normalize_friction_key(row.get("friction_key"))
+        if not domain or not friction_key:
+            continue
+        opportunity_score = _coerce_float(row.get("opportunity_score"), default=0.0)
+        if min_opportunity_score is not None and opportunity_score < float(min_opportunity_score):
+            continue
+        recurring_row = dict(recurring_by_key.get(f"{domain}:{friction_key}") or {})
+        hypothesis_ids: list[str] = []
+        for raw_ids in [row.get("hypothesis_ids"), recurring_row.get("hypothesis_ids")]:
+            for item in list(raw_ids or []):
+                hypothesis_id = str(item).strip()
+                if not hypothesis_id or hypothesis_id in hypothesis_ids:
+                    continue
+                hypothesis_ids.append(hypothesis_id)
+        targets.append(
+            {
+                "index": index,
+                "priority_rank": index + 1,
+                "domain": domain,
+                "friction_key": friction_key,
+                "opportunity_score": round(float(opportunity_score), 4),
+                "trend": str(row.get("trend") or recurring_row.get("trend") or "").strip().lower() or None,
+                "recurrence_score": max(
+                    0,
+                    _coerce_int(
+                        row.get("recurrence_score")
+                        if row.get("recurrence_score") is not None
+                        else recurring_row.get("recurrence_score"),
+                        default=0,
+                    ),
+                ),
+                "hypothesis_ids": hypothesis_ids,
+            }
+        )
+    return targets
+
+
+def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
+    seed_report_path = (
+        _resolve_path_from_base(args.seed_report_path, base_dir=Path.cwd())
+        if getattr(args, "seed_report_path", None) is not None
+        else None
+    )
+    benchmark_report_path = (
+        _resolve_path_from_base(args.benchmark_report_path, base_dir=Path.cwd())
+        if getattr(args, "benchmark_report_path", None) is not None
+        else None
+    )
+    pipeline_config_path = (
+        _resolve_path_from_base(args.pipeline_config_path, base_dir=Path.cwd())
+        if getattr(args, "pipeline_config_path", None) is not None
+        else None
+    )
+    if pipeline_config_path is None and getattr(args, "write_config_path", None) is not None:
+        raise ValueError("write_config_path_requires_pipeline_config_path")
+    if pipeline_config_path is None and bool(getattr(args, "in_place", False)):
+        raise ValueError("in_place_requires_pipeline_config_path")
+
+    seed_report: dict[str, Any] = {}
+    benchmark_report: dict[str, Any] = {}
+    benchmark_priority_targets: list[dict[str, Any]] = []
+    benchmark_targets_without_hypothesis_id: list[dict[str, Any]] = []
+    seed_hypothesis_ids: list[str] = []
+    seen_seed_ids: set[str] = set()
+    source_by_hypothesis_id: dict[str, dict[str, Any]] = {}
+    domain_from_seed: str | None = None
+    domain_from_benchmark: str | None = None
+    benchmark_min_opportunity = (
+        float(getattr(args, "benchmark_min_opportunity"))
+        if getattr(args, "benchmark_min_opportunity", None) is not None
+        else None
+    )
+    if benchmark_report_path is not None:
+        loaded_benchmark = json.loads(benchmark_report_path.read_text(encoding="utf-8"))
+        if not isinstance(loaded_benchmark, dict):
+            raise ValueError("invalid_benchmark_report:expected_json_object")
+        benchmark_report = dict(loaded_benchmark)
+        benchmark_priority_targets = _collect_benchmark_priority_targets(
+            benchmark_report,
+            min_opportunity_score=benchmark_min_opportunity,
+        )
+        benchmark_domains = {
+            str(row.get("domain") or "").strip().lower()
+            for row in benchmark_priority_targets
+            if str(row.get("domain") or "").strip()
+        }
+        if len(benchmark_domains) == 1:
+            domain_from_benchmark = next(iter(benchmark_domains))
+        for row in benchmark_priority_targets:
+            hypothesis_ids = [str(item) for item in list(row.get("hypothesis_ids") or []) if str(item)]
+            if not hypothesis_ids:
+                benchmark_targets_without_hypothesis_id.append(row)
+                continue
+            for hypothesis_id in hypothesis_ids:
+                if hypothesis_id in seen_seed_ids:
+                    continue
+                seen_seed_ids.add(hypothesis_id)
+                seed_hypothesis_ids.append(hypothesis_id)
+                source_by_hypothesis_id[hypothesis_id] = {
+                    "seed_index": int(row.get("index") or 0),
+                    "seed_reason": "benchmark_priority",
+                    "benchmark_priority_rank": int(row.get("priority_rank") or 0),
+                    "benchmark_opportunity_score": _coerce_float(row.get("opportunity_score"), default=0.0),
+                    "benchmark_domain": row.get("domain"),
+                    "benchmark_friction_key": row.get("friction_key"),
+                    "benchmark_trend": row.get("trend"),
+                    "benchmark_recurrence_score": int(row.get("recurrence_score") or 0),
+                }
+    if seed_report_path is not None:
+        loaded_seed = json.loads(seed_report_path.read_text(encoding="utf-8"))
+        if not isinstance(loaded_seed, dict):
+            raise ValueError("invalid_seed_report:expected_json_object")
+        seed_report = dict(loaded_seed)
+        domain_from_seed = str(seed_report.get("domain") or "").strip().lower() or None
+        if domain_from_seed in {"multi_domain", "all", "*"}:
+            domain_from_seed = None
+        seed_rows = [row for row in list(seed_report.get("created") or []) if isinstance(row, dict)]
+        if bool(getattr(args, "include_existing", False)):
+            seed_rows.extend([row for row in list(seed_report.get("existing") or []) if isinstance(row, dict)])
+
+        for index, row in enumerate(seed_rows):
+            hypothesis_id = str(row.get("hypothesis_id") or "").strip()
+            if not hypothesis_id or hypothesis_id in seen_seed_ids:
+                continue
+            seen_seed_ids.add(hypothesis_id)
+            seed_hypothesis_ids.append(hypothesis_id)
+            source_by_hypothesis_id[hypothesis_id] = {
+                "seed_index": int(index),
+                "seed_reason": str(row.get("reason") or "seed_report_row"),
+            }
+
+    domain_filter_raw = str(getattr(args, "domain", None) or domain_from_seed or domain_from_benchmark or "").strip().lower()
+    domain_filter = domain_filter_raw or None
+    status_filters = _coerce_status_preferences(getattr(args, "statuses", "queued"))
+    if not status_filters:
+        status_filters = ["queued"]
+    status_filter_set = set(status_filters)
+
+    limit = max(1, int(getattr(args, "limit", 8) or 8))
+    lookup_limit = max(limit, int(getattr(args, "lookup_limit", 400) or 400))
+    default_sample_size = max(1, int(getattr(args, "default_sample_size", 100) or 100))
+    overwrite_artifacts = bool(getattr(args, "overwrite_artifacts", False))
+
+    pipeline_payload: dict[str, Any] = {}
+    existing_experiment_jobs: list[dict[str, Any]] = []
+    if pipeline_config_path is not None:
+        loaded_pipeline = json.loads(pipeline_config_path.read_text(encoding="utf-8"))
+        if not isinstance(loaded_pipeline, dict):
+            raise ValueError("invalid_pipeline_config:expected_json_object")
+        pipeline_payload = dict(loaded_pipeline)
+        existing_experiment_jobs = [
+            dict(item)
+            for item in list(pipeline_payload.get("experiment_jobs") or [])
+            if isinstance(item, dict)
+        ]
+
+    base_dir = pipeline_config_path.parent if pipeline_config_path is not None else Path.cwd()
+    artifacts_dir = _resolve_path_from_base(
+        getattr(args, "artifacts_dir", "analysis/improvement/experiment_artifacts"),
+        base_dir=base_dir,
+    )
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+    try:
+        errors: list[dict[str, Any]] = []
+
+        listing_limit = max(lookup_limit, len(seed_hypothesis_ids) + 20)
+        hypothesis_candidates = [
+            item
+            for item in runtime.list_hypotheses(
+                domain=domain_filter,
+                status=None,
+                limit=listing_limit,
+            )
+            if isinstance(item, dict)
+        ]
+        hypothesis_by_id = {
+            str(item.get("hypothesis_id") or "").strip(): item
+            for item in hypothesis_candidates
+            if str(item.get("hypothesis_id") or "").strip()
+        }
+        hypothesis_by_domain_friction: dict[str, dict[str, Any]] = {}
+        for item in hypothesis_candidates:
+            item_domain = str(item.get("domain") or "").strip().lower()
+            item_friction_key = _normalize_friction_key(item.get("friction_key"))
+            if item_domain and item_friction_key:
+                hypothesis_by_domain_friction.setdefault(f"{item_domain}:{item_friction_key}", item)
+
+        selected_hypotheses: list[dict[str, Any]] = []
+        selected_hypothesis_ids: set[str] = set()
+
+        def _append_selected_hypothesis(hypothesis: dict[str, Any]) -> bool:
+            hypothesis_id = str(hypothesis.get("hypothesis_id") or "").strip()
+            if not hypothesis_id or hypothesis_id in selected_hypothesis_ids:
+                return False
+            selected_hypotheses.append(dict(hypothesis))
+            selected_hypothesis_ids.add(hypothesis_id)
+            return True
+
+        if seed_hypothesis_ids:
+            for index, hypothesis_id in enumerate(seed_hypothesis_ids):
+                if len(selected_hypotheses) >= limit:
+                    break
+                hypothesis = hypothesis_by_id.get(hypothesis_id)
+                if not isinstance(hypothesis, dict):
+                    fallback = runtime.hypothesis_lab.get_hypothesis(hypothesis_id)
+                    if isinstance(fallback, dict):
+                        hypothesis = fallback
+                if not isinstance(hypothesis, dict):
+                    errors.append(
+                        {
+                            "index": index,
+                            "hypothesis_id": hypothesis_id,
+                            "error": "seed_hypothesis_not_found",
+                        }
+                    )
+                    continue
+                status_value = str(hypothesis.get("status") or "").strip().lower()
+                if status_filter_set and status_value not in status_filter_set:
+                    continue
+                _append_selected_hypothesis(dict(hypothesis))
+
+        for row in benchmark_targets_without_hypothesis_id:
+            if len(selected_hypotheses) >= limit:
+                break
+            row_domain = str(row.get("domain") or "").strip().lower()
+            row_friction_key = _normalize_friction_key(row.get("friction_key"))
+            if not row_domain or not row_friction_key:
+                continue
+            hypothesis = dict(hypothesis_by_domain_friction.get(f"{row_domain}:{row_friction_key}") or {})
+            if not hypothesis:
+                continue
+            status_value = str(hypothesis.get("status") or "").strip().lower()
+            if status_filter_set and status_value not in status_filter_set:
+                continue
+            if not _append_selected_hypothesis(hypothesis):
+                continue
+            hypothesis_id = str(hypothesis.get("hypothesis_id") or "").strip()
+            source_by_hypothesis_id[hypothesis_id] = {
+                "seed_index": int(row.get("index") or 0),
+                "seed_reason": "benchmark_priority_domain_friction",
+                "benchmark_priority_rank": int(row.get("priority_rank") or 0),
+                "benchmark_opportunity_score": _coerce_float(row.get("opportunity_score"), default=0.0),
+                "benchmark_domain": row.get("domain"),
+                "benchmark_friction_key": row.get("friction_key"),
+                "benchmark_trend": row.get("trend"),
+                "benchmark_recurrence_score": int(row.get("recurrence_score") or 0),
+            }
+
+        if not selected_hypotheses:
+            for hypothesis in hypothesis_candidates:
+                status_value = str(hypothesis.get("status") or "").strip().lower()
+                if status_filter_set and status_value not in status_filter_set:
+                    continue
+                if not _append_selected_hypothesis(dict(hypothesis)):
+                    continue
+                if len(selected_hypotheses) >= limit:
+                    break
+
+        existing_hypothesis_ids: set[str] = set()
+        existing_domain_friction_pairs: set[str] = set()
+        for existing_job in existing_experiment_jobs:
+            existing_hypothesis_id = str(existing_job.get("hypothesis_id") or "").strip()
+            if existing_hypothesis_id:
+                existing_hypothesis_ids.add(existing_hypothesis_id)
+            existing_domain = str(existing_job.get("domain") or "").strip().lower()
+            existing_friction_key = _normalize_friction_key(existing_job.get("friction_key"))
+            if existing_domain and existing_friction_key:
+                existing_domain_friction_pairs.add(f"{existing_domain}:{existing_friction_key}")
+
+        appended_jobs: list[dict[str, Any]] = []
+        skipped_existing_jobs: list[dict[str, Any]] = []
+        drafts: list[dict[str, Any]] = []
+        artifact_created_count = 0
+        artifact_existing_count = 0
+
+        for index, hypothesis in enumerate(selected_hypotheses):
+            hypothesis_id = str(hypothesis.get("hypothesis_id") or "").strip()
+            if not hypothesis_id:
+                errors.append(
+                    {
+                        "index": index,
+                        "error": "missing_hypothesis_id",
+                    }
+                )
+                continue
+            domain = str(hypothesis.get("domain") or "").strip().lower() or "unknown"
+            friction_key = _normalize_friction_key(hypothesis.get("friction_key"))
+            if not friction_key:
+                friction_key = _normalize_friction_key(hypothesis.get("title")) or f"hypothesis_{index + 1}"
+            status_value = str(hypothesis.get("status") or "").strip().lower()
+
+            success_criteria = (
+                dict(hypothesis.get("success_criteria") or {})
+                if isinstance(hypothesis.get("success_criteria"), dict)
+                else {}
+            )
+            metric = str(success_criteria.get("metric") or "").strip() or "utility_score"
+            direction = str(success_criteria.get("direction") or "increase").strip().lower() or "increase"
+            try:
+                min_effect = float(success_criteria.get("min_effect") or 0.0)
+            except (TypeError, ValueError):
+                min_effect = 0.0
+            try:
+                target_sample_size = int(success_criteria.get("min_sample_size"))
+                if target_sample_size <= 0:
+                    target_sample_size = default_sample_size
+            except (TypeError, ValueError):
+                target_sample_size = default_sample_size
+            guardrails = _normalize_guardrail_rows(success_criteria.get("guardrails"))
+
+            environment = (
+                str(getattr(args, "environment", None)).strip()
+                if getattr(args, "environment", None) is not None and str(getattr(args, "environment", None)).strip()
+                else _default_controlled_environment_for_domain(domain)
+            )
+
+            safe_domain = re.sub(r"[^a-zA-Z0-9_-]+", "_", domain) or "domain"
+            safe_friction = re.sub(r"[^a-zA-Z0-9_-]+", "_", friction_key) or "friction"
+            safe_hypothesis_id = re.sub(r"[^a-zA-Z0-9_-]+", "_", hypothesis_id) or f"hypothesis_{index + 1}"
+            artifact_filename = f"{safe_domain}_{safe_friction}_{safe_hypothesis_id[-8:]}.json"
+            artifact_path = (artifacts_dir / artifact_filename).resolve()
+
+            baseline_metrics: dict[str, Any] = {metric: 0.0}
+            candidate_metrics: dict[str, Any] = {metric: float(min_effect)}
+            for guardrail in guardrails:
+                guardrail_metric = str(guardrail.get("metric") or "").strip()
+                if not guardrail_metric:
+                    continue
+                guardrail_value_raw = guardrail.get("value")
+                try:
+                    guardrail_value = float(guardrail_value_raw) if guardrail_value_raw is not None else 0.0
+                except (TypeError, ValueError):
+                    guardrail_value = 0.0
+                baseline_metrics.setdefault(guardrail_metric, guardrail_value)
+                candidate_metrics.setdefault(guardrail_metric, guardrail_value)
+
+            artifact_payload: dict[str, Any] = {
+                "environment": environment,
+                "baseline_metrics": baseline_metrics,
+                "candidate_metrics": candidate_metrics,
+                "baseline": {"metrics": baseline_metrics},
+                "candidate": {
+                    "metrics": candidate_metrics,
+                    "sample_size": int(target_sample_size),
+                },
+                "sample_size": int(target_sample_size),
+                "metadata": {
+                    "generated_by": "jarvis.cli.improvement.draft-experiment-jobs",
+                    "template_state": "bootstrap_numeric_placeholders",
+                    "hypothesis_id": hypothesis_id,
+                    "domain": domain,
+                    "friction_key": friction_key,
+                    "success_criteria": success_criteria,
+                    "target_sample_size": int(target_sample_size),
+                    "guardrails": guardrails,
+                },
+                "notes": (
+                    "Drafted controlled experiment artifact with bootstrap numeric placeholders. "
+                    "Replace baseline/candidate metrics with observed controlled-run values before promotion decisions."
+                ),
+            }
+
+            artifact_status = "created"
+            if artifact_path.exists() and not overwrite_artifacts:
+                artifact_status = "existing"
+                artifact_existing_count += 1
+            else:
+                artifact_path.parent.mkdir(parents=True, exist_ok=True)
+                artifact_path.write_text(json.dumps(artifact_payload, indent=2), encoding="utf-8")
+                artifact_created_count += 1
+
+            if pipeline_config_path is not None:
+                try:
+                    job_artifact_path = Path(
+                        os.path.relpath(
+                            artifact_path,
+                            start=pipeline_config_path.parent,
+                        )
+                    ).as_posix()
+                except ValueError:
+                    job_artifact_path = str(artifact_path)
+            else:
+                job_artifact_path = str(artifact_path)
+
+            source_hint = dict(source_by_hypothesis_id.get(hypothesis_id) or {})
+            source_reason = str(source_hint.get("seed_reason") or "queued_hypothesis")
+
+            job_entry: dict[str, Any] = {
+                "hypothesis_id": hypothesis_id,
+                "domain": domain,
+                "friction_key": friction_key,
+                "artifact_path": job_artifact_path,
+                "environment": environment,
+                "notes": f"auto_draft:{source_reason}",
+                "compare_history": True,
+                "collect_debug": True,
+                "auto_retest_lane": True,
+            }
+
+            config_action = "not_requested"
+            if pipeline_config_path is not None:
+                domain_friction_key = f"{domain}:{friction_key}" if domain and friction_key else ""
+                duplicate_reason: str | None = None
+                if hypothesis_id in existing_hypothesis_ids:
+                    duplicate_reason = "existing_hypothesis_id"
+                elif domain_friction_key and domain_friction_key in existing_domain_friction_pairs:
+                    duplicate_reason = "existing_domain_friction_key"
+
+                if duplicate_reason is not None:
+                    skipped_existing_jobs.append(
+                        {
+                            "index": index,
+                            "hypothesis_id": hypothesis_id,
+                            "domain": domain,
+                            "friction_key": friction_key,
+                            "reason": duplicate_reason,
+                        }
+                    )
+                    config_action = f"skipped_{duplicate_reason}"
+                else:
+                    appended_jobs.append(dict(job_entry))
+                    existing_hypothesis_ids.add(hypothesis_id)
+                    if domain_friction_key:
+                        existing_domain_friction_pairs.add(domain_friction_key)
+                    config_action = "appended"
+
+            drafts.append(
+                {
+                    "index": index,
+                    "hypothesis_id": hypothesis_id,
+                    "domain": domain,
+                    "status": status_value,
+                    "risk_level": hypothesis.get("risk_level"),
+                    "friction_key": friction_key,
+                    "artifact_path": str(artifact_path),
+                    "artifact_status": artifact_status,
+                    "job": job_entry,
+                    "config_action": config_action,
+                    "target_sample_size": int(target_sample_size),
+                    "primary_metric": metric,
+                    "direction": direction,
+                    "min_effect": float(min_effect),
+                    "guardrails": guardrails,
+                    "source_hint": source_hint,
+                }
+            )
+
+        config_output_path: Path | None = None
+        if pipeline_config_path is not None:
+            if bool(getattr(args, "in_place", False)):
+                config_output_path = pipeline_config_path
+            elif getattr(args, "write_config_path", None) is not None:
+                config_output_path = _resolve_path_from_base(
+                    args.write_config_path,
+                    base_dir=pipeline_config_path.parent,
+                )
+            else:
+                suffix = pipeline_config_path.suffix or ".json"
+                config_output_path = pipeline_config_path.with_name(f"{pipeline_config_path.stem}.drafted{suffix}")
+
+            merged_jobs = [dict(item) for item in existing_experiment_jobs]
+            merged_jobs.extend([dict(item) for item in appended_jobs])
+            updated_pipeline_payload = dict(pipeline_payload)
+            updated_pipeline_payload["experiment_jobs"] = merged_jobs
+
+            config_output_path.parent.mkdir(parents=True, exist_ok=True)
+            config_output_path.write_text(json.dumps(updated_pipeline_payload, indent=2), encoding="utf-8")
+
+        payload = {
+            "generated_at": utc_now_iso(),
+            "seed_report_path": str(seed_report_path) if seed_report_path is not None else None,
+            "benchmark_report_path": str(benchmark_report_path) if benchmark_report_path is not None else None,
+            "benchmark_target_count": len(benchmark_priority_targets),
+            "benchmark_target_missing_hypothesis_count": len(benchmark_targets_without_hypothesis_id),
+            "benchmark_min_opportunity": benchmark_min_opportunity,
+            "pipeline_config_path": str(pipeline_config_path) if pipeline_config_path is not None else None,
+            "config_output_path": str(config_output_path) if config_output_path is not None else None,
+            "artifacts_dir": str(artifacts_dir),
+            "domain_filter": domain_filter,
+            "status_filters": status_filters,
+            "limit": limit,
+            "lookup_limit": lookup_limit,
+            "candidate_seed_count": len(seed_hypothesis_ids),
+            "selected_hypotheses_count": len(selected_hypotheses),
+            "drafted_count": len(drafts),
+            "artifact_created_count": artifact_created_count,
+            "artifact_existing_count": artifact_existing_count,
+            "config_appended_count": len(appended_jobs),
+            "config_skipped_existing_count": len(skipped_existing_jobs),
+            "drafts": drafts,
+            "appended_jobs": appended_jobs,
+            "config_skipped_existing": skipped_existing_jobs,
+            "errors": errors,
+            "error_count": len(errors),
+            "status": "ok" if drafts and not errors else "warning",
+        }
+        if not drafts and not errors:
+            payload["note"] = "no_hypotheses_selected_for_drafting"
+
+        output_path = args.output_path.resolve() if args.output_path is not None else None
+        if output_path is not None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            payload["output_path"] = str(output_path)
+
+        _print_json_payload(
+            payload,
+            compact=bool(getattr(args, "json_compact", False)),
+        )
+
+        if (errors or not drafts) and bool(getattr(args, "strict", False)):
+            raise SystemExit(2)
+    finally:
+        runtime.close()
+
+
 def _coerce_status_preferences(value: Any) -> list[str]:
     if value is None:
         return []
@@ -3846,6 +4435,59 @@ def _count_verdict(rows: list[dict[str, Any]], verdict: str) -> int:
     )
 
 
+def _aggregate_stage_status(statuses: list[str]) -> str:
+    normalized = [str(item or "").strip().lower() for item in list(statuses or [])]
+    normalized = [item for item in normalized if item]
+    if not normalized:
+        return "skipped_not_requested"
+    if any(item == "error" for item in normalized):
+        return "error"
+    if all(item == "skipped_not_requested" for item in normalized):
+        return "skipped_not_requested"
+    if any(item in {"warning", "skipped_leaderboard_error"} for item in normalized):
+        return "warning"
+    if all(item == "ok" for item in normalized):
+        return "ok"
+    return normalized[0]
+
+
+def _infer_feedback_seed_context_from_config(*, config_path: Path, domain: str) -> dict[str, Any] | None:
+    try:
+        loaded = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    feedback_jobs = list(loaded.get("feedback_jobs") or [])
+    resolved_domain = str(domain or "").strip().lower()
+    for raw_job in feedback_jobs:
+        if not isinstance(raw_job, dict):
+            continue
+        job_domain = str(raw_job.get("domain") or "").strip().lower()
+        if resolved_domain and job_domain != resolved_domain:
+            continue
+        input_path_raw = raw_job.get("input_path")
+        if input_path_raw is None or not str(input_path_raw).strip():
+            continue
+        input_format = str(raw_job.get("input_format") or "").strip().lower() or None
+        source = str(raw_job.get("source") or "").strip().lower() or None
+        return {
+            "domain": job_domain or resolved_domain or None,
+            "source": source,
+            "input_format": input_format,
+            "input_path": _resolve_pipeline_path(input_path_raw, config_path=config_path),
+        }
+    return None
+
+
+def _infer_feedback_input_path_from_config(*, config_path: Path, domain: str) -> Path | None:
+    inferred = _infer_feedback_seed_context_from_config(config_path=config_path, domain=domain)
+    if not isinstance(inferred, dict):
+        return None
+    input_path = inferred.get("input_path")
+    return input_path if isinstance(input_path, Path) else None
+
+
 def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
     config_path = args.config_path.resolve()
     default_output_dir = (config_path.parent / "output" / "improvement" / "operator_cycle").resolve()
@@ -3871,6 +4513,26 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         output_dir,
         args.retest_artifact_dir,
         default_name="retest_artifacts",
+    )
+    draft_report_path = _resolve_path_near(
+        output_dir,
+        getattr(args, "draft_report_path", None),
+        default_name="draft_experiment_jobs_report.json",
+    )
+    draft_artifacts_dir = _resolve_path_near(
+        output_dir,
+        getattr(args, "draft_artifacts_dir", None),
+        default_name="drafted_experiment_artifacts",
+    )
+    seed_leaderboard_report_path = _resolve_path_near(
+        output_dir,
+        getattr(args, "seed_leaderboard_report_path", None),
+        default_name="fitness_frustration_leaderboard.json",
+    )
+    seed_report_output_path = _resolve_path_near(
+        output_dir,
+        getattr(args, "seed_report_path", None),
+        default_name="fitness_leaderboard_seed_report.json",
     )
 
     stage_errors: list[dict[str, Any]] = []
@@ -3898,10 +4560,438 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         }
         stage_errors.append({"stage": "pull_feeds", "error": str(exc)})
 
+    seed_requested = bool(
+        getattr(args, "seed_enable", False)
+        or getattr(args, "seed_leaderboard_input_path", None) is not None
+    )
+    seed_domains = [
+        str(item or "").strip().lower()
+        for item in _parse_csv_items(getattr(args, "seed_domains", None))
+        if str(item or "").strip()
+    ]
+    if not seed_domains:
+        fallback_seed_domain = (
+            str(getattr(args, "seed_domain", "fitness_apps") or "fitness_apps").strip().lower() or "fitness_apps"
+        )
+        seed_domains = [fallback_seed_domain]
+    deduped_seed_domains: list[str] = []
+    seen_seed_domains: set[str] = set()
+    for domain_value in seed_domains:
+        if domain_value in seen_seed_domains:
+            continue
+        seen_seed_domains.add(domain_value)
+        deduped_seed_domains.append(domain_value)
+    seed_domains = deduped_seed_domains
+
+    seed_source_override = str(getattr(args, "seed_source", None) or "").strip().lower() or None
+    seed_hypothesis_source_override = (
+        str(getattr(args, "seed_hypothesis_source", None) or "").strip().lower() or None
+    )
+
+    leaderboard_payload: dict[str, Any]
+    seed_payload: dict[str, Any]
+    seed_domain_runs: list[dict[str, Any]] = []
+    seed_report_paths_for_draft: list[Path] = []
+    seed_combined_report_path: Path | None = None
+    if seed_requested:
+        for domain_index, seed_domain in enumerate(seed_domains):
+            domain_slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", seed_domain) or f"domain_{domain_index + 1}"
+            if domain_index == 0:
+                domain_leaderboard_report_path = seed_leaderboard_report_path
+                domain_seed_report_path = seed_report_output_path
+            else:
+                domain_seed_output_dir = (output_dir / "seeding" / domain_slug).resolve()
+                domain_seed_output_dir.mkdir(parents=True, exist_ok=True)
+                domain_leaderboard_report_path = _resolve_path_near(
+                    domain_seed_output_dir,
+                    None,
+                    default_name=f"{domain_slug}_frustration_leaderboard.json",
+                )
+                domain_seed_report_path = _resolve_path_near(
+                    domain_seed_output_dir,
+                    None,
+                    default_name=f"{domain_slug}_leaderboard_seed_report.json",
+                )
+
+            domain_input_path: Path | None = None
+            domain_input_format = (
+                str(getattr(args, "seed_leaderboard_input_format", None)).strip().lower()
+                if getattr(args, "seed_leaderboard_input_format", None) is not None
+                else None
+            )
+            domain_seed_source = seed_source_override
+            domain_seed_hypothesis_source = seed_hypothesis_source_override or "fitness_leaderboard"
+
+            try:
+                leaderboard_input_raw = getattr(args, "seed_leaderboard_input_path", None)
+                if leaderboard_input_raw is not None and str(leaderboard_input_raw).strip():
+                    explicit_leaderboard_input = Path(str(leaderboard_input_raw)).expanduser()
+                    if explicit_leaderboard_input.is_absolute():
+                        domain_input_path = explicit_leaderboard_input.resolve()
+                    else:
+                        cwd_relative_candidate = (Path.cwd() / explicit_leaderboard_input).resolve()
+                        if cwd_relative_candidate.exists():
+                            domain_input_path = cwd_relative_candidate
+                        else:
+                            domain_input_path = _resolve_pipeline_path(
+                                explicit_leaderboard_input,
+                                config_path=config_path,
+                            )
+                else:
+                    inferred_context = _infer_feedback_seed_context_from_config(
+                        config_path=config_path,
+                        domain=seed_domain,
+                    )
+                    if not isinstance(inferred_context, dict):
+                        raise ValueError("missing_seed_leaderboard_input_path")
+                    inferred_input = inferred_context.get("input_path")
+                    if not isinstance(inferred_input, Path):
+                        raise ValueError("missing_seed_leaderboard_input_path")
+                    domain_input_path = inferred_input
+                    if domain_seed_source is None:
+                        inferred_source = str(inferred_context.get("source") or "").strip().lower() or None
+                        domain_seed_source = inferred_source
+                    if domain_input_format is None:
+                        inferred_format = str(inferred_context.get("input_format") or "").strip().lower() or None
+                        domain_input_format = inferred_format
+
+                if domain_input_path is None:
+                    raise ValueError("missing_seed_leaderboard_input_path")
+                if domain_seed_source is None:
+                    domain_seed_source = "market_reviews"
+
+                leaderboard_args = argparse.Namespace(
+                    input_path=domain_input_path,
+                    input_format=domain_input_format,
+                    domain=seed_domain,
+                    source=domain_seed_source,
+                    timestamp_fields=str(
+                        getattr(
+                            args,
+                            "seed_timestamp_fields",
+                            "created_at,at,submission_date,date,timestamp,occurred_at",
+                        )
+                        or "created_at,at,submission_date,date,timestamp,occurred_at"
+                    ),
+                    as_of=getattr(args, "seed_as_of", None),
+                    lookback_days=max(1, int(getattr(args, "seed_lookback_days", 7) or 7)),
+                    min_cluster_count=max(1, int(getattr(args, "seed_min_cluster_count", 1) or 1)),
+                    cluster_limit=max(1, int(getattr(args, "seed_cluster_limit", 20) or 20)),
+                    leaderboard_limit=max(1, int(getattr(args, "seed_leaderboard_limit", 12) or 12)),
+                    cooling_limit=max(1, int(getattr(args, "seed_cooling_limit", 10) or 10)),
+                    trend_threshold=max(0.0, float(getattr(args, "seed_trend_threshold", 0.25) or 0.25)),
+                    include_untimed_current=bool(getattr(args, "seed_include_untimed_current", False)),
+                    strict=False,
+                    output_path=domain_leaderboard_report_path,
+                    json_compact=False,
+                )
+                domain_leaderboard_payload = _invoke_cli_json_command(
+                    cmd_improvement_fitness_leaderboard,
+                    args=leaderboard_args,
+                )
+            except Exception as exc:
+                domain_leaderboard_payload = {
+                    "status": "error",
+                    "error": str(exc),
+                    "output_path": str(domain_leaderboard_report_path),
+                }
+                domain_seed_payload = {
+                    "status": "skipped_leaderboard_error",
+                    "output_path": str(domain_seed_report_path),
+                }
+                stage_errors.append({"stage": "fitness_leaderboard", "domain": seed_domain, "error": str(exc)})
+            else:
+                try:
+                    seed_args = argparse.Namespace(
+                        leaderboard_path=domain_leaderboard_report_path,
+                        domain=seed_domain,
+                        source=domain_seed_hypothesis_source,
+                        trends=str(getattr(args, "seed_trends", "new,rising") or "new,rising"),
+                        limit=max(1, int(getattr(args, "seed_limit", 8) or 8)),
+                        min_impact_score=float(getattr(args, "seed_min_impact_score", 0.0) or 0.0),
+                        min_impact_delta=float(getattr(args, "seed_min_impact_delta", 0.0) or 0.0),
+                        owner=str(getattr(args, "seed_owner", "operator") or "operator").strip() or "operator",
+                        lookup_limit=max(1, int(getattr(args, "seed_lookup_limit", 400) or 400)),
+                        strict=False,
+                        output_path=domain_seed_report_path,
+                        json_compact=False,
+                        repo_path=args.repo_path,
+                        db_path=args.db_path,
+                    )
+                    domain_seed_payload = _invoke_cli_json_command(
+                        cmd_improvement_seed_from_leaderboard,
+                        args=seed_args,
+                    )
+                except Exception as exc:
+                    domain_seed_payload = {
+                        "status": "error",
+                        "error": str(exc),
+                        "output_path": str(domain_seed_report_path),
+                    }
+                    stage_errors.append({"stage": "seed_from_leaderboard", "domain": seed_domain, "error": str(exc)})
+
+            seed_domain_runs.append(
+                {
+                    "domain": seed_domain,
+                    "source": domain_seed_source or "market_reviews",
+                    "hypothesis_source": domain_seed_hypothesis_source,
+                    "input_path": str(domain_input_path) if domain_input_path is not None else None,
+                    "input_format": domain_input_format,
+                    "leaderboard_report_path": str(domain_leaderboard_report_path),
+                    "seed_report_path": str(domain_seed_report_path),
+                    "fitness_leaderboard": domain_leaderboard_payload,
+                    "seed_from_leaderboard": domain_seed_payload,
+                }
+            )
+            if str(domain_seed_payload.get("status") or "").strip().lower() == "ok":
+                seed_output_path_raw = str(domain_seed_payload.get("output_path") or "").strip()
+                if seed_output_path_raw:
+                    seed_report_paths_for_draft.append(Path(seed_output_path_raw).expanduser().resolve())
+
+        leaderboard_statuses = [
+            str((row.get("fitness_leaderboard") or {}).get("status") or "")
+            for row in seed_domain_runs
+            if isinstance(row, dict)
+        ]
+        seed_statuses = [
+            str((row.get("seed_from_leaderboard") or {}).get("status") or "")
+            for row in seed_domain_runs
+            if isinstance(row, dict)
+        ]
+
+        if len(seed_domain_runs) == 1:
+            only_run = seed_domain_runs[0]
+            leaderboard_payload = dict(only_run.get("fitness_leaderboard") or {})
+            seed_payload = dict(only_run.get("seed_from_leaderboard") or {})
+        else:
+            leaderboard_payload = {
+                "status": _aggregate_stage_status(leaderboard_statuses),
+                "domain_count": len(seed_domain_runs),
+                "runs": [
+                    {
+                        "domain": row.get("domain"),
+                        "status": str((row.get("fitness_leaderboard") or {}).get("status") or ""),
+                        "input_path": row.get("input_path"),
+                        "source": row.get("source"),
+                        "output_path": str((row.get("fitness_leaderboard") or {}).get("output_path") or ""),
+                        "error": (row.get("fitness_leaderboard") or {}).get("error"),
+                    }
+                    for row in seed_domain_runs
+                    if isinstance(row, dict)
+                ],
+            }
+            seed_payload = {
+                "status": _aggregate_stage_status(seed_statuses),
+                "domain_count": len(seed_domain_runs),
+                "runs": [
+                    {
+                        "domain": row.get("domain"),
+                        "status": str((row.get("seed_from_leaderboard") or {}).get("status") or ""),
+                        "source": row.get("hypothesis_source"),
+                        "output_path": str((row.get("seed_from_leaderboard") or {}).get("output_path") or ""),
+                        "created_count": int((row.get("seed_from_leaderboard") or {}).get("created_count") or 0),
+                        "existing_count": int((row.get("seed_from_leaderboard") or {}).get("existing_count") or 0),
+                        "error": (row.get("seed_from_leaderboard") or {}).get("error"),
+                    }
+                    for row in seed_domain_runs
+                    if isinstance(row, dict)
+                ],
+            }
+
+        if len(seed_report_paths_for_draft) > 1:
+            try:
+                combined_created: list[dict[str, Any]] = []
+                combined_existing: list[dict[str, Any]] = []
+                combined_skipped: list[dict[str, Any]] = []
+                combined_errors: list[dict[str, Any]] = []
+                combined_domains: list[str] = []
+                for run in seed_domain_runs:
+                    if not isinstance(run, dict):
+                        continue
+                    run_domain = str(run.get("domain") or "").strip().lower() or None
+                    seed_report_path_value = str(run.get("seed_report_path") or "").strip()
+                    if not run_domain or not seed_report_path_value:
+                        continue
+                    run_seed_status = str((run.get("seed_from_leaderboard") or {}).get("status") or "").strip().lower()
+                    if run_seed_status != "ok":
+                        continue
+                    seed_report_path = Path(seed_report_path_value).expanduser().resolve()
+                    loaded_seed_report = json.loads(seed_report_path.read_text(encoding="utf-8"))
+                    if not isinstance(loaded_seed_report, dict):
+                        continue
+                    if run_domain not in combined_domains:
+                        combined_domains.append(run_domain)
+                    for row in list(loaded_seed_report.get("created") or []):
+                        if not isinstance(row, dict):
+                            continue
+                        combined_created.append({"domain": run_domain, **dict(row)})
+                    for row in list(loaded_seed_report.get("existing") or []):
+                        if not isinstance(row, dict):
+                            continue
+                        combined_existing.append({"domain": run_domain, **dict(row)})
+                    for row in list(loaded_seed_report.get("skipped") or []):
+                        if not isinstance(row, dict):
+                            continue
+                        combined_skipped.append({"domain": run_domain, **dict(row)})
+                    for row in list(loaded_seed_report.get("errors") or []):
+                        if not isinstance(row, dict):
+                            continue
+                        combined_errors.append({"domain": run_domain, **dict(row)})
+
+                combined_output_path = (output_dir / "seeding" / "combined_seed_report.json").resolve()
+                combined_output_path.parent.mkdir(parents=True, exist_ok=True)
+                combined_payload = {
+                    "generated_at": utc_now_iso(),
+                    "domain": "multi_domain",
+                    "domains": combined_domains,
+                    "source": "operator_cycle_multi_domain_seed",
+                    "created_count": len(combined_created),
+                    "existing_count": len(combined_existing),
+                    "skipped_count": len(combined_skipped),
+                    "error_count": len(combined_errors),
+                    "created": combined_created,
+                    "existing": combined_existing,
+                    "skipped": combined_skipped,
+                    "errors": combined_errors,
+                    "status": "ok" if not combined_errors else "warning",
+                    "output_path": str(combined_output_path),
+                }
+                combined_output_path.write_text(json.dumps(combined_payload, indent=2), encoding="utf-8")
+                seed_combined_report_path = combined_output_path
+                seed_payload["combined_output_path"] = str(combined_output_path)
+            except Exception as exc:
+                stage_errors.append({"stage": "seed_report_merge", "error": str(exc)})
+    else:
+        leaderboard_payload = {
+            "status": "skipped_not_requested",
+            "output_path": str(seed_leaderboard_report_path),
+        }
+        seed_payload = {
+            "status": "skipped_not_requested",
+            "output_path": str(seed_report_output_path),
+        }
+        seed_domain_runs = []
+
+    auto_draft_seed_report_path: Path | None = None
+    if seed_requested:
+        if seed_combined_report_path is not None:
+            auto_draft_seed_report_path = seed_combined_report_path
+        elif len(seed_report_paths_for_draft) == 1:
+            auto_draft_seed_report_path = seed_report_paths_for_draft[0]
+        elif str(seed_payload.get("status") or "").strip().lower() == "ok":
+            seed_output_path = str(seed_payload.get("output_path") or "").strip()
+            if seed_output_path:
+                auto_draft_seed_report_path = Path(seed_output_path).expanduser().resolve()
+    draft_seed_report_path = (
+        _resolve_path_from_base(getattr(args, "draft_seed_report_path"), base_dir=Path.cwd())
+        if getattr(args, "draft_seed_report_path", None) is not None
+        else auto_draft_seed_report_path
+    )
+
+    draft_requested = bool(getattr(args, "draft_enable", False) or draft_seed_report_path is not None)
+    draft_base_config_path = (
+        _resolve_path_from_base(getattr(args, "draft_config_path"), base_dir=Path.cwd())
+        if getattr(args, "draft_config_path", None) is not None
+        else config_path
+    )
+    draft_output_config_path = (
+        _resolve_path_from_base(getattr(args, "draft_output_config_path"), base_dir=Path.cwd())
+        if getattr(args, "draft_output_config_path", None) is not None
+        else draft_base_config_path.with_name(f"{draft_base_config_path.stem}.operator_cycle_drafted.json").resolve()
+    )
+
+    draft_payload: dict[str, Any]
+    daily_config_path = config_path
+    if draft_requested:
+        try:
+            draft_args = argparse.Namespace(
+                seed_report_path=draft_seed_report_path,
+                include_existing=bool(getattr(args, "draft_include_existing", False)),
+                domain=(
+                    str(getattr(args, "draft_domain")).strip()
+                    if getattr(args, "draft_domain", None) is not None
+                    else None
+                ),
+                statuses=str(getattr(args, "draft_statuses", "queued") or "queued"),
+                limit=max(1, int(getattr(args, "draft_limit", 8) or 8)),
+                lookup_limit=max(1, int(getattr(args, "draft_lookup_limit", 400) or 400)),
+                pipeline_config_path=draft_base_config_path,
+                write_config_path=draft_output_config_path,
+                in_place=False,
+                artifacts_dir=draft_artifacts_dir,
+                overwrite_artifacts=bool(getattr(args, "draft_overwrite_artifacts", False)),
+                environment=(
+                    str(getattr(args, "draft_environment")).strip()
+                    if getattr(args, "draft_environment", None) is not None
+                    else None
+                ),
+                default_sample_size=max(
+                    1,
+                    int(getattr(args, "draft_default_sample_size", 100) or 100),
+                ),
+                strict=False,
+                output_path=draft_report_path,
+                json_compact=False,
+                repo_path=args.repo_path,
+                db_path=args.db_path,
+            )
+            draft_payload = _invoke_cli_json_command(
+                cmd_improvement_draft_experiment_jobs,
+                args=draft_args,
+            )
+            resolved_output = str(draft_payload.get("config_output_path") or "").strip()
+            if resolved_output:
+                daily_config_path = Path(resolved_output).expanduser().resolve()
+            else:
+                daily_config_path = draft_output_config_path
+
+            # Drafted configs may be written outside the base config directory.
+            # Normalize relative artifact paths against the base config root so
+            # daily-pipeline can resolve them consistently from the drafted file location.
+            rewritten_artifact_paths = 0
+            if daily_config_path.exists():
+                loaded_draft_config = json.loads(daily_config_path.read_text(encoding="utf-8"))
+                if isinstance(loaded_draft_config, dict):
+                    experiment_jobs = list(loaded_draft_config.get("experiment_jobs") or [])
+                    changed = False
+                    for row in experiment_jobs:
+                        if not isinstance(row, dict):
+                            continue
+                        artifact_raw = row.get("artifact_path")
+                        if artifact_raw is None or not str(artifact_raw).strip():
+                            continue
+                        artifact_path = Path(str(artifact_raw)).expanduser()
+                        if artifact_path.is_absolute():
+                            continue
+                        resolved_artifact_path = (draft_base_config_path.parent / artifact_path).resolve()
+                        row["artifact_path"] = str(resolved_artifact_path)
+                        rewritten_artifact_paths += 1
+                        changed = True
+                    if changed:
+                        loaded_draft_config["experiment_jobs"] = experiment_jobs
+                        daily_config_path.write_text(json.dumps(loaded_draft_config, indent=2), encoding="utf-8")
+            if rewritten_artifact_paths > 0:
+                draft_payload["rewritten_artifact_paths"] = int(rewritten_artifact_paths)
+        except Exception as exc:
+            draft_payload = {
+                "status": "error",
+                "error": str(exc),
+                "output_path": str(draft_report_path),
+                "config_output_path": str(draft_output_config_path),
+            }
+            daily_config_path = draft_base_config_path
+            stage_errors.append({"stage": "draft_experiment_jobs", "error": str(exc)})
+    else:
+        draft_payload = {
+            "status": "skipped_not_requested",
+            "output_path": str(draft_report_path),
+            "config_output_path": str(config_path),
+        }
+
     daily_payload: dict[str, Any]
     try:
         daily_args = argparse.Namespace(
-            config_path=config_path,
+            config_path=daily_config_path,
             allow_missing_inputs=bool(args.allow_missing_inputs),
             strict=False,
             output_path=daily_report_path,
@@ -4062,11 +5152,20 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
 
     stage_statuses = {
         "pull_feeds": str(pull_payload.get("status") or ""),
+        "fitness_leaderboard": str(leaderboard_payload.get("status") or ""),
+        "seed_from_leaderboard": str(seed_payload.get("status") or ""),
+        "draft_experiment_jobs": str(draft_payload.get("status") or ""),
         "daily_pipeline": str(daily_payload.get("status") or ""),
         "execute_retests": str(retest_payload.get("status") or ""),
     }
-    stage_error_count = int(pull_payload.get("error_count") or 0) + int(daily_payload.get("error_count") or 0) + int(
-        retest_payload.get("error_count") or 0
+    stage_error_count = (
+        int(pull_payload.get("error_count") or 0)
+        + int(leaderboard_payload.get("error_count") or 0)
+        + int(seed_payload.get("error_count") or 0)
+        + int(draft_payload.get("error_count") or 0)
+        + int(daily_payload.get("error_count") or 0)
+        + int(retest_payload.get("error_count") or 0)
+        + len(stage_errors)
     )
     overall_status = "ok"
     if stage_errors or stage_error_count > 0 or any(status == "error" for status in stage_statuses.values()):
@@ -4075,6 +5174,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
     inbox_summary = {
         "generated_at": utc_now_iso(),
         "config_path": str(config_path),
+        "daily_config_path": str(daily_config_path),
         "output_dir": str(output_dir),
         "stage_statuses": stage_statuses,
         "metrics": metrics,
@@ -4091,14 +5191,25 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "generated_at": utc_now_iso(),
         "status": overall_status,
         "config_path": str(config_path),
+        "daily_config_path": str(daily_config_path),
         "output_dir": str(output_dir),
         "pull_report_path": str(pull_report_path),
+        "seed_leaderboard_report_path": str(seed_leaderboard_report_path),
+        "seed_report_path": str(seed_report_output_path),
+        "draft_report_path": str(draft_report_path),
+        "draft_output_config_path": str(draft_output_config_path),
+        "draft_artifacts_dir": str(draft_artifacts_dir),
         "daily_report_path": str(daily_report_path),
         "retest_report_path": str(retest_report_path),
         "inbox_summary_path": str(inbox_summary_path),
         "stage_statuses": stage_statuses,
         "stage_error_count": stage_error_count,
         "stage_errors": stage_errors,
+        "seed_domains": list(seed_domains),
+        "seed_domain_runs": seed_domain_runs,
+        "fitness_leaderboard": leaderboard_payload,
+        "seed_from_leaderboard": seed_payload,
+        "draft": draft_payload,
         "summary": inbox_summary,
     }
     _print_json_payload(
@@ -4588,6 +5699,481 @@ def cmd_improvement_verify_matrix_alert(args: argparse.Namespace) -> None:
         compact=bool(getattr(args, "json_compact", False)),
     )
     if verification_status != "ok" and bool(getattr(args, "strict", False)):
+        raise SystemExit(2)
+
+
+def _resolve_daily_report_from_improvement_report(
+    *,
+    report_path: Path,
+) -> tuple[dict[str, Any], Path, dict[str, Any]]:
+    loaded = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise ValueError("invalid_report_file:expected_json_object")
+
+    if isinstance(loaded.get("experiment_runs"), list):
+        return loaded, report_path, loaded
+
+    daily_report_path_raw = loaded.get("daily_report_path")
+    if daily_report_path_raw is None:
+        raise ValueError("invalid_report_file:missing_experiment_runs_or_daily_report_path")
+    daily_report_path = Path(str(daily_report_path_raw)).expanduser()
+    if not daily_report_path.is_absolute():
+        daily_report_path = (report_path.parent / daily_report_path).resolve()
+    else:
+        daily_report_path = daily_report_path.resolve()
+    if not daily_report_path.exists():
+        raise FileNotFoundError(str(daily_report_path))
+    daily_loaded = json.loads(daily_report_path.read_text(encoding="utf-8"))
+    if not isinstance(daily_loaded, dict):
+        raise ValueError("invalid_daily_report:expected_json_object")
+    return daily_loaded, daily_report_path, loaded
+
+
+def _collect_recurring_pain_rows(operator_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    seed_domain_runs = [row for row in list(operator_payload.get("seed_domain_runs") or []) if isinstance(row, dict)]
+    if not seed_domain_runs:
+        fallback_leaderboard = dict(operator_payload.get("fitness_leaderboard") or {})
+        if isinstance(fallback_leaderboard.get("leaderboard"), list):
+            fallback_domain = str(fallback_leaderboard.get("domain") or "").strip().lower() or "unknown"
+            seed_domain_runs = [
+                {
+                    "domain": fallback_domain,
+                    "fitness_leaderboard": fallback_leaderboard,
+                }
+            ]
+
+    rows_by_key: dict[str, dict[str, Any]] = {}
+    for run in seed_domain_runs:
+        leaderboard_payload = dict(run.get("fitness_leaderboard") or {})
+        leaderboard_rows = [row for row in list(leaderboard_payload.get("leaderboard") or []) if isinstance(row, dict)]
+        seed_payload = dict(run.get("seed_from_leaderboard") or {})
+        linked_hypothesis_ids_by_friction: dict[str, list[str]] = {}
+        for seed_row in [*list(seed_payload.get("created") or []), *list(seed_payload.get("existing") or [])]:
+            if not isinstance(seed_row, dict):
+                continue
+            linked_hypothesis_id = str(seed_row.get("hypothesis_id") or "").strip()
+            if not linked_hypothesis_id:
+                continue
+            linked_friction_key = _normalize_friction_key(seed_row.get("friction_key"))
+            if not linked_friction_key:
+                linked_friction_key = _normalize_friction_key(seed_row.get("canonical_key"))
+            if not linked_friction_key:
+                continue
+            ids = linked_hypothesis_ids_by_friction.setdefault(linked_friction_key, [])
+            if linked_hypothesis_id not in ids:
+                ids.append(linked_hypothesis_id)
+        domain = (
+            str(run.get("domain") or "").strip().lower()
+            or str(leaderboard_payload.get("domain") or "").strip().lower()
+            or "unknown"
+        )
+        for row in leaderboard_rows:
+            friction_key = _normalize_friction_key(
+                row.get("friction_key")
+                if row.get("friction_key") is not None
+                else row.get("canonical_key")
+            )
+            if not friction_key:
+                continue
+            canonical_key = str(row.get("canonical_key") or row.get("friction_key") or friction_key).strip()
+            signal_count_current = max(0, _coerce_int(row.get("signal_count_current"), default=0))
+            signal_count_previous = max(0, _coerce_int(row.get("signal_count_previous"), default=0))
+            recurrence_score = signal_count_current + signal_count_previous
+            impact_score_current = _coerce_float(row.get("impact_score_current"), default=0.0)
+            impact_score_delta = _coerce_float(row.get("impact_score_delta"), default=0.0)
+            trend = str(row.get("trend") or "").strip().lower() or "flat"
+            trend_acceleration = max(0.0, impact_score_delta)
+            if trend == "new" and trend_acceleration <= 0.0:
+                trend_acceleration = max(0.0, impact_score_current)
+            linked_hypothesis_ids = list(linked_hypothesis_ids_by_friction.get(friction_key) or [])
+            key = f"{domain}:{friction_key}"
+            existing = rows_by_key.get(key)
+            if existing is None:
+                rows_by_key[key] = {
+                    "domain": domain,
+                    "friction_key": friction_key,
+                    "canonical_key": canonical_key,
+                    "trend": trend,
+                    "signal_count_current": signal_count_current,
+                    "signal_count_previous": signal_count_previous,
+                    "recurrence_score": recurrence_score,
+                    "impact_score_current": round(float(impact_score_current), 4),
+                    "impact_score_delta": round(float(impact_score_delta), 4),
+                    "trend_acceleration": round(float(trend_acceleration), 4),
+                    "source_count": 1,
+                    "hypothesis_ids": linked_hypothesis_ids,
+                }
+                continue
+            existing["signal_count_current"] = int(existing.get("signal_count_current") or 0) + signal_count_current
+            existing["signal_count_previous"] = int(existing.get("signal_count_previous") or 0) + signal_count_previous
+            existing["recurrence_score"] = int(existing.get("recurrence_score") or 0) + recurrence_score
+            existing["impact_score_current"] = round(
+                max(_coerce_float(existing.get("impact_score_current"), default=0.0), impact_score_current),
+                4,
+            )
+            existing["impact_score_delta"] = round(
+                max(_coerce_float(existing.get("impact_score_delta"), default=0.0), impact_score_delta),
+                4,
+            )
+            existing["trend_acceleration"] = round(
+                max(_coerce_float(existing.get("trend_acceleration"), default=0.0), trend_acceleration),
+                4,
+            )
+            if str(existing.get("trend") or "") not in {"new", "rising"} and trend in {"new", "rising"}:
+                existing["trend"] = trend
+            existing["source_count"] = int(existing.get("source_count") or 0) + 1
+            existing_hypothesis_ids = [str(item) for item in list(existing.get("hypothesis_ids") or []) if str(item)]
+            for hypothesis_id in linked_hypothesis_ids:
+                if hypothesis_id not in existing_hypothesis_ids:
+                    existing_hypothesis_ids.append(hypothesis_id)
+            existing["hypothesis_ids"] = existing_hypothesis_ids
+
+    return list(rows_by_key.values())
+
+
+def _collect_seed_hypothesis_context(operator_payload: dict[str, Any]) -> dict[str, dict[str, str]]:
+    seed_domain_runs = [row for row in list(operator_payload.get("seed_domain_runs") or []) if isinstance(row, dict)]
+    if not seed_domain_runs:
+        fallback_seed_payload = dict(operator_payload.get("seed_from_leaderboard") or {})
+        fallback_fitness_payload = dict(operator_payload.get("fitness_leaderboard") or {})
+        fallback_domain = (
+            str(fallback_seed_payload.get("domain") or "").strip().lower()
+            or str(fallback_fitness_payload.get("domain") or "").strip().lower()
+        )
+        seed_domain_runs = [
+            {
+                "domain": fallback_domain,
+                "seed_from_leaderboard": fallback_seed_payload,
+            }
+        ]
+
+    context_by_hypothesis_id: dict[str, dict[str, str]] = {}
+    for run in seed_domain_runs:
+        domain = str(run.get("domain") or "").strip().lower()
+        seed_payload = dict(run.get("seed_from_leaderboard") or {})
+        for seed_row in [*list(seed_payload.get("created") or []), *list(seed_payload.get("existing") or [])]:
+            if not isinstance(seed_row, dict):
+                continue
+            hypothesis_id = str(seed_row.get("hypothesis_id") or "").strip()
+            if not hypothesis_id:
+                continue
+            row_domain = str(seed_row.get("domain") or "").strip().lower() or domain
+            friction_key = _normalize_friction_key(seed_row.get("friction_key"))
+            if not friction_key:
+                friction_key = _normalize_friction_key(seed_row.get("canonical_key"))
+            if not row_domain or not friction_key:
+                continue
+            context_by_hypothesis_id[hypothesis_id] = {
+                "domain": row_domain,
+                "friction_key": friction_key,
+            }
+    return context_by_hypothesis_id
+
+
+def _collect_implementation_outcomes(
+    daily_report: dict[str, Any],
+    *,
+    hypothesis_context_by_id: dict[str, dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    runs = [row for row in list(daily_report.get("experiment_runs") or []) if isinstance(row, dict)]
+    context_by_id = hypothesis_context_by_id or {}
+    by_key: dict[str, dict[str, Any]] = {}
+    for run in runs:
+        resolution = dict(run.get("resolution") or {}) if isinstance(run.get("resolution"), dict) else {}
+        selected = dict(resolution.get("selected") or {}) if isinstance(resolution.get("selected"), dict) else {}
+        hypothesis_id = str(run.get("hypothesis_id") or "").strip()
+        domain = (
+            str(run.get("domain") or "").strip().lower()
+            or str(resolution.get("domain") or "").strip().lower()
+            or str(selected.get("domain") or "").strip().lower()
+            or None
+        )
+        friction_key = _normalize_friction_key(
+            run.get("friction_key")
+            if run.get("friction_key") is not None
+            else (
+                resolution.get("friction_key")
+                if resolution.get("friction_key") is not None
+                else selected.get("friction_key")
+            )
+        )
+        if (not domain or not friction_key) and hypothesis_id:
+            context_row = dict(context_by_id.get(hypothesis_id) or {})
+            if not domain:
+                domain = str(context_row.get("domain") or "").strip().lower() or None
+            if not friction_key:
+                friction_key = _normalize_friction_key(
+                    context_row.get("friction_key")
+                    if context_row.get("friction_key") is not None
+                    else context_row.get("canonical_key")
+                )
+        if not domain or not friction_key:
+            continue
+        key = f"{domain}:{friction_key}"
+        entry = by_key.get(key)
+        if entry is None:
+            entry = {
+                "domain": domain,
+                "friction_key": friction_key,
+                "run_count": 0,
+                "promote_count": 0,
+                "blocked_guardrail_count": 0,
+                "insufficient_data_count": 0,
+                "needs_iteration_count": 0,
+                "invalid_measurement_count": 0,
+                "other_verdict_count": 0,
+                "hypothesis_ids": [],
+            }
+            by_key[key] = entry
+
+        verdict = str(run.get("verdict") or "").strip().lower()
+        entry["run_count"] = int(entry.get("run_count") or 0) + 1
+        if verdict == "promote":
+            entry["promote_count"] = int(entry.get("promote_count") or 0) + 1
+        elif verdict == "blocked_guardrail":
+            entry["blocked_guardrail_count"] = int(entry.get("blocked_guardrail_count") or 0) + 1
+        elif verdict == "insufficient_data":
+            entry["insufficient_data_count"] = int(entry.get("insufficient_data_count") or 0) + 1
+        elif verdict == "needs_iteration":
+            entry["needs_iteration_count"] = int(entry.get("needs_iteration_count") or 0) + 1
+        elif verdict == "invalid_measurement":
+            entry["invalid_measurement_count"] = int(entry.get("invalid_measurement_count") or 0) + 1
+        else:
+            entry["other_verdict_count"] = int(entry.get("other_verdict_count") or 0) + 1
+
+        if hypothesis_id and hypothesis_id not in entry["hypothesis_ids"]:
+            entry["hypothesis_ids"].append(hypothesis_id)
+
+    rows: list[dict[str, Any]] = []
+    for row in by_key.values():
+        run_count = max(1, int(row.get("run_count") or 1))
+        promote_count = int(row.get("promote_count") or 0)
+        blocked_guardrail_count = int(row.get("blocked_guardrail_count") or 0)
+        # Beta(1,1) prior keeps sparse run counts from looking falsely certain.
+        adjusted_win_rate = (promote_count + 1.0) / (run_count + 2.0)
+        confidence_score = min(1.0, run_count / 3.0)
+        row["win_rate"] = round(promote_count / run_count, 4)
+        row["adjusted_win_rate"] = round(float(adjusted_win_rate), 4)
+        row["confidence_score"] = round(float(confidence_score), 4)
+        row["guardrail_block_rate"] = round(blocked_guardrail_count / run_count, 4)
+        rows.append(row)
+    return rows
+
+
+def cmd_improvement_benchmark_frustrations(args: argparse.Namespace) -> None:
+    report_path = args.report_path.resolve()
+    daily_report, resolved_daily_report_path, operator_payload = _resolve_daily_report_from_improvement_report(
+        report_path=report_path
+    )
+    top_limit = max(1, int(getattr(args, "top_limit", 10) or 10))
+
+    recurring_rows = _collect_recurring_pain_rows(operator_payload)
+    hypothesis_context_by_id = _collect_seed_hypothesis_context(operator_payload)
+    implementation_rows = _collect_implementation_outcomes(
+        daily_report,
+        hypothesis_context_by_id=hypothesis_context_by_id,
+    )
+    implementation_by_key = {
+        f"{str(row.get('domain') or '')}:{str(row.get('friction_key') or '')}": row
+        for row in implementation_rows
+        if str(row.get("domain") or "") and str(row.get("friction_key") or "")
+    }
+    implementation_by_hypothesis_id: dict[str, dict[str, Any]] = {}
+    for row in implementation_rows:
+        for hypothesis_id in [str(item) for item in list(row.get("hypothesis_ids") or []) if str(item)]:
+            implementation_by_hypothesis_id.setdefault(hypothesis_id, row)
+
+    recurring_ranked = sorted(
+        recurring_rows,
+        key=lambda row: (
+            -int(row.get("recurrence_score") or 0),
+            -float(row.get("impact_score_current") or 0.0),
+            str(row.get("domain") or ""),
+            str(row.get("friction_key") or ""),
+        ),
+    )
+    trend_ranked = sorted(
+        recurring_rows,
+        key=lambda row: (
+            -float(row.get("trend_acceleration") or 0.0),
+            -float(row.get("impact_score_delta") or 0.0),
+            -int(row.get("recurrence_score") or 0),
+            str(row.get("domain") or ""),
+            str(row.get("friction_key") or ""),
+        ),
+    )
+    win_rate_ranked = sorted(
+        implementation_rows,
+        key=lambda row: (
+            -float(row.get("win_rate") or 0.0),
+            -int(row.get("run_count") or 0),
+            str(row.get("domain") or ""),
+            str(row.get("friction_key") or ""),
+        ),
+    )
+    laggard_ranked = sorted(
+        implementation_rows,
+        key=lambda row: (
+            float(row.get("win_rate") or 0.0),
+            -int(row.get("run_count") or 0),
+            str(row.get("domain") or ""),
+            str(row.get("friction_key") or ""),
+        ),
+    )
+
+    priority_rows: list[dict[str, Any]] = []
+    for row in recurring_rows:
+        domain = str(row.get("domain") or "").strip().lower()
+        friction_key = str(row.get("friction_key") or "").strip()
+        if not domain or not friction_key:
+            continue
+        key = f"{domain}:{friction_key}"
+        implementation = dict(implementation_by_key.get(key) or {})
+        match_strategy = "domain_friction_key"
+        matched_hypothesis_id: str | None = None
+        if not implementation:
+            for hypothesis_id in [str(item) for item in list(row.get("hypothesis_ids") or []) if str(item)]:
+                linked = implementation_by_hypothesis_id.get(hypothesis_id)
+                if isinstance(linked, dict):
+                    implementation = dict(linked)
+                    matched_hypothesis_id = hypothesis_id
+                    match_strategy = "hypothesis_id"
+                    break
+        implementation_run_count = int(implementation.get("run_count") or 0)
+        raw_win_rate = _coerce_float(implementation.get("win_rate"), default=0.0)
+        adjusted_win_rate = _coerce_float(implementation.get("adjusted_win_rate"), default=raw_win_rate)
+        confidence_score = _coerce_float(implementation.get("confidence_score"), default=0.0)
+        if implementation_run_count <= 0:
+            adjusted_win_rate = 0.0
+            confidence_score = 0.0
+        recurrence_score = max(0, _coerce_int(row.get("recurrence_score"), default=0))
+        trend_boost = 1.25 if str(row.get("trend") or "") in {"new", "rising"} else 1.0
+        trend_delta = max(0.0, _coerce_float(row.get("impact_score_delta"), default=0.0))
+        uncertainty_bonus = max(0.0, (1.0 - confidence_score) * 0.25) if implementation_run_count > 0 else 0.0
+        effective_gap = max(0.0, (1.0 - adjusted_win_rate) + uncertainty_bonus)
+        opportunity_score = (float(recurrence_score) + trend_delta) * trend_boost * effective_gap
+        priority_rows.append(
+            {
+                "domain": domain,
+                "friction_key": friction_key,
+                "canonical_key": row.get("canonical_key"),
+                "trend": row.get("trend"),
+                "recurrence_score": int(recurrence_score),
+                "impact_score_current": round(_coerce_float(row.get("impact_score_current"), default=0.0), 4),
+                "impact_score_delta": round(_coerce_float(row.get("impact_score_delta"), default=0.0), 4),
+                "trend_acceleration": round(_coerce_float(row.get("trend_acceleration"), default=0.0), 4),
+                "implementation_run_count": implementation_run_count,
+                "implementation_win_rate": round(float(raw_win_rate), 4),
+                "implementation_adjusted_win_rate": round(float(adjusted_win_rate), 4),
+                "implementation_confidence_score": round(float(confidence_score), 4),
+                "implementation_promote_count": int(implementation.get("promote_count") or 0),
+                "implementation_guardrail_block_count": int(implementation.get("blocked_guardrail_count") or 0),
+                "implementation_match_strategy": match_strategy if implementation else None,
+                "implementation_matched_hypothesis_id": matched_hypothesis_id,
+                "implementation_effective_gap": round(float(effective_gap), 4),
+                "opportunity_score": round(float(opportunity_score), 4),
+            }
+        )
+    priority_rows.sort(
+        key=lambda row: (
+            -float(row.get("opportunity_score") or 0.0),
+            -int(row.get("recurrence_score") or 0),
+            str(row.get("domain") or ""),
+            str(row.get("friction_key") or ""),
+        )
+    )
+
+    recurring_top = recurring_ranked[:top_limit]
+    trend_top = trend_ranked[:top_limit]
+    win_rate_top = win_rate_ranked[:top_limit]
+    laggard_top = laggard_ranked[:top_limit]
+    priority_top = priority_rows[:top_limit]
+
+    domains = sorted(
+        {
+            str(row.get("domain") or "").strip().lower()
+            for row in [*recurring_rows, *implementation_rows]
+            if str(row.get("domain") or "").strip()
+        }
+    )
+    data_gaps: list[str] = []
+    if not recurring_rows:
+        data_gaps.append("missing_recurring_pain_rows")
+    if not implementation_rows:
+        data_gaps.append("missing_implementation_outcomes")
+
+    summary = {
+        "domain_count": len(domains),
+        "domains": domains,
+        "recurring_pain_count": len(recurring_rows),
+        "implementation_count": len(implementation_rows),
+        "priority_item_count": len(priority_rows),
+        "avg_implementation_win_rate": round(
+            (
+                sum(_coerce_float(row.get("win_rate"), default=0.0) for row in implementation_rows)
+                / len(implementation_rows)
+            ),
+            4,
+        )
+        if implementation_rows
+        else 0.0,
+        "avg_implementation_adjusted_win_rate": round(
+            (
+                sum(_coerce_float(row.get("adjusted_win_rate"), default=0.0) for row in implementation_rows)
+                / len(implementation_rows)
+            ),
+            4,
+        )
+        if implementation_rows
+        else 0.0,
+    }
+
+    suggested_actions: list[str] = []
+    for row in priority_top[:3]:
+        suggested_actions.append(
+            "Prioritize "
+            f"{row.get('domain')}:{row.get('friction_key')} "
+            f"(opportunity_score={row.get('opportunity_score')}, "
+            f"adjusted_win_rate={row.get('implementation_adjusted_win_rate')}, trend={row.get('trend')})."
+        )
+    if not suggested_actions and laggard_top:
+        weakest = laggard_top[0]
+        suggested_actions.append(
+            "Investigate lowest-win implementation "
+            f"{weakest.get('domain')}:{weakest.get('friction_key')} "
+            f"(win_rate={weakest.get('win_rate')}, runs={weakest.get('run_count')})."
+        )
+    if not suggested_actions:
+        suggested_actions.append("Benchmark has no ranked rows yet; run operator-cycle with seed+draft enabled first.")
+
+    status = "ok" if not data_gaps else "warning"
+    payload = {
+        "generated_at": utc_now_iso(),
+        "status": status,
+        "report_path": str(report_path),
+        "daily_report_path": str(resolved_daily_report_path),
+        "top_limit": top_limit,
+        "summary": summary,
+        "recurring_pains": recurring_top,
+        "trend_acceleration": trend_top,
+        "implementation_win_rates": win_rate_top,
+        "implementation_laggards": laggard_top,
+        "priority_board": priority_top,
+        "data_gaps": data_gaps,
+        "suggested_actions": suggested_actions,
+    }
+
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if status != "ok" and bool(getattr(args, "strict", False)):
         raise SystemExit(2)
 
 
@@ -6178,6 +7764,88 @@ def main() -> None:
     improvement_seed_from_leaderboard.add_argument("--repo-path", type=Path, default=_default_repo_path())
     improvement_seed_from_leaderboard.add_argument("--db-path", type=Path, default=_default_db_path())
 
+    improvement_draft_experiments = improvement_sub.add_parser(
+        "draft-experiment-jobs",
+        help="Draft controlled experiment jobs and artifact templates from seeded/queued hypotheses",
+    )
+    improvement_draft_experiments.add_argument(
+        "--seed-report-path",
+        type=Path,
+        default=None,
+        help="Optional seed-from-leaderboard report path used to target newly created hypotheses first",
+    )
+    improvement_draft_experiments.add_argument(
+        "--benchmark-report-path",
+        type=Path,
+        default=None,
+        help="Optional benchmark-frustrations report path used to prioritize top opportunity hypotheses",
+    )
+    improvement_draft_experiments.add_argument(
+        "--benchmark-min-opportunity",
+        type=float,
+        default=None,
+        help="Optional minimum opportunity_score filter when using --benchmark-report-path",
+    )
+    improvement_draft_experiments.add_argument(
+        "--include-existing",
+        action="store_true",
+        help="When using --seed-report-path, include seed report existing rows in candidate selection",
+    )
+    improvement_draft_experiments.add_argument("--domain", type=str, default=None)
+    improvement_draft_experiments.add_argument(
+        "--statuses",
+        type=str,
+        default="queued",
+        help="CSV hypothesis status filter used during candidate selection",
+    )
+    improvement_draft_experiments.add_argument("--limit", type=int, default=8)
+    improvement_draft_experiments.add_argument("--lookup-limit", type=int, default=400)
+    improvement_draft_experiments.add_argument(
+        "--pipeline-config-path",
+        type=Path,
+        default=None,
+        help="Optional pipeline config to append drafted experiment_jobs into",
+    )
+    improvement_draft_experiments.add_argument(
+        "--write-config-path",
+        type=Path,
+        default=None,
+        help="Optional output path for the updated pipeline config (defaults to *.drafted.json)",
+    )
+    improvement_draft_experiments.add_argument(
+        "--in-place",
+        action="store_true",
+        help="When set with --pipeline-config-path, write drafted jobs back into the same config file",
+    )
+    improvement_draft_experiments.add_argument(
+        "--artifacts-dir",
+        type=Path,
+        default=Path("analysis/improvement/experiment_artifacts"),
+        help="Directory where drafted experiment artifact templates are written",
+    )
+    improvement_draft_experiments.add_argument(
+        "--overwrite-artifacts",
+        action="store_true",
+        help="Overwrite existing artifact template files when names collide",
+    )
+    improvement_draft_experiments.add_argument(
+        "--environment",
+        type=str,
+        default=None,
+        help="Optional forced experiment environment for all drafted jobs",
+    )
+    improvement_draft_experiments.add_argument(
+        "--default-sample-size",
+        type=int,
+        default=100,
+        help="Fallback sample-size target when hypothesis success criteria omit min_sample_size",
+    )
+    improvement_draft_experiments.add_argument("--strict", action="store_true")
+    improvement_draft_experiments.add_argument("--output-path", type=Path, default=None)
+    improvement_draft_experiments.add_argument("--json-compact", action="store_true")
+    improvement_draft_experiments.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_draft_experiments.add_argument("--db-path", type=Path, default=_default_db_path())
+
     improvement_pipeline = improvement_sub.add_parser(
         "daily-pipeline",
         help="Run config-driven feedback cycles + artifact experiments for daily operations",
@@ -6220,7 +7888,10 @@ def main() -> None:
 
     improvement_operator_cycle = improvement_sub.add_parser(
         "operator-cycle",
-        help="Run pull->daily->retest pipeline and emit a single operator inbox summary report",
+        help=(
+            "Run pull->(optional fitness leaderboard+seed)->(optional draft)->daily->retest pipeline "
+            "and emit a single operator inbox summary report"
+        ),
     )
     improvement_operator_cycle.add_argument("--config-path", type=Path, required=True)
     improvement_operator_cycle.add_argument("--output-dir", type=Path, default=None)
@@ -6261,6 +7932,114 @@ def main() -> None:
     improvement_operator_cycle.add_argument("--retest-artifact-dir", type=Path, default=None)
     improvement_operator_cycle.add_argument("--retest-environment", type=str, default=None)
     improvement_operator_cycle.add_argument("--retest-notes-prefix", type=str, default="operator_cycle_retest")
+    improvement_operator_cycle.add_argument(
+        "--seed-enable",
+        action="store_true",
+        help="Enable fitness-leaderboard + seed-from-leaderboard stages before draft/daily execution",
+    )
+    improvement_operator_cycle.add_argument(
+        "--seed-domains",
+        type=str,
+        default=None,
+        help="Optional comma-separated domain list for multi-domain seeding (for example: quant_finance,kalshi_weather,fitness_apps,market_ml)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--seed-leaderboard-input-path",
+        type=Path,
+        default=None,
+        help=(
+            "Optional input file path for fitness-leaderboard "
+            "(defaults to feedback_jobs input for --seed-domain)"
+        ),
+    )
+    improvement_operator_cycle.add_argument("--seed-leaderboard-input-format", type=str, default=None)
+    improvement_operator_cycle.add_argument(
+        "--seed-leaderboard-report-path",
+        type=Path,
+        default=None,
+        help="Optional report path for fitness-leaderboard stage (defaults under output-dir)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--seed-report-path",
+        type=Path,
+        default=None,
+        help="Optional report path for seed-from-leaderboard stage (defaults under output-dir)",
+    )
+    improvement_operator_cycle.add_argument("--seed-domain", type=str, default="fitness_apps")
+    improvement_operator_cycle.add_argument(
+        "--seed-source",
+        type=str,
+        default=None,
+        help="Optional leaderboard source override (defaults to feedback_jobs source when available)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--seed-hypothesis-source",
+        type=str,
+        default=None,
+        help="Optional hypothesis source tag for seed-from-leaderboard rows",
+    )
+    improvement_operator_cycle.add_argument("--seed-trends", type=str, default="new,rising")
+    improvement_operator_cycle.add_argument("--seed-limit", type=int, default=8)
+    improvement_operator_cycle.add_argument("--seed-min-impact-score", type=float, default=0.0)
+    improvement_operator_cycle.add_argument("--seed-min-impact-delta", type=float, default=0.0)
+    improvement_operator_cycle.add_argument("--seed-owner", type=str, default="operator")
+    improvement_operator_cycle.add_argument("--seed-lookup-limit", type=int, default=400)
+    improvement_operator_cycle.add_argument("--seed-as-of", type=str, default=None)
+    improvement_operator_cycle.add_argument("--seed-lookback-days", type=int, default=7)
+    improvement_operator_cycle.add_argument("--seed-min-cluster-count", type=int, default=1)
+    improvement_operator_cycle.add_argument("--seed-cluster-limit", type=int, default=20)
+    improvement_operator_cycle.add_argument("--seed-leaderboard-limit", type=int, default=12)
+    improvement_operator_cycle.add_argument("--seed-cooling-limit", type=int, default=10)
+    improvement_operator_cycle.add_argument("--seed-trend-threshold", type=float, default=0.25)
+    improvement_operator_cycle.add_argument(
+        "--seed-timestamp-fields",
+        type=str,
+        default="created_at,at,submission_date,date,timestamp,occurred_at",
+    )
+    improvement_operator_cycle.add_argument("--seed-include-untimed-current", action="store_true")
+    improvement_operator_cycle.add_argument(
+        "--draft-enable",
+        action="store_true",
+        help="Enable draft-experiment-jobs stage before daily-pipeline execution",
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-seed-report-path",
+        type=Path,
+        default=None,
+        help="Optional seed-from-leaderboard report to prioritize newly seeded hypotheses",
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-config-path",
+        type=Path,
+        default=None,
+        help="Optional base pipeline config for drafting (defaults to --config-path)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-output-config-path",
+        type=Path,
+        default=None,
+        help="Optional output config path for drafted experiment_jobs (defaults beside base config)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-report-path",
+        type=Path,
+        default=None,
+        help="Optional report path for draft-experiment-jobs stage (defaults under output-dir)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-artifacts-dir",
+        type=Path,
+        default=None,
+        help="Optional artifact directory for drafted experiment templates (defaults under output-dir)",
+    )
+    improvement_operator_cycle.add_argument("--draft-domain", type=str, default=None)
+    improvement_operator_cycle.add_argument("--draft-statuses", type=str, default="queued")
+    improvement_operator_cycle.add_argument("--draft-limit", type=int, default=8)
+    improvement_operator_cycle.add_argument("--draft-lookup-limit", type=int, default=400)
+    improvement_operator_cycle.add_argument("--draft-include-existing", action="store_true")
+    improvement_operator_cycle.add_argument("--draft-overwrite-artifacts", action="store_true")
+    improvement_operator_cycle.add_argument("--draft-environment", type=str, default=None)
+    improvement_operator_cycle.add_argument("--draft-default-sample-size", type=int, default=100)
     improvement_operator_cycle.add_argument("--strict", action="store_true")
     improvement_operator_cycle.add_argument("--json-compact", action="store_true")
     improvement_operator_cycle.add_argument("--repo-path", type=Path, default=_default_repo_path())
@@ -6316,6 +8095,26 @@ def main() -> None:
     improvement_verify_matrix_alert.add_argument("--json-compact", action="store_true")
     improvement_verify_matrix_alert.add_argument("--repo-path", type=Path, default=_default_repo_path())
     improvement_verify_matrix_alert.add_argument("--db-path", type=Path, default=_default_db_path())
+
+    improvement_benchmark_frustrations = improvement_sub.add_parser(
+        "benchmark-frustrations",
+        help="Rank recurring pains, trend acceleration, and implementation win-rates from operator-cycle outputs",
+    )
+    improvement_benchmark_frustrations.add_argument(
+        "--report-path",
+        type=Path,
+        required=True,
+        help="Path to operator-cycle report or daily-pipeline report",
+    )
+    improvement_benchmark_frustrations.add_argument(
+        "--top-limit",
+        type=int,
+        default=10,
+        help="Number of ranked rows to include per section",
+    )
+    improvement_benchmark_frustrations.add_argument("--output-path", type=Path, default=None)
+    improvement_benchmark_frustrations.add_argument("--strict", action="store_true")
+    improvement_benchmark_frustrations.add_argument("--json-compact", action="store_true")
 
     args = parser.parse_args()
 
@@ -6506,6 +8305,9 @@ def main() -> None:
     if args.cmd == "improvement" and args.improvement_cmd == "seed-from-leaderboard":
         cmd_improvement_seed_from_leaderboard(args)
         return
+    if args.cmd == "improvement" and args.improvement_cmd == "draft-experiment-jobs":
+        cmd_improvement_draft_experiment_jobs(args)
+        return
     if args.cmd == "improvement" and args.improvement_cmd == "daily-pipeline":
         cmd_improvement_daily_pipeline(args)
         return
@@ -6520,6 +8322,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "verify-matrix-alert":
         cmd_improvement_verify_matrix_alert(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "benchmark-frustrations":
+        cmd_improvement_benchmark_frustrations(args)
         return
 
     raise ValueError("Unsupported command")

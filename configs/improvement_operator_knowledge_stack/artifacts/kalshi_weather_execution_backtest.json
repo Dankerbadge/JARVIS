@@ -12,8 +12,8 @@
     "metrics": {
       "brier_skill": 0.14,
       "max_daily_loss": 0.029,
-      "slippage_bps": 36.0
+      "slippage_bps": 27.0
     },
-    "sample_size": 240
+    "sample_size": 290
   }
 }
