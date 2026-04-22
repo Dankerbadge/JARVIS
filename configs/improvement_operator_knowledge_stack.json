@@ -30,6 +30,21 @@
       "fitness_apps": "shared_market_displeasures"
     },
     "seed_fallback_entry_source": "leaderboard",
+    "seed_trends": "new,rising",
+    "seed_min_impact_score": 0.0,
+    "seed_min_impact_score_by_domain": {
+      "quant_finance": 1.0,
+      "kalshi_weather": 1.0,
+      "fitness_apps": 0.5,
+      "market_ml": 1.0
+    },
+    "seed_min_impact_delta": 0.0,
+    "seed_min_impact_delta_by_domain": {
+      "quant_finance": 0.2,
+      "kalshi_weather": 0.2,
+      "fitness_apps": 0.1,
+      "market_ml": 0.2
+    },
     "seed_min_signal_count_current": 2,
     "seed_min_signal_count_current_by_domain": {
       "quant_finance": 2,

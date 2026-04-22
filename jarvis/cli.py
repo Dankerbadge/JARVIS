@@ -5048,6 +5048,121 @@ def _resolve_seed_fallback_entry_source(
     return "leaderboard", "builtin_default"
 
 
+def _normalize_seed_trends_value(raw_value: Any) -> str | None:
+    parts: list[str] = []
+    seen: set[str] = set()
+    for item in _parse_csv_items(raw_value):
+        normalized = str(item or "").strip().lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        parts.append(normalized)
+    if not parts:
+        return None
+    return ",".join(parts)
+
+
+def _resolve_seed_trends(
+    *,
+    domain: str,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[str, str]:
+    cli_raw = str(cli_value or "").strip()
+    if cli_raw:
+        cli_normalized = _normalize_seed_trends_value(cli_raw)
+        if cli_normalized is not None:
+            return cli_normalized, "cli_override"
+        return "new,rising", "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain)
+    by_domain_raw = defaults.get("seed_trends_by_domain")
+    if isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            resolved = _normalize_seed_trends_value(raw_value)
+            if resolved is not None:
+                return resolved, "config_by_domain"
+            break
+
+    global_default_raw = defaults.get("seed_trends")
+    resolved_global = _normalize_seed_trends_value(global_default_raw)
+    if resolved_global is not None:
+        return resolved_global, "config_global"
+
+    return "new,rising", "builtin_default"
+
+
+def _resolve_seed_min_impact_score(
+    *,
+    domain: str,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[float, str]:
+    if cli_value is not None:
+        try:
+            return float(cli_value), "cli_override"
+        except (TypeError, ValueError):
+            return 0.0, "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain)
+    by_domain_raw = defaults.get("seed_min_impact_score_by_domain")
+    if isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            try:
+                return float(raw_value), "config_by_domain"
+            except (TypeError, ValueError):
+                break
+
+    global_default_raw = defaults.get("seed_min_impact_score")
+    if global_default_raw is not None:
+        try:
+            return float(global_default_raw), "config_global"
+        except (TypeError, ValueError):
+            pass
+
+    return 0.0, "builtin_default"
+
+
+def _resolve_seed_min_impact_delta(
+    *,
+    domain: str,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[float, str]:
+    if cli_value is not None:
+        try:
+            return float(cli_value), "cli_override"
+        except (TypeError, ValueError):
+            return 0.0, "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain)
+    by_domain_raw = defaults.get("seed_min_impact_delta_by_domain")
+    if isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            try:
+                return float(raw_value), "config_by_domain"
+            except (TypeError, ValueError):
+                break
+
+    global_default_raw = defaults.get("seed_min_impact_delta")
+    if global_default_raw is not None:
+        try:
+            return float(global_default_raw), "config_global"
+        except (TypeError, ValueError):
+            pass
+
+    return 0.0, "builtin_default"
+
+
 def _infer_feedback_seed_context_from_config(*, config_path: Path, domain: str) -> dict[str, Any] | None:
     try:
         loaded = json.loads(config_path.read_text(encoding="utf-8"))
@@ -5194,6 +5309,21 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
     if seed_requested:
         for domain_index, seed_domain in enumerate(seed_domains):
             domain_slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", seed_domain) or f"domain_{domain_index + 1}"
+            resolved_trends, trends_source = _resolve_seed_trends(
+                domain=seed_domain,
+                cli_value=getattr(args, "seed_trends", None),
+                defaults=operator_cycle_defaults,
+            )
+            resolved_min_impact_score, min_impact_score_source = _resolve_seed_min_impact_score(
+                domain=seed_domain,
+                cli_value=getattr(args, "seed_min_impact_score", None),
+                defaults=operator_cycle_defaults,
+            )
+            resolved_min_impact_delta, min_impact_delta_source = _resolve_seed_min_impact_delta(
+                domain=seed_domain,
+                cli_value=getattr(args, "seed_min_impact_delta", None),
+                defaults=operator_cycle_defaults,
+            )
             resolved_entry_source, entry_source_setting_source = _resolve_seed_entry_source(
                 domain=seed_domain,
                 cli_value=getattr(args, "seed_entry_source", None),
@@ -5334,10 +5464,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         leaderboard_path=domain_leaderboard_report_path,
                         domain=seed_domain,
                         source=domain_seed_hypothesis_source,
-                        trends=str(getattr(args, "seed_trends", "new,rising") or "new,rising"),
+                        trends=str(resolved_trends),
                         limit=max(1, int(getattr(args, "seed_limit", 8) or 8)),
-                        min_impact_score=float(getattr(args, "seed_min_impact_score", 0.0) or 0.0),
-                        min_impact_delta=float(getattr(args, "seed_min_impact_delta", 0.0) or 0.0),
+                        min_impact_score=float(resolved_min_impact_score),
+                        min_impact_delta=float(resolved_min_impact_delta),
                         entry_source=str(resolved_entry_source),
                         fallback_entry_source=resolved_fallback_entry_source,
                         min_cross_app_count=max(0, int(resolved_min_cross_app_count)),
@@ -5371,6 +5501,12 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "input_format": domain_input_format,
                     "leaderboard_report_path": str(domain_leaderboard_report_path),
                     "seed_report_path": str(domain_seed_report_path),
+                    "seed_trends": str(resolved_trends),
+                    "seed_trends_source": str(trends_source),
+                    "seed_min_impact_score": float(resolved_min_impact_score),
+                    "seed_min_impact_score_source": str(min_impact_score_source),
+                    "seed_min_impact_delta": float(resolved_min_impact_delta),
+                    "seed_min_impact_delta_source": str(min_impact_delta_source),
                     "seed_entry_source": str(resolved_entry_source),
                     "seed_entry_source_source": str(entry_source_setting_source),
                     "seed_fallback_entry_source": (
@@ -5433,6 +5569,25 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         "domain": row.get("domain"),
                         "status": str((row.get("seed_from_leaderboard") or {}).get("status") or ""),
                         "source": row.get("hypothesis_source"),
+                        "trends": list(
+                            (row.get("seed_from_leaderboard") or {}).get("trend_filters")
+                            or _parse_csv_items(row.get("seed_trends"))
+                        ),
+                        "trends_source": str(row.get("seed_trends_source") or ""),
+                        "min_impact_score": _coerce_float(
+                            (row.get("seed_from_leaderboard") or {}).get("min_impact_score")
+                            if (row.get("seed_from_leaderboard") or {}).get("min_impact_score") is not None
+                            else row.get("seed_min_impact_score"),
+                            default=0.0,
+                        ),
+                        "min_impact_score_source": str(row.get("seed_min_impact_score_source") or ""),
+                        "min_impact_delta": _coerce_float(
+                            (row.get("seed_from_leaderboard") or {}).get("min_impact_delta")
+                            if (row.get("seed_from_leaderboard") or {}).get("min_impact_delta") is not None
+                            else row.get("seed_min_impact_delta"),
+                            default=0.0,
+                        ),
+                        "min_impact_delta_source": str(row.get("seed_min_impact_delta_source") or ""),
                         "entry_source": str(
                             (row.get("seed_from_leaderboard") or {}).get("requested_entry_source")
                             or row.get("seed_entry_source")
@@ -8723,10 +8878,25 @@ def main() -> None:
         default=None,
         help="Optional hypothesis source tag for seed-from-leaderboard rows",
     )
-    improvement_operator_cycle.add_argument("--seed-trends", type=str, default="new,rising")
+    improvement_operator_cycle.add_argument(
+        "--seed-trends",
+        type=str,
+        default=None,
+        help="Optional seed trend filter override (when omitted, resolves from config defaults per domain)",
+    )
     improvement_operator_cycle.add_argument("--seed-limit", type=int, default=8)
-    improvement_operator_cycle.add_argument("--seed-min-impact-score", type=float, default=0.0)
-    improvement_operator_cycle.add_argument("--seed-min-impact-delta", type=float, default=0.0)
+    improvement_operator_cycle.add_argument(
+        "--seed-min-impact-score",
+        type=float,
+        default=None,
+        help="Optional minimum impact score override (when omitted, resolves from config defaults per domain)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--seed-min-impact-delta",
+        type=float,
+        default=None,
+        help="Optional minimum impact delta override (when omitted, resolves from config defaults per domain)",
+    )
     improvement_operator_cycle.add_argument(
         "--seed-entry-source",
         type=str,

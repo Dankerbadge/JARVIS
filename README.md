@@ -281,6 +281,15 @@ For config-driven thresholding (no extra CLI flags), add these under `defaults`:
     "fitness_apps": "shared_market_displeasures"
   },
   "seed_fallback_entry_source": "leaderboard",
+  "seed_trends": "new,rising",
+  "seed_min_impact_score": 0.0,
+  "seed_min_impact_score_by_domain": {
+    "market_ml": 1.0
+  },
+  "seed_min_impact_delta": 0.0,
+  "seed_min_impact_delta_by_domain": {
+    "market_ml": 0.2
+  },
   "seed_min_cross_app_count": 1,
   "seed_min_cross_app_count_by_domain": {
     "fitness_apps": 2
@@ -294,8 +303,9 @@ For config-driven thresholding (no extra CLI flags), add these under `defaults`:
 ```
 
 Resolution order is the same for lane + threshold knobs:
-CLI override (`--seed-entry-source`, `--seed-fallback-entry-source`,
-`--seed-min-cross-app-count`, `--seed-min-signal-count-current`),
+CLI override (`--seed-entry-source`, `--seed-fallback-entry-source`, `--seed-trends`,
+`--seed-min-impact-score`, `--seed-min-impact-delta`, `--seed-min-cross-app-count`,
+`--seed-min-signal-count-current`),
 then `*_by_domain`, then global default.
 
 If you already generated a seed report, you can still draft directly from that report:
