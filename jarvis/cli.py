@@ -2714,6 +2714,235 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
         raise SystemExit(2)
 
 
+def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
+    leaderboard_path = args.leaderboard_path.resolve()
+    loaded = json.loads(leaderboard_path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise ValueError("invalid_leaderboard_report:expected_json_object")
+
+    entries = [
+        dict(item)
+        for item in list(loaded.get("leaderboard") or loaded.get("entries") or [])
+        if isinstance(item, dict)
+    ]
+    domain = str(getattr(args, "domain", None) or loaded.get("domain") or "fitness_apps").strip().lower() or "fitness_apps"
+    source = str(getattr(args, "source", None) or loaded.get("source") or "fitness_leaderboard").strip().lower() or "fitness_leaderboard"
+    owner = str(getattr(args, "owner", "operator") or "operator").strip() or "operator"
+    lookup_limit = max(1, int(getattr(args, "lookup_limit", 400) or 400))
+    limit = max(1, int(getattr(args, "limit", 8) or 8))
+    min_impact_score = float(getattr(args, "min_impact_score", 0.0) or 0.0)
+    min_impact_delta = float(getattr(args, "min_impact_delta", 0.0) or 0.0)
+    include_trends = {item.lower() for item in _parse_csv_items(getattr(args, "trends", None))}
+    if not include_trends:
+        include_trends = {"new", "rising"}
+
+    runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+    try:
+        existing_candidates = [
+            item
+            for item in runtime.list_hypotheses(domain=domain, status=None, limit=lookup_limit)
+            if isinstance(item, dict)
+        ]
+
+        existing_by_key: dict[str, dict[str, Any]] = {}
+        existing_title_keys: dict[str, dict[str, Any]] = {}
+        for hypothesis in existing_candidates:
+            friction_key = _normalize_friction_key(hypothesis.get("friction_key"))
+            if friction_key and friction_key not in existing_by_key:
+                existing_by_key[friction_key] = hypothesis
+            title_key = str(hypothesis.get("title") or "").strip().lower()
+            if title_key and title_key not in existing_title_keys:
+                existing_title_keys[title_key] = hypothesis
+
+        created: list[dict[str, Any]] = []
+        existing: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        selected_count = 0
+
+        for index, entry in enumerate(entries):
+            if len(created) >= limit:
+                break
+
+            trend = str(entry.get("trend") or "").strip().lower() or "flat"
+            if include_trends and trend not in include_trends:
+                skipped.append(
+                    {
+                        "index": index,
+                        "reason": "trend_filtered",
+                        "trend": trend,
+                        "canonical_key": entry.get("canonical_key"),
+                    }
+                )
+                continue
+
+            impact_score_current = float(entry.get("impact_score_current") or 0.0)
+            impact_score_delta = float(entry.get("impact_score_delta") or 0.0)
+            if impact_score_current < min_impact_score:
+                skipped.append(
+                    {
+                        "index": index,
+                        "reason": "impact_score_below_min",
+                        "impact_score_current": impact_score_current,
+                        "min_impact_score": min_impact_score,
+                        "canonical_key": entry.get("canonical_key"),
+                    }
+                )
+                continue
+            if trend != "new" and impact_score_delta < min_impact_delta:
+                skipped.append(
+                    {
+                        "index": index,
+                        "reason": "impact_delta_below_min",
+                        "impact_score_delta": impact_score_delta,
+                        "min_impact_delta": min_impact_delta,
+                        "canonical_key": entry.get("canonical_key"),
+                    }
+                )
+                continue
+
+            canonical_key = str(entry.get("canonical_key") or "").strip()
+            friction_key = _normalize_friction_key(entry.get("friction_key") or canonical_key)
+            if not friction_key:
+                skipped.append(
+                    {
+                        "index": index,
+                        "reason": "missing_friction_key",
+                        "canonical_key": canonical_key,
+                    }
+                )
+                continue
+
+            selected_count += 1
+            title = f"{domain}: reduce '{friction_key}' frustration"
+            existing_match = existing_by_key.get(friction_key) or existing_title_keys.get(title.strip().lower())
+            if isinstance(existing_match, dict):
+                existing.append(
+                    {
+                        "index": index,
+                        "reason": "existing_match",
+                        "hypothesis_id": existing_match.get("hypothesis_id"),
+                        "domain": existing_match.get("domain"),
+                        "title": existing_match.get("title"),
+                        "friction_key": existing_match.get("friction_key"),
+                    }
+                )
+                continue
+
+            top_tag_rows = [dict(item) for item in list(entry.get("top_tags") or []) if isinstance(item, dict)]
+            top_tag_names = [
+                str(item.get("tag") or "").strip()
+                for item in top_tag_rows
+                if str(item.get("tag") or "").strip()
+            ]
+            summary_hint = str(entry.get("example_summary") or "").strip()
+
+            statement = (
+                f"Recent {source} feedback indicates '{canonical_key or friction_key}' is {trend}, "
+                f"with current impact score {round(impact_score_current, 4)} "
+                f"and delta {round(impact_score_delta, 4)} versus the previous window."
+            )
+            proposed_change = (
+                "Design and test a controlled intervention targeted to this friction, "
+                "then validate retention/activation guardrails before broader rollout."
+            )
+            if top_tag_names:
+                proposed_change += f" Prioritize tactics related to tags: {', '.join(top_tag_names[:5])}."
+
+            metadata = {
+                "seed_source": "fitness_leaderboard",
+                "seed_leaderboard_path": str(leaderboard_path),
+                "seed_generated_at": str(loaded.get("generated_at") or ""),
+                "seed_as_of": str(loaded.get("as_of") or ""),
+                "seed_trend": trend,
+                "seed_rank": entry.get("rank"),
+                "seed_impact_score_current": impact_score_current,
+                "seed_impact_score_delta": impact_score_delta,
+                "seed_signal_count_current": int(entry.get("signal_count_current") or 0),
+                "seed_signal_count_previous": int(entry.get("signal_count_previous") or 0),
+                "seed_canonical_key": canonical_key,
+                "seed_example_summary": summary_hint,
+                "seed_top_tags": top_tag_names,
+            }
+            risk_level = "high" if trend == "new" and impact_score_current >= 6.0 else "medium"
+
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain=domain,
+                    title=title,
+                    statement=statement,
+                    proposed_change=proposed_change,
+                    friction_key=friction_key,
+                    risk_level=risk_level,
+                    owner=owner,
+                    metadata=metadata,
+                )
+            except Exception as exc:
+                errors.append(
+                    {
+                        "index": index,
+                        "error": str(exc),
+                        "friction_key": friction_key,
+                        "canonical_key": canonical_key,
+                    }
+                )
+                continue
+
+            created_entry = {
+                "index": index,
+                "hypothesis_id": hypothesis.get("hypothesis_id"),
+                "domain": hypothesis.get("domain"),
+                "title": hypothesis.get("title"),
+                "friction_key": hypothesis.get("friction_key"),
+                "risk_level": hypothesis.get("risk_level"),
+                "trend": trend,
+                "impact_score_current": round(impact_score_current, 4),
+                "impact_score_delta": round(impact_score_delta, 4),
+            }
+            created.append(created_entry)
+            existing_by_key[friction_key] = hypothesis
+            existing_title_keys[title.strip().lower()] = hypothesis
+
+        payload = {
+            "generated_at": utc_now_iso(),
+            "leaderboard_path": str(leaderboard_path),
+            "leaderboard_generated_at": loaded.get("generated_at"),
+            "domain": domain,
+            "source": source,
+            "owner": owner,
+            "trend_filters": sorted(include_trends),
+            "min_impact_score": min_impact_score,
+            "min_impact_delta": min_impact_delta,
+            "requested_count": len(entries),
+            "selected_count": selected_count,
+            "created_count": len(created),
+            "existing_count": len(existing),
+            "skipped_count": len(skipped),
+            "error_count": len(errors),
+            "created": created,
+            "existing": existing,
+            "skipped": skipped,
+            "errors": errors,
+            "status": "ok" if not errors else "warning",
+        }
+
+        output_path = args.output_path.resolve() if args.output_path is not None else None
+        if output_path is not None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            payload["output_path"] = str(output_path)
+
+        _print_json_payload(
+            payload,
+            compact=bool(getattr(args, "json_compact", False)),
+        )
+
+        if errors and bool(getattr(args, "strict", False)):
+            raise SystemExit(2)
+    finally:
+        runtime.close()
+
+
 def _coerce_status_preferences(value: Any) -> list[str]:
     if value is None:
         return []
@@ -5925,6 +6154,30 @@ def main() -> None:
     improvement_fitness_leaderboard.add_argument("--output-path", type=Path, default=None)
     improvement_fitness_leaderboard.add_argument("--json-compact", action="store_true")
 
+    improvement_seed_from_leaderboard = improvement_sub.add_parser(
+        "seed-from-leaderboard",
+        help="Create queued hypotheses from leaderboard rising/new frustrations with dedupe safeguards",
+    )
+    improvement_seed_from_leaderboard.add_argument("--leaderboard-path", type=Path, required=True)
+    improvement_seed_from_leaderboard.add_argument("--domain", type=str, default="fitness_apps")
+    improvement_seed_from_leaderboard.add_argument("--source", type=str, default="fitness_leaderboard")
+    improvement_seed_from_leaderboard.add_argument(
+        "--trends",
+        type=str,
+        default="new,rising",
+        help="CSV trend filter (for example: new,rising)",
+    )
+    improvement_seed_from_leaderboard.add_argument("--limit", type=int, default=8)
+    improvement_seed_from_leaderboard.add_argument("--min-impact-score", type=float, default=0.0)
+    improvement_seed_from_leaderboard.add_argument("--min-impact-delta", type=float, default=0.0)
+    improvement_seed_from_leaderboard.add_argument("--owner", type=str, default="operator")
+    improvement_seed_from_leaderboard.add_argument("--lookup-limit", type=int, default=400)
+    improvement_seed_from_leaderboard.add_argument("--strict", action="store_true")
+    improvement_seed_from_leaderboard.add_argument("--output-path", type=Path, default=None)
+    improvement_seed_from_leaderboard.add_argument("--json-compact", action="store_true")
+    improvement_seed_from_leaderboard.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_seed_from_leaderboard.add_argument("--db-path", type=Path, default=_default_db_path())
+
     improvement_pipeline = improvement_sub.add_parser(
         "daily-pipeline",
         help="Run config-driven feedback cycles + artifact experiments for daily operations",
@@ -6249,6 +6502,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "fitness-leaderboard":
         cmd_improvement_fitness_leaderboard(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "seed-from-leaderboard":
+        cmd_improvement_seed_from_leaderboard(args)
         return
     if args.cmd == "improvement" and args.improvement_cmd == "daily-pipeline":
         cmd_improvement_daily_pipeline(args)

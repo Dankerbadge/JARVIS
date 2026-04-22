@@ -91,6 +91,24 @@ Scheduling-friendly wrapper:
   --output-path ./output/improvement/fitness_frustration_leaderboard.json
 ```
 
+Auto-seed hypothesis queue entries from top `new/rising` leaderboard frustrations:
+
+```bash
+python3 -m jarvis.cli improvement seed-from-leaderboard \
+  --leaderboard-path ./output/improvement/fitness_frustration_leaderboard.json \
+  --trends new,rising \
+  --limit 8 \
+  --output-path ./output/improvement/fitness_leaderboard_seed_report.json
+```
+
+Scheduling-friendly wrapper:
+
+```bash
+./scripts/run_improvement_seed_from_leaderboard.sh \
+  ./output/improvement/fitness_frustration_leaderboard.json \
+  --output-path ./output/improvement/fitness_leaderboard_seed_report.json
+```
+
 Run a config-driven daily pipeline (multiple feedback feeds + experiment artifacts):
 
 ```bash

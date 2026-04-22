@@ -16,6 +16,7 @@ from jarvis.cli import (
     cmd_improvement_operator_cycle,
     cmd_improvement_pull_feeds,
     cmd_improvement_run_experiment_artifact,
+    cmd_improvement_seed_from_leaderboard,
     cmd_improvement_seed_hypotheses,
     cmd_improvement_verify_matrix,
     cmd_improvement_verify_matrix_alert,
@@ -442,9 +443,116 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 output_path=None,
                 json_compact=False,
             )
+            out = io.StringIO()
             with self.assertRaises(SystemExit) as raised:
-                cmd_improvement_fitness_leaderboard(args)
+                with redirect_stdout(out):
+                    cmd_improvement_fitness_leaderboard(args)
             self.assertEqual(int(getattr(raised.exception, "code", 0) or 0), 2)
+
+    def test_seed_from_leaderboard_creates_and_dedupes_hypotheses(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            leaderboard_path = root / "fitness_leaderboard.json"
+            leaderboard_path.write_text(
+                json.dumps(
+                    {
+                        "generated_at": "2026-04-22T12:00:00Z",
+                        "as_of": "2026-04-22T12:00:00Z",
+                        "domain": "fitness_apps",
+                        "source": "market_reviews",
+                        "leaderboard": [
+                            {
+                                "rank": 1,
+                                "canonical_key": "paywall appears before first full workout trial",
+                                "friction_key": "paywall_before_core_workout_trial",
+                                "trend": "rising",
+                                "impact_score_current": 9.2,
+                                "impact_score_delta": 2.5,
+                                "signal_count_current": 12,
+                                "signal_count_previous": 7,
+                                "example_summary": "Users hit paywall before completing a meaningful workout.",
+                                "top_tags": [{"tag": "paywall", "count": 12}],
+                            },
+                            {
+                                "rank": 2,
+                                "canonical_key": "beginner onboarding too intense and rigid",
+                                "friction_key": "onboarding_plan_too_rigid_for_beginner_adherence",
+                                "trend": "new",
+                                "impact_score_current": 7.8,
+                                "impact_score_delta": 7.8,
+                                "signal_count_current": 6,
+                                "signal_count_previous": 0,
+                                "example_summary": "Beginner plan intensity causes early drop-off.",
+                                "top_tags": [{"tag": "onboarding", "count": 6}],
+                            },
+                            {
+                                "rank": 3,
+                                "canonical_key": "minor ui nit",
+                                "friction_key": "minor_ui_nit",
+                                "trend": "flat",
+                                "impact_score_current": 1.0,
+                                "impact_score_delta": 0.0,
+                                "signal_count_current": 2,
+                                "signal_count_previous": 2,
+                                "example_summary": "Minor issue with no trend.",
+                                "top_tags": [{"tag": "ux", "count": 2}],
+                            },
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                leaderboard_path=leaderboard_path,
+                domain="fitness_apps",
+                source="fitness_leaderboard",
+                trends="new,rising",
+                limit=5,
+                min_impact_score=0.0,
+                min_impact_delta=0.0,
+                owner="operator",
+                lookup_limit=200,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            first_out = io.StringIO()
+            with redirect_stdout(first_out):
+                cmd_improvement_seed_from_leaderboard(args)
+            first_payload = json.loads(first_out.getvalue())
+
+            self.assertEqual(str(first_payload.get("status") or ""), "ok")
+            self.assertEqual(int(first_payload.get("error_count") or 0), 0)
+            self.assertEqual(int(first_payload.get("created_count") or 0), 2)
+            self.assertGreaterEqual(int(first_payload.get("skipped_count") or 0), 1)
+            self.assertTrue(
+                any(str((row or {}).get("reason") or "") == "trend_filtered" for row in list(first_payload.get("skipped") or []))
+            )
+
+            second_out = io.StringIO()
+            with redirect_stdout(second_out):
+                cmd_improvement_seed_from_leaderboard(args)
+            second_payload = json.loads(second_out.getvalue())
+            self.assertEqual(int(second_payload.get("created_count") or 0), 0)
+            self.assertEqual(int(second_payload.get("existing_count") or 0), 2)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypotheses = runtime.list_hypotheses(domain="fitness_apps", status=None, limit=20)
+                self.assertEqual(len(hypotheses), 2)
+                keys = {str((item or {}).get("friction_key") or "") for item in hypotheses}
+                self.assertIn("paywall_before_core_workout_trial", keys)
+                self.assertIn("onboarding_plan_too_rigid_for_beginner_adherence", keys)
+                metadata = dict((hypotheses[0] or {}).get("metadata") or {})
+                self.assertEqual(str(metadata.get("seed_source") or ""), "fitness_leaderboard")
+            finally:
+                runtime.close()
 
     def test_run_experiment_artifact_command(self) -> None:
         with tempfile.TemporaryDirectory() as td:
