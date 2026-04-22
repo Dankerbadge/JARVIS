@@ -80,8 +80,16 @@ Generate a week-over-week fitness frustration leaderboard (current week vs prior
 python3 -m jarvis.cli improvement fitness-leaderboard \
   --input-path ./analysis/fitness_market_feedback.jsonl \
   --lookback-days 7 \
+  --app-fields app_name,app,product,source_context.app \
+  --own-app-aliases myapp,my_app_ios,my_app_android \
+  --min-cross-app-count 2 \
   --output-path ./output/improvement/fitness_frustration_leaderboard.json
 ```
+
+The leaderboard now includes:
+- `shared_market_displeasures`: frustrations seen across multiple competitor apps.
+- `white_space_candidates`: market pains not currently present in your own app aliases.
+- `top_apps_current` per cluster plus window-level app coverage diagnostics (`app_resolution`).
 
 Scheduling-friendly wrapper:
 

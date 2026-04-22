@@ -409,6 +409,98 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 any("onboarding" in str(row.get("canonical_key") or "") for row in cooling)
             )
 
+    def test_fitness_leaderboard_surfaces_cross_app_displeasures_and_whitespace_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            input_path = root / "fitness_market_feedback.jsonl"
+            rows = [
+                {
+                    "id": "cur-1",
+                    "app_name": "FitNova",
+                    "summary": "Paywall appears before first full workout trial.",
+                    "review": "Paywall appears before first full workout trial.",
+                    "created_at": "2026-04-20T10:00:00Z",
+                },
+                {
+                    "id": "cur-2",
+                    "app_name": "PulsePro",
+                    "summary": "Paywall appears before first full workout trial.",
+                    "review": "Paywall appears before first full workout trial.",
+                    "created_at": "2026-04-19T10:00:00Z",
+                },
+                {
+                    "id": "cur-3",
+                    "app_name": "MyApp",
+                    "summary": "Workout sync fails on wearable import.",
+                    "review": "Workout sync fails on wearable import.",
+                    "created_at": "2026-04-18T09:00:00Z",
+                },
+                {
+                    "id": "prev-1",
+                    "app_name": "FitNova",
+                    "summary": "Paywall appears before first full workout trial.",
+                    "review": "Paywall appears before first full workout trial.",
+                    "created_at": "2026-04-13T09:00:00Z",
+                },
+            ]
+            input_path.write_text(
+                "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                input_path=input_path,
+                input_format="jsonl",
+                domain="fitness_apps",
+                source="market_reviews",
+                timestamp_fields="created_at,at",
+                as_of="2026-04-22T00:00:00Z",
+                lookback_days=7,
+                min_cluster_count=1,
+                cluster_limit=20,
+                leaderboard_limit=12,
+                cooling_limit=10,
+                app_fields="app_name,source_context.app",
+                top_apps_per_cluster=3,
+                min_cross_app_count=2,
+                own_app_aliases="MyApp",
+                trend_threshold=0.25,
+                include_untimed_current=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_fitness_leaderboard(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            app_resolution = dict(payload.get("app_resolution") or {})
+            self.assertEqual(int(app_resolution.get("known_app_records") or 0), 4)
+            self.assertEqual(int(app_resolution.get("unknown_app_records") or 0), 0)
+
+            shared_rows = [dict(item) for item in list(payload.get("shared_market_displeasures") or []) if isinstance(item, dict)]
+            paywall_row = next(
+                (
+                    row
+                    for row in shared_rows
+                    if "paywall" in str(row.get("canonical_key") or "")
+                ),
+                {},
+            )
+            self.assertTrue(bool(paywall_row))
+            self.assertGreaterEqual(int(paywall_row.get("cross_app_count_current") or 0), 2)
+            top_apps_current = [dict(item) for item in list(paywall_row.get("top_apps_current") or []) if isinstance(item, dict)]
+            app_ids = {str(item.get("app_identifier") or "") for item in top_apps_current}
+            self.assertIn("fitnova", app_ids)
+            self.assertIn("pulsepro", app_ids)
+
+            white_space_rows = [dict(item) for item in list(payload.get("white_space_candidates") or []) if isinstance(item, dict)]
+            self.assertTrue(
+                any("paywall" in str(row.get("canonical_key") or "") for row in white_space_rows)
+            )
+
     def test_fitness_leaderboard_strict_fails_when_no_current_clusters(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -474,6 +566,12 @@ class CliImprovementPipelineTests(unittest.TestCase):
                                 "impact_score_delta": 2.5,
                                 "signal_count_current": 12,
                                 "signal_count_previous": 7,
+                                "cross_app_count_current": 3,
+                                "top_apps_current": [
+                                    {"app_identifier": "fitnova", "count": 6, "share": 0.5},
+                                    {"app_identifier": "pulsepro", "count": 4, "share": 0.3333},
+                                    {"app_identifier": "trainhero", "count": 2, "share": 0.1667},
+                                ],
                                 "example_summary": "Users hit paywall before completing a meaningful workout.",
                                 "top_tags": [{"tag": "paywall", "count": 12}],
                             },
@@ -486,6 +584,11 @@ class CliImprovementPipelineTests(unittest.TestCase):
                                 "impact_score_delta": 7.8,
                                 "signal_count_current": 6,
                                 "signal_count_previous": 0,
+                                "cross_app_count_current": 2,
+                                "top_apps_current": [
+                                    {"app_identifier": "fitnova", "count": 3, "share": 0.5},
+                                    {"app_identifier": "pulsepro", "count": 3, "share": 0.5},
+                                ],
                                 "example_summary": "Beginner plan intensity causes early drop-off.",
                                 "top_tags": [{"tag": "onboarding", "count": 6}],
                             },
@@ -553,6 +656,8 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 self.assertIn("onboarding_plan_too_rigid_for_beginner_adherence", keys)
                 metadata = dict((hypotheses[0] or {}).get("metadata") or {})
                 self.assertEqual(str(metadata.get("seed_source") or ""), "fitness_leaderboard")
+                self.assertGreaterEqual(int(metadata.get("seed_cross_app_count_current") or 0), 2)
+                self.assertTrue(bool(list(metadata.get("seed_top_apps_current") or [])))
             finally:
                 runtime.close()
 

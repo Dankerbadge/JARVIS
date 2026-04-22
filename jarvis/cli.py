@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -105,6 +106,10 @@ WARNING_POLICY_PROFILES: dict[str, dict[str, Any]] = {
         ],
     },
 }
+
+DEFAULT_FITNESS_APP_FIELDS_CSV = (
+    "app_name,app,product,provider,source_context.app_identifier,source_context.app_name,source_context.app"
+)
 
 
 def _build_demo_repo(repo_path: Path) -> None:
@@ -2423,6 +2428,103 @@ def _parse_timestamp_value(raw_value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _normalize_app_identifier(raw_value: Any) -> str:
+    text = str(raw_value or "").strip().lower()
+    if not text:
+        return "unknown_app"
+    text = re.sub(r"[\s/]+", "_", text)
+    text = re.sub(r"[^a-z0-9_\-]+", "", text)
+    text = re.sub(r"_+", "_", text).strip("_")
+    return text or "unknown_app"
+
+
+def _extract_app_identity_from_record(
+    record: dict[str, Any],
+    *,
+    app_fields: list[str],
+) -> tuple[str, str | None, str | None]:
+    for field in app_fields:
+        value = _resolve_record_path_value(record, field)
+        if value is None:
+            continue
+        if isinstance(value, (dict, list, tuple, set)):
+            continue
+        label = str(value).strip()
+        if not label:
+            continue
+        return _normalize_app_identifier(label), label, field
+    return "unknown_app", None, None
+
+
+def _inject_app_context_on_record(
+    record: dict[str, Any],
+    *,
+    app_identifier: str,
+    app_label: str | None,
+    app_field: str | None,
+) -> dict[str, Any]:
+    enriched = dict(record)
+    source_context_raw = enriched.get("source_context")
+    source_context = dict(source_context_raw) if isinstance(source_context_raw, dict) else {}
+    if not str(source_context.get("app_identifier") or "").strip():
+        source_context["app_identifier"] = app_identifier
+    if app_label and not str(source_context.get("app_label") or "").strip():
+        source_context["app_label"] = app_label
+    if app_field and not str(source_context.get("app_field") or "").strip():
+        source_context["app_field"] = app_field
+    enriched["source_context"] = source_context
+    return enriched
+
+
+def _resolve_signal_app_identifier(signal: dict[str, Any]) -> str:
+    metadata = dict(signal.get("metadata") or {}) if isinstance(signal.get("metadata"), dict) else {}
+    source_context = dict(metadata.get("source_context") or {}) if isinstance(metadata.get("source_context"), dict) else {}
+    for key in ("app_identifier", "app_id", "app_name", "app", "product", "provider", "app_label"):
+        value = source_context.get(key)
+        normalized = _normalize_app_identifier(value)
+        if normalized != "unknown_app":
+            return normalized
+
+    evidence = dict(signal.get("evidence") or {}) if isinstance(signal.get("evidence"), dict) else {}
+    for key in ("app_identifier", "app_id", "app_name", "app", "product", "provider"):
+        value = evidence.get(key)
+        normalized = _normalize_app_identifier(value)
+        if normalized != "unknown_app":
+            return normalized
+    return "unknown_app"
+
+
+def _rank_app_counter(
+    counter: Counter[str],
+    *,
+    total: int,
+    limit: int,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    cap = max(1, int(limit))
+    denominator = max(1, int(total))
+    for app_identifier, count in counter.most_common(cap):
+        rows.append(
+            {
+                "app_identifier": app_identifier,
+                "count": int(count),
+                "share": round(float(count) / float(denominator), 4),
+            }
+        )
+    return rows
+
+
+def _collect_cluster_app_counters(signals: list[dict[str, Any]]) -> dict[str, Counter[str]]:
+    counters: dict[str, Counter[str]] = {}
+    for signal in signals:
+        canonical_key = str(signal.get("canonical_key") or "").strip()
+        if not canonical_key:
+            continue
+        app_identifier = _resolve_signal_app_identifier(signal)
+        counters.setdefault(canonical_key, Counter())[app_identifier] += 1
+    return counters
+
+
 def _summarize_displeasures_for_records(
     *,
     records: list[dict[str, Any]],
@@ -2450,9 +2552,18 @@ def _summarize_displeasures_for_records(
             min_count=max(1, int(min_cluster_count)),
             limit=max(1, int(cluster_limit)),
         )
+        signal_limit = max(
+            int(ingest.get("ingested_count") or 0),
+            max(200, int(cluster_limit) * 40),
+        )
+        signals = store.list_signals(
+            domain=domain,
+            limit=max(1, int(signal_limit)),
+        )
         return {
             "ingest": ingest,
             "summary": summary,
+            "signals": signals,
         }
     finally:
         store.close()
@@ -2464,11 +2575,49 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
         path=args.input_path,
         file_format=args.input_format,
     )
-    records = [
+    raw_records = [
         dict(item)
         for item in list(loaded.get("records") or [])
         if isinstance(item, dict)
     ]
+
+    app_fields = _parse_csv_items(getattr(args, "app_fields", None))
+    if not app_fields:
+        app_fields = _parse_csv_items(DEFAULT_FITNESS_APP_FIELDS_CSV)
+    top_apps_per_cluster = max(1, int(getattr(args, "top_apps_per_cluster", 3) or 3))
+    min_cross_app_count = max(1, int(getattr(args, "min_cross_app_count", 2) or 2))
+    own_app_aliases = sorted(
+        {
+            _normalize_app_identifier(item)
+            for item in _parse_csv_items(getattr(args, "own_app_aliases", None))
+            if _normalize_app_identifier(item) != "unknown_app"
+        }
+    )
+    own_app_alias_set = set(own_app_aliases)
+
+    records: list[dict[str, Any]] = []
+    app_field_hits: Counter[str] = Counter()
+    app_known_count = 0
+    app_unknown_count = 0
+    for raw_row in raw_records:
+        app_identifier, app_label, app_field = _extract_app_identity_from_record(
+            raw_row,
+            app_fields=app_fields,
+        )
+        if app_identifier == "unknown_app":
+            app_unknown_count += 1
+        else:
+            app_known_count += 1
+        if app_field:
+            app_field_hits[app_field] += 1
+        records.append(
+            _inject_app_context_on_record(
+                raw_row,
+                app_identifier=app_identifier,
+                app_label=app_label,
+                app_field=app_field,
+            )
+        )
 
     timestamp_fields = _parse_csv_items(getattr(args, "timestamp_fields", None))
     if not timestamp_fields:
@@ -2538,6 +2687,17 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
 
     current_clusters = list((current_summary_payload.get("summary") or {}).get("clusters") or [])
     previous_clusters = list((previous_summary_payload.get("summary") or {}).get("clusters") or [])
+    current_signals = [dict(item) for item in list(current_summary_payload.get("signals") or []) if isinstance(item, dict)]
+    previous_signals = [dict(item) for item in list(previous_summary_payload.get("signals") or []) if isinstance(item, dict)]
+    current_cluster_app_counters = _collect_cluster_app_counters(current_signals)
+    previous_cluster_app_counters = _collect_cluster_app_counters(previous_signals)
+    current_window_app_counter: Counter[str] = Counter()
+    previous_window_app_counter: Counter[str] = Counter()
+    for signal in current_signals:
+        current_window_app_counter[_resolve_signal_app_identifier(signal)] += 1
+    for signal in previous_signals:
+        previous_window_app_counter[_resolve_signal_app_identifier(signal)] += 1
+
     previous_by_key = {
         str(item.get("canonical_key") or ""): item
         for item in previous_clusters
@@ -2571,6 +2731,12 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
         signal_delta = signal_count_current - signal_count_previous
         severity_delta = round(severity_current - severity_previous, 4)
         frustration_delta = round(frustration_current - frustration_previous, 4)
+        current_app_counter = Counter(current_cluster_app_counters.get(canonical_key) or {})
+        previous_app_counter = Counter(previous_cluster_app_counters.get(canonical_key) or {})
+        cross_app_count_current = len(current_app_counter)
+        cross_app_count_previous = len(previous_app_counter)
+        own_app_signal_count_current = sum(int(current_app_counter.get(alias) or 0) for alias in own_app_alias_set)
+        market_recurrence_score = round(impact_current * max(1, cross_app_count_current), 4)
 
         if signal_count_previous == 0 and signal_count_current > 0:
             trend = "new"
@@ -2598,6 +2764,22 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
                 "avg_frustration_score_current": round(frustration_current, 4),
                 "avg_frustration_score_previous": round(frustration_previous, 4),
                 "avg_frustration_score_delta": frustration_delta,
+                "cross_app_count_current": int(cross_app_count_current),
+                "cross_app_count_previous": int(cross_app_count_previous),
+                "top_apps_current": _rank_app_counter(
+                    current_app_counter,
+                    total=max(1, signal_count_current),
+                    limit=top_apps_per_cluster,
+                ),
+                "top_apps_previous": _rank_app_counter(
+                    previous_app_counter,
+                    total=max(1, signal_count_previous),
+                    limit=top_apps_per_cluster,
+                )
+                if signal_count_previous > 0
+                else [],
+                "own_app_signal_count_current": int(own_app_signal_count_current),
+                "market_recurrence_score": float(market_recurrence_score),
                 "example_summary": str(item.get("example_summary") or ""),
                 "top_tags": list(item.get("top_tags") or []),
                 "top_sources": list(item.get("top_sources") or []),
@@ -2605,8 +2787,11 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
             }
         )
 
+    trend_priority = {"new": 0, "rising": 1, "flat": 2, "cooling": 3}
     leaderboard.sort(
         key=lambda row: (
+            int(trend_priority.get(str(row.get("trend") or "flat"), 9)),
+            -float(row.get("market_recurrence_score") or 0.0),
             -float(row.get("impact_score_current") or 0.0),
             -int(row.get("signal_count_current") or 0),
             str(row.get("canonical_key") or ""),
@@ -2622,15 +2807,25 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
         canonical_key = str(item.get("canonical_key") or "").strip()
         if not canonical_key or canonical_key in current_keys:
             continue
+        previous_app_counter = Counter(previous_cluster_app_counters.get(canonical_key) or {})
+        signal_count_previous = int(item.get("signal_count") or 0)
         cooling_clusters.append(
             {
                 "canonical_key": canonical_key,
                 "friction_key": _normalize_friction_key(canonical_key),
                 "trend": "cooling",
-                "signal_count_previous": int(item.get("signal_count") or 0),
+                "signal_count_previous": signal_count_previous,
                 "impact_score_previous": round(float(item.get("impact_score") or 0.0), 4),
                 "avg_severity_previous": round(float(item.get("avg_severity") or 0.0), 4),
                 "avg_frustration_score_previous": round(float(item.get("avg_frustration_score") or 0.0), 4),
+                "cross_app_count_previous": int(len(previous_app_counter)),
+                "top_apps_previous": _rank_app_counter(
+                    previous_app_counter,
+                    total=max(1, signal_count_previous),
+                    limit=top_apps_per_cluster,
+                )
+                if signal_count_previous > 0
+                else [],
                 "example_summary": str(item.get("example_summary") or ""),
                 "top_tags": list(item.get("top_tags") or []),
                 "last_seen_at": item.get("latest_seen_at"),
@@ -2646,14 +2841,67 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
 
     top_entries = leaderboard[:leaderboard_limit]
     top_cooling = cooling_clusters[:cooling_limit]
+    shared_market_displeasures = [
+        dict(row)
+        for row in leaderboard
+        if int(row.get("cross_app_count_current") or 0) >= min_cross_app_count
+    ]
+    top_shared_market_displeasures = shared_market_displeasures[:leaderboard_limit]
+
+    white_space_candidates: list[dict[str, Any]] = []
+    if own_app_alias_set:
+        for row in shared_market_displeasures:
+            trend = str(row.get("trend") or "")
+            if trend not in {"new", "rising"}:
+                continue
+            own_count = int(row.get("own_app_signal_count_current") or 0)
+            if own_count > 0:
+                continue
+            top_competitor_apps = [
+                dict(app_row)
+                for app_row in list(row.get("top_apps_current") or [])
+                if isinstance(app_row, dict)
+                and str(app_row.get("app_identifier") or "") not in own_app_alias_set
+                and str(app_row.get("app_identifier") or "") != "unknown_app"
+            ]
+            white_space_candidates.append(
+                {
+                    "canonical_key": row.get("canonical_key"),
+                    "friction_key": row.get("friction_key"),
+                    "trend": trend,
+                    "impact_score_current": row.get("impact_score_current"),
+                    "impact_score_delta": row.get("impact_score_delta"),
+                    "market_recurrence_score": row.get("market_recurrence_score"),
+                    "cross_app_count_current": row.get("cross_app_count_current"),
+                    "top_competitor_apps": top_competitor_apps[:top_apps_per_cluster],
+                    "suggested_test": (
+                        "Run controlled prototype validation for this friction against your own experience flow, "
+                        "then compare retention/activation guardrails against the current baseline."
+                    ),
+                }
+            )
+    white_space_candidates.sort(
+        key=lambda row: (
+            -float(row.get("market_recurrence_score") or 0.0),
+            -float(row.get("impact_score_current") or 0.0),
+            str(row.get("friction_key") or ""),
+        )
+    )
+    top_white_space_candidates = white_space_candidates[:leaderboard_limit]
 
     suggested_actions: list[str] = []
+    for entry in top_white_space_candidates[:2]:
+        suggested_actions.append(
+            "Prioritize whitespace validation for "
+            f"'{entry.get('friction_key')}' (trend={entry.get('trend')}, "
+            f"cross_app_count={entry.get('cross_app_count_current')})."
+        )
     rising_or_new = [entry for entry in top_entries if str(entry.get("trend") or "") in {"new", "rising"}]
     for entry in rising_or_new[:3]:
         suggested_actions.append(
             "Test a controlled hypothesis for "
             f"'{entry.get('friction_key')}' (trend={entry.get('trend')}, "
-            f"impact_delta={entry.get('impact_score_delta')})."
+            f"impact_delta={entry.get('impact_score_delta')}, cross_app_count={entry.get('cross_app_count_current')})."
         )
     if not suggested_actions and top_entries:
         suggested_actions.append("Monitor the top frustration clusters and re-run this leaderboard after next data pull.")
@@ -2671,6 +2919,10 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
         "source": source,
         "as_of": as_of_dt.isoformat(),
         "lookback_days": lookback_days,
+        "app_fields": list(app_fields),
+        "top_apps_per_cluster": int(top_apps_per_cluster),
+        "min_cross_app_count": int(min_cross_app_count),
+        "own_app_aliases": own_app_aliases,
         "window": {
             "current": {
                 "start": current_window_start.isoformat(),
@@ -2684,6 +2936,18 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
         "timestamp_fields": list(timestamp_fields),
         "trend_threshold": trend_threshold,
         "include_untimed_current": include_untimed_current,
+        "app_resolution": {
+            "known_app_records": int(app_known_count),
+            "unknown_app_records": int(app_unknown_count),
+            "known_app_share": round(
+                float(app_known_count) / float(max(1, app_known_count + app_unknown_count)),
+                4,
+            ),
+            "field_hits": [
+                {"field": field, "count": int(count)}
+                for field, count in app_field_hits.most_common()
+            ],
+        },
         "counts": {
             "current_window_records": len(current_records),
             "previous_window_records": len(previous_records),
@@ -2693,8 +2957,26 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
         },
         "leaderboard_count": len(top_entries),
         "leaderboard": top_entries,
+        "shared_market_displeasures_count": len(shared_market_displeasures),
+        "shared_market_displeasures": top_shared_market_displeasures,
+        "white_space_candidates_count": len(white_space_candidates),
+        "white_space_candidates": top_white_space_candidates,
         "cooling_clusters_count": len(top_cooling),
         "cooling_clusters": top_cooling,
+        "top_apps_current_window": _rank_app_counter(
+            current_window_app_counter,
+            total=max(1, len(current_signals)),
+            limit=max(5, top_apps_per_cluster * 2),
+        )
+        if current_signals
+        else [],
+        "top_apps_previous_window": _rank_app_counter(
+            previous_window_app_counter,
+            total=max(1, len(previous_signals)),
+            limit=max(5, top_apps_per_cluster * 2),
+        )
+        if previous_signals
+        else [],
         "suggested_actions": suggested_actions,
         "status": "ok" if top_entries else "warning",
     }
@@ -2835,12 +3117,23 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 for item in top_tag_rows
                 if str(item.get("tag") or "").strip()
             ]
+            top_app_rows = [dict(item) for item in list(entry.get("top_apps_current") or []) if isinstance(item, dict)]
+            top_app_names = [
+                _normalize_app_identifier(item.get("app_identifier"))
+                for item in top_app_rows
+                if _normalize_app_identifier(item.get("app_identifier")) != "unknown_app"
+            ]
+            cross_app_count_current = max(
+                int(entry.get("cross_app_count_current") or 0),
+                len(set(top_app_names)),
+            )
             summary_hint = str(entry.get("example_summary") or "").strip()
 
             statement = (
                 f"Recent {source} feedback indicates '{canonical_key or friction_key}' is {trend}, "
                 f"with current impact score {round(impact_score_current, 4)} "
-                f"and delta {round(impact_score_delta, 4)} versus the previous window."
+                f"and delta {round(impact_score_delta, 4)} versus the previous window "
+                f"(cross-app count={cross_app_count_current})."
             )
             proposed_change = (
                 "Design and test a controlled intervention targeted to this friction, "
@@ -2848,6 +3141,8 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
             )
             if top_tag_names:
                 proposed_change += f" Prioritize tactics related to tags: {', '.join(top_tag_names[:5])}."
+            if top_app_names:
+                proposed_change += f" Benchmark against competitor app signals from: {', '.join(top_app_names[:5])}."
 
             metadata = {
                 "seed_source": "fitness_leaderboard",
@@ -2863,8 +3158,13 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 "seed_canonical_key": canonical_key,
                 "seed_example_summary": summary_hint,
                 "seed_top_tags": top_tag_names,
+                "seed_cross_app_count_current": int(cross_app_count_current),
+                "seed_market_recurrence_score": float(entry.get("market_recurrence_score") or 0.0),
+                "seed_top_apps_current": sorted(set(top_app_names)),
             }
             risk_level = "high" if trend == "new" and impact_score_current >= 6.0 else "medium"
+            if trend in {"new", "rising"} and cross_app_count_current >= 3 and impact_score_current >= 4.0:
+                risk_level = "high"
 
             try:
                 hypothesis = runtime.register_hypothesis(
@@ -4679,6 +4979,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     cluster_limit=max(1, int(getattr(args, "seed_cluster_limit", 20) or 20)),
                     leaderboard_limit=max(1, int(getattr(args, "seed_leaderboard_limit", 12) or 12)),
                     cooling_limit=max(1, int(getattr(args, "seed_cooling_limit", 10) or 10)),
+                    app_fields=str(getattr(args, "seed_app_fields", DEFAULT_FITNESS_APP_FIELDS_CSV) or DEFAULT_FITNESS_APP_FIELDS_CSV),
+                    top_apps_per_cluster=max(1, int(getattr(args, "seed_top_apps_per_cluster", 3) or 3)),
+                    min_cross_app_count=max(1, int(getattr(args, "seed_min_cross_app_count", 2) or 2)),
+                    own_app_aliases=getattr(args, "seed_own_app_aliases", None),
                     trend_threshold=max(0.0, float(getattr(args, "seed_trend_threshold", 0.25) or 0.25)),
                     include_untimed_current=bool(getattr(args, "seed_include_untimed_current", False)),
                     strict=False,
@@ -7726,6 +8030,30 @@ def main() -> None:
     improvement_fitness_leaderboard.add_argument("--leaderboard-limit", type=int, default=12)
     improvement_fitness_leaderboard.add_argument("--cooling-limit", type=int, default=10)
     improvement_fitness_leaderboard.add_argument(
+        "--app-fields",
+        type=str,
+        default=DEFAULT_FITNESS_APP_FIELDS_CSV,
+        help="CSV field-path priority list used to resolve app/provider identity for each feedback record",
+    )
+    improvement_fitness_leaderboard.add_argument(
+        "--top-apps-per-cluster",
+        type=int,
+        default=3,
+        help="Maximum app breakdown rows to include per frustration cluster",
+    )
+    improvement_fitness_leaderboard.add_argument(
+        "--min-cross-app-count",
+        type=int,
+        default=2,
+        help="Minimum unique-app count required to classify a friction as shared market displeasure",
+    )
+    improvement_fitness_leaderboard.add_argument(
+        "--own-app-aliases",
+        type=str,
+        default=None,
+        help="Optional CSV of your app aliases used to surface whitespace candidate frustrations",
+    )
+    improvement_fitness_leaderboard.add_argument(
         "--trend-threshold",
         type=float,
         default=0.25,
@@ -7990,6 +8318,14 @@ def main() -> None:
     improvement_operator_cycle.add_argument("--seed-cluster-limit", type=int, default=20)
     improvement_operator_cycle.add_argument("--seed-leaderboard-limit", type=int, default=12)
     improvement_operator_cycle.add_argument("--seed-cooling-limit", type=int, default=10)
+    improvement_operator_cycle.add_argument(
+        "--seed-app-fields",
+        type=str,
+        default=DEFAULT_FITNESS_APP_FIELDS_CSV,
+    )
+    improvement_operator_cycle.add_argument("--seed-top-apps-per-cluster", type=int, default=3)
+    improvement_operator_cycle.add_argument("--seed-min-cross-app-count", type=int, default=2)
+    improvement_operator_cycle.add_argument("--seed-own-app-aliases", type=str, default=None)
     improvement_operator_cycle.add_argument("--seed-trend-threshold", type=float, default=0.25)
     improvement_operator_cycle.add_argument(
         "--seed-timestamp-fields",
