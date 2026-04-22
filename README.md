@@ -74,6 +74,23 @@ This config uses source presets (`apple_app_store_reviews_csv`, `google_play_rev
 and `write_mode=append_dedupe` so recurring exports stay idempotent while both stores land in one combined JSONL stream at
 `./analysis/fitness_market_feedback.jsonl` for shared displeasure mining.
 
+Generate a week-over-week fitness frustration leaderboard (current week vs prior week):
+
+```bash
+python3 -m jarvis.cli improvement fitness-leaderboard \
+  --input-path ./analysis/fitness_market_feedback.jsonl \
+  --lookback-days 7 \
+  --output-path ./output/improvement/fitness_frustration_leaderboard.json
+```
+
+Scheduling-friendly wrapper:
+
+```bash
+./scripts/run_improvement_fitness_leaderboard.sh \
+  ./analysis/fitness_market_feedback.jsonl \
+  --output-path ./output/improvement/fitness_frustration_leaderboard.json
+```
+
 Run a config-driven daily pipeline (multiple feedback feeds + experiment artifacts):
 
 ```bash

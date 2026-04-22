@@ -12,6 +12,7 @@ from pathlib import Path
 from jarvis.cli import (
     cmd_improvement_daily_pipeline,
     cmd_improvement_execute_retests,
+    cmd_improvement_fitness_leaderboard,
     cmd_improvement_operator_cycle,
     cmd_improvement_pull_feeds,
     cmd_improvement_run_experiment_artifact,
@@ -293,6 +294,157 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(str((rows[0] or {}).get("platform") or ""), "ios")
             self.assertEqual(str((rows[0] or {}).get("id") or ""), "ios-r1")
+
+    def test_fitness_leaderboard_reports_week_over_week_trend_deltas(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            input_path = root / "fitness_market_feedback.jsonl"
+            rows = [
+                {
+                    "id": "cur-1",
+                    "title": "Paywall too early",
+                    "summary": "Paywall appears before first full workout trial.",
+                    "review": "Paywall appears before first full workout trial.",
+                    "created_at": "2026-04-20T10:00:00Z",
+                    "platform": "ios",
+                },
+                {
+                    "id": "cur-2",
+                    "title": "Paywall too early",
+                    "summary": "Paywall appears before first full workout trial.",
+                    "review": "Paywall appears before first full workout trial.",
+                    "created_at": "2026-04-19T10:00:00Z",
+                    "platform": "android",
+                },
+                {
+                    "id": "cur-3",
+                    "title": "Crash on sync",
+                    "summary": "Workout sync crash on wearable import.",
+                    "review": "Workout sync crash on wearable import.",
+                    "created_at": "2026-04-18T09:00:00Z",
+                    "platform": "android",
+                },
+                {
+                    "id": "prev-1",
+                    "title": "Paywall too early",
+                    "summary": "Paywall appears before first full workout trial.",
+                    "review": "Paywall appears before first full workout trial.",
+                    "created_at": "2026-04-13T09:00:00Z",
+                    "platform": "ios",
+                },
+                {
+                    "id": "prev-2",
+                    "title": "Onboarding too intense",
+                    "summary": "Beginner onboarding plan is too intense and rigid.",
+                    "review": "Beginner onboarding plan is too intense and rigid.",
+                    "created_at": "2026-04-12T08:00:00Z",
+                    "platform": "ios",
+                },
+                {
+                    "id": "old-1",
+                    "title": "Old issue",
+                    "summary": "Legacy complaint outside tracked windows.",
+                    "review": "Legacy complaint outside tracked windows.",
+                    "created_at": "2026-03-20T08:00:00Z",
+                    "platform": "ios",
+                },
+            ]
+            input_path.write_text(
+                "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+
+            output_path = root / "reports" / "fitness_leaderboard.json"
+            args = argparse.Namespace(
+                input_path=input_path,
+                input_format="jsonl",
+                domain="fitness_apps",
+                source="market_reviews",
+                timestamp_fields="created_at,at",
+                as_of="2026-04-22T00:00:00Z",
+                lookback_days=7,
+                min_cluster_count=1,
+                cluster_limit=20,
+                leaderboard_limit=12,
+                cooling_limit=10,
+                trend_threshold=0.25,
+                include_untimed_current=False,
+                strict=False,
+                output_path=output_path,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_fitness_leaderboard(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertTrue(output_path.exists())
+            counts = dict(payload.get("counts") or {})
+            self.assertEqual(int(counts.get("current_window_records") or 0), 3)
+            self.assertEqual(int(counts.get("previous_window_records") or 0), 2)
+            self.assertEqual(int(counts.get("older_records") or 0), 1)
+
+            leaderboard = list(payload.get("leaderboard") or [])
+            self.assertGreaterEqual(len(leaderboard), 2)
+            paywall_entry = next(
+                (
+                    row
+                    for row in leaderboard
+                    if "paywall" in str(row.get("canonical_key") or "")
+                ),
+                {},
+            )
+            self.assertTrue(bool(paywall_entry))
+            self.assertEqual(str(paywall_entry.get("trend") or ""), "rising")
+            self.assertEqual(int(paywall_entry.get("signal_count_current") or 0), 2)
+            self.assertEqual(int(paywall_entry.get("signal_count_previous") or 0), 1)
+            self.assertGreater(float(paywall_entry.get("impact_score_delta") or 0.0), 0.0)
+
+            cooling = list(payload.get("cooling_clusters") or [])
+            self.assertTrue(
+                any("onboarding" in str(row.get("canonical_key") or "") for row in cooling)
+            )
+
+    def test_fitness_leaderboard_strict_fails_when_no_current_clusters(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            input_path = root / "fitness_market_feedback.jsonl"
+            input_path.write_text(
+                json.dumps(
+                    {
+                        "id": "old-1",
+                        "summary": "Very old complaint",
+                        "review": "Very old complaint",
+                        "created_at": "2025-01-01T00:00:00Z",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                input_path=input_path,
+                input_format="jsonl",
+                domain="fitness_apps",
+                source="market_reviews",
+                timestamp_fields="created_at",
+                as_of="2026-04-22T00:00:00Z",
+                lookback_days=7,
+                min_cluster_count=1,
+                cluster_limit=20,
+                leaderboard_limit=10,
+                cooling_limit=10,
+                trend_threshold=0.25,
+                include_untimed_current=False,
+                strict=True,
+                output_path=None,
+                json_compact=False,
+            )
+            with self.assertRaises(SystemExit) as raised:
+                cmd_improvement_fitness_leaderboard(args)
+            self.assertEqual(int(getattr(raised.exception, "code", 0) or 0), 2)
 
     def test_run_experiment_artifact_command(self) -> None:
         with tempfile.TemporaryDirectory() as td:

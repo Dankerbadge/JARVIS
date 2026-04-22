@@ -8,6 +8,7 @@ import os
 import re
 import sys
 from contextlib import redirect_stdout
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +28,7 @@ from .connectors.personal_context import PersonalContextConnector
 from .connectors.repo import RepoChangeConnector
 from .daemon import EventDaemon
 from .evaluation import compare_backends_on_snapshot
-from .improvement import FeedbackFeedPuller
+from .improvement import FeedbackFeedPuller, FeedbackFileConnector, FrictionMiningStore, FrictionSourceAdapter
 from .interrupts import InterruptDecision
 from .models import new_id, utc_now_iso
 from .reactors import ZenithCorrelationReactor, ZenithGitDeltaReactor, ZenithRiskReactor
@@ -2344,6 +2345,373 @@ def _normalize_friction_key(raw_value: Any) -> str:
     value = re.sub(r"[^a-z0-9]+", "_", value)
     value = value.strip("_")
     return value
+
+
+def _resolve_record_path_value(payload: Any, path: Any) -> Any:
+    if path is None:
+        return payload
+    if isinstance(path, (list, tuple)):
+        parts = [str(item).strip() for item in path if str(item).strip()]
+    else:
+        parts = [part.strip() for part in str(path or "").split(".") if part.strip()]
+    value: Any = payload
+    for part in parts:
+        if isinstance(value, dict):
+            value = value.get(part)
+            continue
+        if isinstance(value, list):
+            try:
+                idx = int(part)
+            except (TypeError, ValueError):
+                return None
+            if idx < 0 or idx >= len(value):
+                return None
+            value = value[idx]
+            continue
+        return None
+    return value
+
+
+def _parse_timestamp_value(raw_value: Any) -> datetime | None:
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, datetime):
+        parsed_dt = raw_value
+        if parsed_dt.tzinfo is None:
+            parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+        return parsed_dt.astimezone(timezone.utc)
+    if isinstance(raw_value, (int, float)):
+        numeric = float(raw_value)
+        if numeric > 10_000_000_000:
+            numeric = numeric / 1000.0
+        try:
+            return datetime.fromtimestamp(numeric, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return None
+    if re.fullmatch(r"\d{10,16}", raw):
+        try:
+            numeric = float(raw)
+            if numeric > 10_000_000_000:
+                numeric = numeric / 1000.0
+            return datetime.fromtimestamp(numeric, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+
+    iso_candidate = raw
+    if iso_candidate.endswith("Z"):
+        iso_candidate = f"{iso_candidate[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(iso_candidate)
+    except ValueError:
+        parsed = None
+
+    if parsed is None:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                parsed = datetime.strptime(raw, fmt)
+                break
+            except ValueError:
+                continue
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _summarize_displeasures_for_records(
+    *,
+    records: list[dict[str, Any]],
+    domain: str,
+    source: str,
+    min_cluster_count: int,
+    cluster_limit: int,
+) -> dict[str, Any]:
+    store = FrictionMiningStore(":memory:")
+    adapter = FrictionSourceAdapter()
+    try:
+        ingest = adapter.ingest_feedback_batch(
+            store=store,
+            domain=domain,
+            source=source,
+            records=records,
+            default_segment="general",
+            default_severity=3.0,
+            default_frustration_score=None,
+            status="open",
+            metadata={"invoked_by": "jarvis.cli.improvement.fitness-leaderboard"},
+        )
+        summary = store.summarize_common_displeasures(
+            domain=domain,
+            min_count=max(1, int(min_cluster_count)),
+            limit=max(1, int(cluster_limit)),
+        )
+        return {
+            "ingest": ingest,
+            "summary": summary,
+        }
+    finally:
+        store.close()
+
+
+def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
+    connector = FeedbackFileConnector()
+    loaded = connector.load_records(
+        path=args.input_path,
+        file_format=args.input_format,
+    )
+    records = [
+        dict(item)
+        for item in list(loaded.get("records") or [])
+        if isinstance(item, dict)
+    ]
+
+    timestamp_fields = _parse_csv_items(getattr(args, "timestamp_fields", None))
+    if not timestamp_fields:
+        timestamp_fields = ["created_at", "at", "submission_date", "date", "timestamp", "occurred_at"]
+
+    as_of_raw = getattr(args, "as_of", None)
+    as_of_dt = _parse_timestamp_value(as_of_raw) if as_of_raw is not None else datetime.now(timezone.utc)
+    if as_of_dt is None:
+        raise ValueError(f"invalid_as_of_timestamp:{as_of_raw}")
+
+    lookback_days = max(1, int(getattr(args, "lookback_days", 7) or 7))
+    current_window_start = as_of_dt - timedelta(days=lookback_days)
+    previous_window_start = current_window_start - timedelta(days=lookback_days)
+
+    current_records: list[dict[str, Any]] = []
+    previous_records: list[dict[str, Any]] = []
+    untimed_count = 0
+    older_count = 0
+    future_count = 0
+    include_untimed_current = bool(getattr(args, "include_untimed_current", False))
+
+    for row in records:
+        row_dt: datetime | None = None
+        for field in timestamp_fields:
+            value = _resolve_record_path_value(row, field)
+            row_dt = _parse_timestamp_value(value)
+            if row_dt is not None:
+                break
+        if row_dt is None:
+            untimed_count += 1
+            if include_untimed_current:
+                current_records.append(dict(row))
+            continue
+        if row_dt > as_of_dt:
+            future_count += 1
+            continue
+        if row_dt >= current_window_start:
+            current_records.append(dict(row))
+            continue
+        if row_dt >= previous_window_start:
+            previous_records.append(dict(row))
+            continue
+        older_count += 1
+
+    domain = str(getattr(args, "domain", "fitness_apps") or "fitness_apps").strip().lower() or "fitness_apps"
+    source = str(getattr(args, "source", "market_reviews") or "market_reviews").strip().lower() or "market_reviews"
+    min_cluster_count = max(1, int(getattr(args, "min_cluster_count", 1) or 1))
+    cluster_limit = max(1, int(getattr(args, "cluster_limit", 20) or 20))
+    leaderboard_limit = max(1, int(getattr(args, "leaderboard_limit", 12) or 12))
+    cooling_limit = max(1, int(getattr(args, "cooling_limit", 10) or 10))
+    trend_threshold = max(0.0, float(getattr(args, "trend_threshold", 0.25) or 0.25))
+
+    current_summary_payload = _summarize_displeasures_for_records(
+        records=current_records,
+        domain=domain,
+        source=source,
+        min_cluster_count=min_cluster_count,
+        cluster_limit=cluster_limit,
+    )
+    previous_summary_payload = _summarize_displeasures_for_records(
+        records=previous_records,
+        domain=domain,
+        source=source,
+        min_cluster_count=min_cluster_count,
+        cluster_limit=cluster_limit,
+    )
+
+    current_clusters = list((current_summary_payload.get("summary") or {}).get("clusters") or [])
+    previous_clusters = list((previous_summary_payload.get("summary") or {}).get("clusters") or [])
+    previous_by_key = {
+        str(item.get("canonical_key") or ""): item
+        for item in previous_clusters
+        if isinstance(item, dict) and str(item.get("canonical_key") or "")
+    }
+    current_keys = {
+        str(item.get("canonical_key") or "")
+        for item in current_clusters
+        if isinstance(item, dict) and str(item.get("canonical_key") or "")
+    }
+
+    leaderboard: list[dict[str, Any]] = []
+    for item in current_clusters:
+        if not isinstance(item, dict):
+            continue
+        canonical_key = str(item.get("canonical_key") or "").strip()
+        if not canonical_key:
+            continue
+        previous_item = dict(previous_by_key.get(canonical_key) or {})
+
+        signal_count_current = int(item.get("signal_count") or 0)
+        signal_count_previous = int(previous_item.get("signal_count") or 0)
+        impact_current = float(item.get("impact_score") or 0.0)
+        impact_previous = float(previous_item.get("impact_score") or 0.0)
+        severity_current = float(item.get("avg_severity") or 0.0)
+        severity_previous = float(previous_item.get("avg_severity") or 0.0)
+        frustration_current = float(item.get("avg_frustration_score") or 0.0)
+        frustration_previous = float(previous_item.get("avg_frustration_score") or 0.0)
+
+        impact_delta = round(impact_current - impact_previous, 4)
+        signal_delta = signal_count_current - signal_count_previous
+        severity_delta = round(severity_current - severity_previous, 4)
+        frustration_delta = round(frustration_current - frustration_previous, 4)
+
+        if signal_count_previous == 0 and signal_count_current > 0:
+            trend = "new"
+        elif impact_delta >= trend_threshold:
+            trend = "rising"
+        elif impact_delta <= -trend_threshold:
+            trend = "cooling"
+        else:
+            trend = "flat"
+
+        leaderboard.append(
+            {
+                "canonical_key": canonical_key,
+                "friction_key": _normalize_friction_key(canonical_key),
+                "trend": trend,
+                "signal_count_current": signal_count_current,
+                "signal_count_previous": signal_count_previous,
+                "signal_count_delta": signal_delta,
+                "impact_score_current": round(impact_current, 4),
+                "impact_score_previous": round(impact_previous, 4),
+                "impact_score_delta": impact_delta,
+                "avg_severity_current": round(severity_current, 4),
+                "avg_severity_previous": round(severity_previous, 4),
+                "avg_severity_delta": severity_delta,
+                "avg_frustration_score_current": round(frustration_current, 4),
+                "avg_frustration_score_previous": round(frustration_previous, 4),
+                "avg_frustration_score_delta": frustration_delta,
+                "example_summary": str(item.get("example_summary") or ""),
+                "top_tags": list(item.get("top_tags") or []),
+                "top_sources": list(item.get("top_sources") or []),
+                "last_seen_at": item.get("latest_seen_at"),
+            }
+        )
+
+    leaderboard.sort(
+        key=lambda row: (
+            -float(row.get("impact_score_current") or 0.0),
+            -int(row.get("signal_count_current") or 0),
+            str(row.get("canonical_key") or ""),
+        )
+    )
+    for index, row in enumerate(leaderboard):
+        row["rank"] = index + 1
+
+    cooling_clusters: list[dict[str, Any]] = []
+    for item in previous_clusters:
+        if not isinstance(item, dict):
+            continue
+        canonical_key = str(item.get("canonical_key") or "").strip()
+        if not canonical_key or canonical_key in current_keys:
+            continue
+        cooling_clusters.append(
+            {
+                "canonical_key": canonical_key,
+                "friction_key": _normalize_friction_key(canonical_key),
+                "trend": "cooling",
+                "signal_count_previous": int(item.get("signal_count") or 0),
+                "impact_score_previous": round(float(item.get("impact_score") or 0.0), 4),
+                "avg_severity_previous": round(float(item.get("avg_severity") or 0.0), 4),
+                "avg_frustration_score_previous": round(float(item.get("avg_frustration_score") or 0.0), 4),
+                "example_summary": str(item.get("example_summary") or ""),
+                "top_tags": list(item.get("top_tags") or []),
+                "last_seen_at": item.get("latest_seen_at"),
+            }
+        )
+    cooling_clusters.sort(
+        key=lambda row: (
+            -float(row.get("impact_score_previous") or 0.0),
+            -int(row.get("signal_count_previous") or 0),
+            str(row.get("canonical_key") or ""),
+        )
+    )
+
+    top_entries = leaderboard[:leaderboard_limit]
+    top_cooling = cooling_clusters[:cooling_limit]
+
+    suggested_actions: list[str] = []
+    rising_or_new = [entry for entry in top_entries if str(entry.get("trend") or "") in {"new", "rising"}]
+    for entry in rising_or_new[:3]:
+        suggested_actions.append(
+            "Test a controlled hypothesis for "
+            f"'{entry.get('friction_key')}' (trend={entry.get('trend')}, "
+            f"impact_delta={entry.get('impact_score_delta')})."
+        )
+    if not suggested_actions and top_entries:
+        suggested_actions.append("Monitor the top frustration clusters and re-run this leaderboard after next data pull.")
+    if top_cooling:
+        suggested_actions.append("Keep observing cooling clusters to confirm sustained improvement before deprioritizing.")
+    if not top_entries:
+        suggested_actions.append("No active current-window fitness frustration clusters; continue ingesting market review exports.")
+
+    payload = {
+        "generated_at": utc_now_iso(),
+        "input_path": str(loaded.get("input_path") or ""),
+        "input_format": str(loaded.get("input_format") or ""),
+        "record_count": int(loaded.get("record_count") or 0),
+        "domain": domain,
+        "source": source,
+        "as_of": as_of_dt.isoformat(),
+        "lookback_days": lookback_days,
+        "window": {
+            "current": {
+                "start": current_window_start.isoformat(),
+                "end": as_of_dt.isoformat(),
+            },
+            "previous": {
+                "start": previous_window_start.isoformat(),
+                "end": current_window_start.isoformat(),
+            },
+        },
+        "timestamp_fields": list(timestamp_fields),
+        "trend_threshold": trend_threshold,
+        "include_untimed_current": include_untimed_current,
+        "counts": {
+            "current_window_records": len(current_records),
+            "previous_window_records": len(previous_records),
+            "untimed_records": untimed_count,
+            "future_records": future_count,
+            "older_records": older_count,
+        },
+        "leaderboard_count": len(top_entries),
+        "leaderboard": top_entries,
+        "cooling_clusters_count": len(top_cooling),
+        "cooling_clusters": top_cooling,
+        "suggested_actions": suggested_actions,
+        "status": "ok" if top_entries else "warning",
+    }
+
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+
+    if not top_entries and bool(getattr(args, "strict", False)):
+        raise SystemExit(2)
 
 
 def _coerce_status_preferences(value: Any) -> list[str]:
@@ -5511,6 +5879,52 @@ def main() -> None:
     improvement_pull.add_argument("--output-path", type=Path, default=None)
     improvement_pull.add_argument("--json-compact", action="store_true")
 
+    improvement_fitness_leaderboard = improvement_sub.add_parser(
+        "fitness-leaderboard",
+        help="Build a week-over-week fitness frustration leaderboard from merged market review feedback",
+    )
+    improvement_fitness_leaderboard.add_argument("--input-path", type=Path, required=True)
+    improvement_fitness_leaderboard.add_argument(
+        "--input-format",
+        type=str,
+        default=None,
+        choices=("json", "jsonl", "ndjson", "csv"),
+        help="Override auto-detected feedback file format",
+    )
+    improvement_fitness_leaderboard.add_argument("--domain", type=str, default="fitness_apps")
+    improvement_fitness_leaderboard.add_argument("--source", type=str, default="market_reviews")
+    improvement_fitness_leaderboard.add_argument(
+        "--timestamp-fields",
+        type=str,
+        default="created_at,at,submission_date,date,timestamp,occurred_at",
+        help="CSV field-path priority list used to resolve record timestamps",
+    )
+    improvement_fitness_leaderboard.add_argument(
+        "--as-of",
+        type=str,
+        default=None,
+        help="Window end timestamp (ISO8601). Defaults to current UTC time.",
+    )
+    improvement_fitness_leaderboard.add_argument("--lookback-days", type=int, default=7)
+    improvement_fitness_leaderboard.add_argument("--min-cluster-count", type=int, default=1)
+    improvement_fitness_leaderboard.add_argument("--cluster-limit", type=int, default=20)
+    improvement_fitness_leaderboard.add_argument("--leaderboard-limit", type=int, default=12)
+    improvement_fitness_leaderboard.add_argument("--cooling-limit", type=int, default=10)
+    improvement_fitness_leaderboard.add_argument(
+        "--trend-threshold",
+        type=float,
+        default=0.25,
+        help="Minimum impact-score delta required to mark a cluster as rising/cooling",
+    )
+    improvement_fitness_leaderboard.add_argument(
+        "--include-untimed-current",
+        action="store_true",
+        help="Include records without timestamps in the current window bucket",
+    )
+    improvement_fitness_leaderboard.add_argument("--strict", action="store_true")
+    improvement_fitness_leaderboard.add_argument("--output-path", type=Path, default=None)
+    improvement_fitness_leaderboard.add_argument("--json-compact", action="store_true")
+
     improvement_pipeline = improvement_sub.add_parser(
         "daily-pipeline",
         help="Run config-driven feedback cycles + artifact experiments for daily operations",
@@ -5832,6 +6246,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "pull-feeds":
         cmd_improvement_pull_feeds(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "fitness-leaderboard":
+        cmd_improvement_fitness_leaderboard(args)
         return
     if args.cmd == "improvement" and args.improvement_cmd == "daily-pipeline":
         cmd_improvement_daily_pipeline(args)
