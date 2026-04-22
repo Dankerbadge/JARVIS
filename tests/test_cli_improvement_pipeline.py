@@ -717,6 +717,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 min_impact_score=0.0,
                 min_impact_delta=0.0,
                 entry_source="white_space_candidates",
+                fallback_entry_source="none",
                 min_cross_app_count=2,
                 owner="operator",
                 lookup_limit=200,
@@ -753,6 +754,72 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 self.assertEqual(int(metadata.get("seed_cross_app_count_current") or 0), 3)
             finally:
                 runtime.close()
+
+    def test_seed_from_leaderboard_falls_back_to_leaderboard_when_source_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            leaderboard_path = root / "fitness_leaderboard.json"
+            leaderboard_path.write_text(
+                json.dumps(
+                    {
+                        "generated_at": "2026-04-22T12:00:00Z",
+                        "as_of": "2026-04-22T12:00:00Z",
+                        "domain": "fitness_apps",
+                        "source": "market_reviews",
+                        "leaderboard": [
+                            {
+                                "rank": 1,
+                                "canonical_key": "paywall appears before first full workout trial",
+                                "friction_key": "paywall_before_core_workout_trial",
+                                "trend": "rising",
+                                "impact_score_current": 8.5,
+                                "impact_score_delta": 2.0,
+                                "signal_count_current": 10,
+                                "signal_count_previous": 6,
+                                "cross_app_count_current": 1,
+                                "top_apps_current": [{"app_identifier": "unknown_app", "count": 10, "share": 1.0}],
+                            }
+                        ],
+                        "shared_market_displeasures": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                leaderboard_path=leaderboard_path,
+                domain="fitness_apps",
+                source="fitness_leaderboard",
+                trends="new,rising",
+                limit=5,
+                min_impact_score=0.0,
+                min_impact_delta=0.0,
+                entry_source="shared_market_displeasures",
+                fallback_entry_source="leaderboard",
+                min_cross_app_count=0,
+                owner="operator",
+                lookup_limit=200,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_seed_from_leaderboard(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("requested_entry_source") or ""), "shared_market_displeasures")
+            self.assertEqual(str(payload.get("entry_source") or ""), "leaderboard")
+            self.assertTrue(bool(payload.get("fallback_triggered")))
+            self.assertEqual(int(payload.get("created_count") or 0), 1)
+            source_counts = dict(payload.get("available_entry_source_counts") or {})
+            self.assertEqual(int(source_counts.get("shared_market_displeasures") or 0), 0)
+            self.assertEqual(int(source_counts.get("leaderboard") or 0), 1)
 
     def test_draft_experiment_jobs_from_seed_report_writes_templates_and_updates_config(self) -> None:
         with tempfile.TemporaryDirectory() as td:

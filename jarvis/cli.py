@@ -3002,27 +3002,55 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
     if not isinstance(loaded, dict):
         raise ValueError("invalid_leaderboard_report:expected_json_object")
 
-    entry_source = str(getattr(args, "entry_source", "leaderboard") or "leaderboard").strip().lower() or "leaderboard"
-    if entry_source == "entries":
-        entry_source = "leaderboard"
+    requested_entry_source = (
+        str(getattr(args, "entry_source", "leaderboard") or "leaderboard").strip().lower() or "leaderboard"
+    )
+    if requested_entry_source == "entries":
+        requested_entry_source = "leaderboard"
+    fallback_entry_source_raw = str(getattr(args, "fallback_entry_source", "leaderboard") or "").strip().lower()
+    fallback_entry_source: str | None = None
+    if fallback_entry_source_raw and fallback_entry_source_raw not in {"none", "off", "null"}:
+        fallback_entry_source = "leaderboard" if fallback_entry_source_raw == "entries" else fallback_entry_source_raw
+
     allowed_entry_sources = {"leaderboard", "shared_market_displeasures", "white_space_candidates"}
-    if entry_source not in allowed_entry_sources:
+    if requested_entry_source not in allowed_entry_sources:
         raise ValueError(
             "invalid_entry_source:"
-            f"{entry_source}:expected_one_of:{','.join(sorted(allowed_entry_sources))}"
+            f"{requested_entry_source}:expected_one_of:{','.join(sorted(allowed_entry_sources))}"
         )
-    if entry_source == "leaderboard":
-        raw_entries = loaded.get("leaderboard")
-        if raw_entries is None:
-            raw_entries = loaded.get("entries")
-    else:
-        raw_entries = loaded.get(entry_source)
+    if fallback_entry_source is not None and fallback_entry_source not in allowed_entry_sources:
+        raise ValueError(
+            "invalid_fallback_entry_source:"
+            f"{fallback_entry_source}:expected_one_of:{','.join(sorted(allowed_entry_sources))},none"
+        )
 
-    entries = [
-        dict(item)
-        for item in list(raw_entries or [])
-        if isinstance(item, dict)
-    ]
+    def _load_entries_for_source(source_name: str) -> list[dict[str, Any]]:
+        if source_name == "leaderboard":
+            raw_rows = loaded.get("leaderboard")
+            if raw_rows is None:
+                raw_rows = loaded.get("entries")
+        else:
+            raw_rows = loaded.get(source_name)
+        return [dict(item) for item in list(raw_rows or []) if isinstance(item, dict)]
+
+    available_entry_source_counts = {
+        source_name: len(_load_entries_for_source(source_name))
+        for source_name in sorted(allowed_entry_sources)
+    }
+    entries = _load_entries_for_source(requested_entry_source)
+    entry_source = requested_entry_source
+    fallback_triggered = False
+    fallback_reason: str | None = None
+    if not entries and fallback_entry_source is not None and fallback_entry_source != requested_entry_source:
+        fallback_entries = _load_entries_for_source(fallback_entry_source)
+        if fallback_entries:
+            entries = fallback_entries
+            entry_source = fallback_entry_source
+            fallback_triggered = True
+            fallback_reason = f"entry_source_empty:{requested_entry_source}"
+        else:
+            fallback_reason = f"entry_source_empty_and_fallback_empty:{requested_entry_source}:{fallback_entry_source}"
+
     domain = str(getattr(args, "domain", None) or loaded.get("domain") or "fitness_apps").strip().lower() or "fitness_apps"
     source = str(getattr(args, "source", None) or loaded.get("source") or "fitness_leaderboard").strip().lower() or "fitness_leaderboard"
     owner = str(getattr(args, "owner", "operator") or "operator").strip() or "operator"
@@ -3247,9 +3275,14 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
             "domain": domain,
             "source": source,
             "owner": owner,
+            "requested_entry_source": requested_entry_source,
             "entry_source": entry_source,
             "available_entry_sources": sorted(allowed_entry_sources),
+            "available_entry_source_counts": available_entry_source_counts,
             "entry_source_count": len(entries),
+            "fallback_entry_source": fallback_entry_source,
+            "fallback_triggered": fallback_triggered,
+            "fallback_reason": fallback_reason,
             "trend_filters": sorted(include_trends),
             "min_impact_score": min_impact_score,
             "min_impact_delta": min_impact_delta,
@@ -5056,6 +5089,9 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         min_impact_score=float(getattr(args, "seed_min_impact_score", 0.0) or 0.0),
                         min_impact_delta=float(getattr(args, "seed_min_impact_delta", 0.0) or 0.0),
                         entry_source=str(getattr(args, "seed_entry_source", "leaderboard") or "leaderboard"),
+                        fallback_entry_source=str(
+                            getattr(args, "seed_fallback_entry_source", "leaderboard") or "leaderboard"
+                        ),
                         min_cross_app_count=max(0, int(getattr(args, "seed_min_cross_app_count", 0) or 0)),
                         owner=str(getattr(args, "seed_owner", "operator") or "operator").strip() or "operator",
                         lookup_limit=max(1, int(getattr(args, "seed_lookup_limit", 400) or 400)),
@@ -8135,6 +8171,13 @@ def main() -> None:
         help="Select which leaderboard section to seed from",
     )
     improvement_seed_from_leaderboard.add_argument(
+        "--fallback-entry-source",
+        type=str,
+        default="leaderboard",
+        choices=("leaderboard", "shared_market_displeasures", "white_space_candidates", "none"),
+        help="Optional fallback section used when --entry-source has no entries",
+    )
+    improvement_seed_from_leaderboard.add_argument(
         "--min-cross-app-count",
         type=int,
         default=0,
@@ -8372,7 +8415,12 @@ def main() -> None:
         default="leaderboard",
         choices=("leaderboard", "shared_market_displeasures", "white_space_candidates"),
     )
-    improvement_operator_cycle.add_argument("--seed-min-cross-app-count", type=int, default=0)
+    improvement_operator_cycle.add_argument(
+        "--seed-fallback-entry-source",
+        type=str,
+        default="leaderboard",
+        choices=("leaderboard", "shared_market_displeasures", "white_space_candidates", "none"),
+    )
     improvement_operator_cycle.add_argument("--seed-owner", type=str, default="operator")
     improvement_operator_cycle.add_argument("--seed-lookup-limit", type=int, default=400)
     improvement_operator_cycle.add_argument("--seed-as-of", type=str, default=None)
@@ -8387,7 +8435,15 @@ def main() -> None:
         default=DEFAULT_FITNESS_APP_FIELDS_CSV,
     )
     improvement_operator_cycle.add_argument("--seed-top-apps-per-cluster", type=int, default=3)
-    improvement_operator_cycle.add_argument("--seed-min-cross-app-count", type=int, default=2)
+    improvement_operator_cycle.add_argument(
+        "--seed-min-cross-app-count",
+        type=int,
+        default=2,
+        help=(
+            "Minimum cross-app coverage used by fitness-leaderboard shared-market ranking "
+            "and seed-from-leaderboard candidate filtering"
+        ),
+    )
     improvement_operator_cycle.add_argument("--seed-own-app-aliases", type=str, default=None)
     improvement_operator_cycle.add_argument("--seed-trend-threshold", type=float, default=0.25)
     improvement_operator_cycle.add_argument(
