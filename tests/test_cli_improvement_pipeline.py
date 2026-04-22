@@ -501,6 +501,62 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 any("paywall" in str(row.get("canonical_key") or "") for row in white_space_rows)
             )
 
+    def test_fitness_leaderboard_resolves_app_from_source_context_string(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            input_path = root / "fitness_market_feedback.jsonl"
+            rows = [
+                {
+                    "id": "cur-1",
+                    "summary": "Paywall appears before first full workout trial.",
+                    "review": "Paywall appears before first full workout trial.",
+                    "source_context": "fitnova_store",
+                    "created_at": "2026-04-20T10:00:00Z",
+                },
+                {
+                    "id": "cur-2",
+                    "summary": "Workout sync fails on wearable import.",
+                    "review": "Workout sync fails on wearable import.",
+                    "source_context": "pulsepro_store",
+                    "created_at": "2026-04-19T10:00:00Z",
+                },
+            ]
+            input_path.write_text(
+                "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                input_path=input_path,
+                input_format="jsonl",
+                domain="fitness_apps",
+                source="market_reviews",
+                timestamp_fields="created_at,at",
+                as_of="2026-04-22T00:00:00Z",
+                lookback_days=7,
+                min_cluster_count=1,
+                cluster_limit=20,
+                leaderboard_limit=12,
+                cooling_limit=10,
+                trend_threshold=0.25,
+                include_untimed_current=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_fitness_leaderboard(args)
+            payload = json.loads(out.getvalue())
+
+            app_resolution = dict(payload.get("app_resolution") or {})
+            self.assertEqual(int(app_resolution.get("known_app_records") or 0), 2)
+            self.assertEqual(int(app_resolution.get("unknown_app_records") or 0), 0)
+            top_apps_window = [dict(item) for item in list(payload.get("top_apps_current_window") or []) if isinstance(item, dict)]
+            app_ids = {str(item.get("app_identifier") or "") for item in top_apps_window}
+            self.assertIn("fitnova_store", app_ids)
+            self.assertIn("pulsepro_store", app_ids)
+
     def test_fitness_leaderboard_strict_fails_when_no_current_clusters(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

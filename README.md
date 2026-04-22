@@ -91,6 +91,9 @@ The leaderboard now includes:
 - `white_space_candidates`: market pains not currently present in your own app aliases.
 - `top_apps_current` per cluster plus window-level app coverage diagnostics (`app_resolution`).
 
+App identity extraction now falls back to `source_context` when explicit app fields are missing,
+so single-string provider tags still count toward known app coverage.
+
 Scheduling-friendly wrapper:
 
 ```bash

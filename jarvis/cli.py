@@ -108,7 +108,7 @@ WARNING_POLICY_PROFILES: dict[str, dict[str, Any]] = {
 }
 
 DEFAULT_FITNESS_APP_FIELDS_CSV = (
-    "app_name,app,product,provider,source_context.app_identifier,source_context.app_name,source_context.app"
+    "app_name,app,product,provider,source_context.app_identifier,source_context.app_name,source_context.app,source_context,source"
 )
 
 
@@ -2453,6 +2453,21 @@ def _extract_app_identity_from_record(
         if not label:
             continue
         return _normalize_app_identifier(label), label, field
+
+    source_context_raw = record.get("source_context")
+    if isinstance(source_context_raw, dict):
+        for key in ("app_identifier", "app_name", "app", "product", "provider", "source", "name"):
+            value = source_context_raw.get(key)
+            if value is None:
+                continue
+            label = str(value).strip()
+            if not label:
+                continue
+            return _normalize_app_identifier(label), label, f"source_context.{key}"
+    elif source_context_raw is not None:
+        label = str(source_context_raw).strip()
+        if label:
+            return _normalize_app_identifier(label), label, "source_context"
     return "unknown_app", None, None
 
 
@@ -2888,8 +2903,17 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
         )
     )
     top_white_space_candidates = white_space_candidates[:leaderboard_limit]
+    known_app_share = round(
+        float(app_known_count) / float(max(1, app_known_count + app_unknown_count)),
+        4,
+    )
 
     suggested_actions: list[str] = []
+    if known_app_share < 0.8:
+        suggested_actions.append(
+            "Improve app identity mapping (for example include app_name/app/source_context fields) "
+            f"before relying on shared-market ranking (known_app_share={known_app_share})."
+        )
     for entry in top_white_space_candidates[:2]:
         suggested_actions.append(
             "Prioritize whitespace validation for "
@@ -2939,10 +2963,7 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
         "app_resolution": {
             "known_app_records": int(app_known_count),
             "unknown_app_records": int(app_unknown_count),
-            "known_app_share": round(
-                float(app_known_count) / float(max(1, app_known_count + app_unknown_count)),
-                4,
-            ),
+            "known_app_share": known_app_share,
             "field_hits": [
                 {"field": field, "count": int(count)}
                 for field, count in app_field_hits.most_common()
