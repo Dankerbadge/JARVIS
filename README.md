@@ -276,6 +276,10 @@ For config-driven thresholding (no extra CLI flags), add these under `defaults`:
 
 ```json
 {
+  "seed_min_cross_app_count": 1,
+  "seed_min_cross_app_count_by_domain": {
+    "fitness_apps": 2
+  },
   "seed_min_signal_count_current": 2,
   "seed_min_signal_count_current_by_domain": {
     "kalshi_weather": 3,
@@ -284,8 +288,9 @@ For config-driven thresholding (no extra CLI flags), add these under `defaults`:
 }
 ```
 
-Resolution order is: CLI `--seed-min-signal-count-current` override, then
-`seed_min_signal_count_current_by_domain`, then `seed_min_signal_count_current`.
+Resolution order is the same for both knobs:
+CLI override (`--seed-min-cross-app-count` / `--seed-min-signal-count-current`),
+then `*_by_domain`, then global default.
 
 If you already generated a seed report, you can still draft directly from that report:
 
