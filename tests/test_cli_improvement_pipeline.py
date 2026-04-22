@@ -4257,6 +4257,316 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(only_run.get("seed_min_impact_score_source") or ""), "cli_override")
             self.assertEqual(str(only_run.get("seed_min_impact_delta_source") or ""), "cli_override")
 
+    def test_operator_cycle_seed_uses_domain_limit_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            market_input_path = root / "configs" / "inputs" / "market_ml_feedback.jsonl"
+            market_input_path.parent.mkdir(parents=True, exist_ok=True)
+            market_input_path.write_text(
+                json.dumps(
+                    {
+                        "id": "market-1",
+                        "title": "Classifier false positives spike",
+                        "summary": "Classifier false positives spike during volatility windows.",
+                        "review": "Classifier false positives spike during volatility windows.",
+                        "severity": 4,
+                        "created_at": "2026-04-21T10:00:00Z",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            fitness_input_path = root / "configs" / "inputs" / "fitness_feedback.jsonl"
+            fitness_input_path.parent.mkdir(parents=True, exist_ok=True)
+            fitness_input_path.write_text(
+                json.dumps(
+                    {
+                        "id": "fitness-1",
+                        "title": "Paywall appears before workout completion",
+                        "summary": "Users hit paywall before completing their first workout.",
+                        "review": "Users hit paywall before completing their first workout.",
+                        "rating": 2,
+                        "app_name": "FitNova",
+                        "created_at": "2026-04-21T11:00:00Z",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config_path = root / "configs" / "operator_cycle_seed_limits_defaults.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "seed_limit": 2,
+                            "seed_limit_by_domain": {
+                                "fitness_apps": 1,
+                            },
+                            "seed_lookup_limit": 3,
+                            "seed_lookup_limit_by_domain": {
+                                "fitness_apps": 5,
+                            },
+                            "seed_min_cross_app_count": 1,
+                            "seed_min_signal_count_current": 1,
+                        },
+                        "feed_jobs": [],
+                        "feedback_jobs": [
+                            {
+                                "domain": "market_ml",
+                                "source": "incident_log",
+                                "input_path": "inputs/market_ml_feedback.jsonl",
+                                "input_format": "jsonl",
+                            },
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "inputs/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            },
+                        ],
+                        "experiment_jobs": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_seed_limits_defaults"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                seed_enable=True,
+                seed_domains="market_ml,fitness_apps",
+                seed_leaderboard_input_path=None,
+                seed_leaderboard_input_format=None,
+                seed_leaderboard_report_path=None,
+                seed_report_path=None,
+                seed_domain="fitness_apps",
+                seed_source=None,
+                seed_hypothesis_source=None,
+                seed_trends=None,
+                seed_limit=None,
+                seed_min_impact_score=None,
+                seed_min_impact_delta=None,
+                seed_entry_source=None,
+                seed_fallback_entry_source=None,
+                seed_owner="operator",
+                seed_lookup_limit=None,
+                seed_as_of="2026-04-22T12:00:00Z",
+                seed_lookback_days=7,
+                seed_min_cluster_count=1,
+                seed_cluster_limit=20,
+                seed_leaderboard_limit=12,
+                seed_cooling_limit=10,
+                seed_app_fields="app_name,source_context.app",
+                seed_top_apps_per_cluster=3,
+                seed_min_cross_app_count=None,
+                seed_min_signal_count_current=None,
+                seed_own_app_aliases=None,
+                seed_trend_threshold=0.25,
+                seed_timestamp_fields="created_at",
+                seed_include_untimed_current=False,
+                draft_enable=False,
+                draft_seed_report_path=None,
+                draft_config_path=None,
+                draft_output_config_path=None,
+                draft_report_path=None,
+                draft_artifacts_dir=None,
+                draft_domain=None,
+                draft_statuses="queued",
+                draft_limit=8,
+                draft_lookup_limit=400,
+                draft_include_existing=False,
+                draft_overwrite_artifacts=False,
+                draft_environment=None,
+                draft_default_sample_size=100,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("seed_from_leaderboard") or ""), "ok")
+
+            seed_domain_runs = [row for row in list(payload.get("seed_domain_runs") or []) if isinstance(row, dict)]
+            self.assertEqual(len(seed_domain_runs), 2)
+            runs_by_domain = {str(row.get("domain") or ""): row for row in seed_domain_runs}
+
+            market_run = dict(runs_by_domain.get("market_ml") or {})
+            self.assertEqual(int(market_run.get("seed_limit") or 0), 2)
+            self.assertEqual(str(market_run.get("seed_limit_source") or ""), "config_global")
+            self.assertEqual(int(market_run.get("seed_lookup_limit") or 0), 3)
+            self.assertEqual(str(market_run.get("seed_lookup_limit_source") or ""), "config_global")
+
+            fitness_run = dict(runs_by_domain.get("fitness_apps") or {})
+            self.assertEqual(int(fitness_run.get("seed_limit") or 0), 1)
+            self.assertEqual(str(fitness_run.get("seed_limit_source") or ""), "config_by_domain")
+            self.assertEqual(int(fitness_run.get("seed_lookup_limit") or 0), 5)
+            self.assertEqual(str(fitness_run.get("seed_lookup_limit_source") or ""), "config_by_domain")
+
+    def test_operator_cycle_seed_cli_limits_override_config_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            market_input_path = root / "configs" / "inputs" / "market_ml_feedback.jsonl"
+            market_input_path.parent.mkdir(parents=True, exist_ok=True)
+            market_input_path.write_text(
+                json.dumps(
+                    {
+                        "id": "market-1",
+                        "title": "Classifier false positives spike",
+                        "summary": "Classifier false positives spike during volatility windows.",
+                        "review": "Classifier false positives spike during volatility windows.",
+                        "severity": 4,
+                        "created_at": "2026-04-21T10:00:00Z",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config_path = root / "configs" / "operator_cycle_seed_limits_override.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "seed_limit_by_domain": {
+                                "market_ml": 5,
+                            },
+                            "seed_lookup_limit_by_domain": {
+                                "market_ml": 9,
+                            },
+                            "seed_min_cross_app_count": 1,
+                            "seed_min_signal_count_current": 1,
+                        },
+                        "feed_jobs": [],
+                        "feedback_jobs": [
+                            {
+                                "domain": "market_ml",
+                                "source": "incident_log",
+                                "input_path": "inputs/market_ml_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ],
+                        "experiment_jobs": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_seed_limits_override"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                seed_enable=True,
+                seed_domains="market_ml",
+                seed_leaderboard_input_path=None,
+                seed_leaderboard_input_format=None,
+                seed_leaderboard_report_path=None,
+                seed_report_path=None,
+                seed_domain="market_ml",
+                seed_source=None,
+                seed_hypothesis_source=None,
+                seed_trends=None,
+                seed_limit=1,
+                seed_min_impact_score=None,
+                seed_min_impact_delta=None,
+                seed_entry_source=None,
+                seed_fallback_entry_source=None,
+                seed_owner="operator",
+                seed_lookup_limit=2,
+                seed_as_of="2026-04-22T12:00:00Z",
+                seed_lookback_days=7,
+                seed_min_cluster_count=1,
+                seed_cluster_limit=20,
+                seed_leaderboard_limit=12,
+                seed_cooling_limit=10,
+                seed_app_fields="app_name,source_context.app",
+                seed_top_apps_per_cluster=3,
+                seed_min_cross_app_count=None,
+                seed_min_signal_count_current=None,
+                seed_own_app_aliases=None,
+                seed_trend_threshold=0.25,
+                seed_timestamp_fields="created_at",
+                seed_include_untimed_current=False,
+                draft_enable=False,
+                draft_seed_report_path=None,
+                draft_config_path=None,
+                draft_output_config_path=None,
+                draft_report_path=None,
+                draft_artifacts_dir=None,
+                draft_domain=None,
+                draft_statuses="queued",
+                draft_limit=8,
+                draft_lookup_limit=400,
+                draft_include_existing=False,
+                draft_overwrite_artifacts=False,
+                draft_environment=None,
+                draft_default_sample_size=100,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("seed_from_leaderboard") or ""), "ok")
+
+            seed_payload = dict(payload.get("seed_from_leaderboard") or {})
+            self.assertGreaterEqual(int(seed_payload.get("created_count") or 0), 1)
+
+            seed_domain_runs = [row for row in list(payload.get("seed_domain_runs") or []) if isinstance(row, dict)]
+            self.assertEqual(len(seed_domain_runs), 1)
+            only_run = dict(seed_domain_runs[0] or {})
+            self.assertEqual(int(only_run.get("seed_limit") or 0), 1)
+            self.assertEqual(str(only_run.get("seed_limit_source") or ""), "cli_override")
+            self.assertEqual(int(only_run.get("seed_lookup_limit") or 0), 2)
+            self.assertEqual(str(only_run.get("seed_lookup_limit_source") or ""), "cli_override")
+
     def test_operator_cycle_runs_seed_and_draft_stages_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -30,6 +30,20 @@
       "fitness_apps": "shared_market_displeasures"
     },
     "seed_fallback_entry_source": "leaderboard",
+    "seed_limit": 8,
+    "seed_limit_by_domain": {
+      "quant_finance": 6,
+      "kalshi_weather": 6,
+      "fitness_apps": 10,
+      "market_ml": 6
+    },
+    "seed_lookup_limit": 400,
+    "seed_lookup_limit_by_domain": {
+      "quant_finance": 500,
+      "kalshi_weather": 500,
+      "fitness_apps": 600,
+      "market_ml": 500
+    },
     "seed_trends": "new,rising",
     "seed_min_impact_score": 0.0,
     "seed_min_impact_score_by_domain": {

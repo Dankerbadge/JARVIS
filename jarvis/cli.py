@@ -5163,6 +5163,74 @@ def _resolve_seed_min_impact_delta(
     return 0.0, "builtin_default"
 
 
+def _resolve_seed_limit(
+    *,
+    domain: str,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[int, str]:
+    if cli_value is not None:
+        try:
+            return max(1, int(cli_value)), "cli_override"
+        except (TypeError, ValueError):
+            return 8, "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain)
+    by_domain_raw = defaults.get("seed_limit_by_domain")
+    if isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            try:
+                return max(1, int(raw_value)), "config_by_domain"
+            except (TypeError, ValueError):
+                break
+
+    global_default_raw = defaults.get("seed_limit")
+    if global_default_raw is not None:
+        try:
+            return max(1, int(global_default_raw)), "config_global"
+        except (TypeError, ValueError):
+            pass
+
+    return 8, "builtin_default"
+
+
+def _resolve_seed_lookup_limit(
+    *,
+    domain: str,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[int, str]:
+    if cli_value is not None:
+        try:
+            return max(1, int(cli_value)), "cli_override"
+        except (TypeError, ValueError):
+            return 400, "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain)
+    by_domain_raw = defaults.get("seed_lookup_limit_by_domain")
+    if isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            try:
+                return max(1, int(raw_value)), "config_by_domain"
+            except (TypeError, ValueError):
+                break
+
+    global_default_raw = defaults.get("seed_lookup_limit")
+    if global_default_raw is not None:
+        try:
+            return max(1, int(global_default_raw)), "config_global"
+        except (TypeError, ValueError):
+            pass
+
+    return 400, "builtin_default"
+
+
 def _infer_feedback_seed_context_from_config(*, config_path: Path, domain: str) -> dict[str, Any] | None:
     try:
         loaded = json.loads(config_path.read_text(encoding="utf-8"))
@@ -5309,6 +5377,19 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
     if seed_requested:
         for domain_index, seed_domain in enumerate(seed_domains):
             domain_slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", seed_domain) or f"domain_{domain_index + 1}"
+            resolved_seed_limit, seed_limit_source = _resolve_seed_limit(
+                domain=seed_domain,
+                cli_value=getattr(args, "seed_limit", None),
+                defaults=operator_cycle_defaults,
+            )
+            resolved_seed_lookup_limit, seed_lookup_limit_source = _resolve_seed_lookup_limit(
+                domain=seed_domain,
+                cli_value=getattr(args, "seed_lookup_limit", None),
+                defaults=operator_cycle_defaults,
+            )
+            if resolved_seed_lookup_limit < resolved_seed_limit:
+                resolved_seed_lookup_limit = int(resolved_seed_limit)
+                seed_lookup_limit_source = f"{seed_lookup_limit_source}_raised_to_limit"
             resolved_trends, trends_source = _resolve_seed_trends(
                 domain=seed_domain,
                 cli_value=getattr(args, "seed_trends", None),
@@ -5465,7 +5546,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         domain=seed_domain,
                         source=domain_seed_hypothesis_source,
                         trends=str(resolved_trends),
-                        limit=max(1, int(getattr(args, "seed_limit", 8) or 8)),
+                        limit=max(1, int(resolved_seed_limit)),
                         min_impact_score=float(resolved_min_impact_score),
                         min_impact_delta=float(resolved_min_impact_delta),
                         entry_source=str(resolved_entry_source),
@@ -5473,7 +5554,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         min_cross_app_count=max(0, int(resolved_min_cross_app_count)),
                         min_signal_count_current=int(resolved_min_signal_count_current),
                         owner=str(getattr(args, "seed_owner", "operator") or "operator").strip() or "operator",
-                        lookup_limit=max(1, int(getattr(args, "seed_lookup_limit", 400) or 400)),
+                        lookup_limit=max(1, int(resolved_seed_lookup_limit)),
                         strict=False,
                         output_path=domain_seed_report_path,
                         json_compact=False,
@@ -5501,6 +5582,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "input_format": domain_input_format,
                     "leaderboard_report_path": str(domain_leaderboard_report_path),
                     "seed_report_path": str(domain_seed_report_path),
+                    "seed_limit": int(resolved_seed_limit),
+                    "seed_limit_source": str(seed_limit_source),
+                    "seed_lookup_limit": int(resolved_seed_lookup_limit),
+                    "seed_lookup_limit_source": str(seed_lookup_limit_source),
                     "seed_trends": str(resolved_trends),
                     "seed_trends_source": str(trends_source),
                     "seed_min_impact_score": float(resolved_min_impact_score),
@@ -5569,6 +5654,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         "domain": row.get("domain"),
                         "status": str((row.get("seed_from_leaderboard") or {}).get("status") or ""),
                         "source": row.get("hypothesis_source"),
+                        "limit": int(row.get("seed_limit") or 0),
+                        "limit_source": str(row.get("seed_limit_source") or ""),
+                        "lookup_limit": int(row.get("seed_lookup_limit") or 0),
+                        "lookup_limit_source": str(row.get("seed_lookup_limit_source") or ""),
                         "trends": list(
                             (row.get("seed_from_leaderboard") or {}).get("trend_filters")
                             or _parse_csv_items(row.get("seed_trends"))
@@ -8884,7 +8973,12 @@ def main() -> None:
         default=None,
         help="Optional seed trend filter override (when omitted, resolves from config defaults per domain)",
     )
-    improvement_operator_cycle.add_argument("--seed-limit", type=int, default=8)
+    improvement_operator_cycle.add_argument(
+        "--seed-limit",
+        type=int,
+        default=None,
+        help="Optional seed candidate limit override (when omitted, resolves from config defaults per domain)",
+    )
     improvement_operator_cycle.add_argument(
         "--seed-min-impact-score",
         type=float,
@@ -8912,7 +9006,14 @@ def main() -> None:
         help="Optional seed fallback source override (when omitted, resolves from config defaults per domain)",
     )
     improvement_operator_cycle.add_argument("--seed-owner", type=str, default="operator")
-    improvement_operator_cycle.add_argument("--seed-lookup-limit", type=int, default=400)
+    improvement_operator_cycle.add_argument(
+        "--seed-lookup-limit",
+        type=int,
+        default=None,
+        help=(
+            "Optional seed hypothesis lookup limit override (when omitted, resolves from config defaults per domain)"
+        ),
+    )
     improvement_operator_cycle.add_argument("--seed-as-of", type=str, default=None)
     improvement_operator_cycle.add_argument("--seed-lookback-days", type=int, default=7)
     improvement_operator_cycle.add_argument("--seed-min-cluster-count", type=int, default=1)
