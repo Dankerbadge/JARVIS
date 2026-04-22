@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -968,6 +969,117 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str((summary.get("stage_statuses") or {}).get("daily_pipeline") or ""), "ok")
             self.assertGreaterEqual(int((summary.get("metrics") or {}).get("retest_delta_count") or 0), 1)
             self.assertGreaterEqual(len(list(summary.get("suggested_actions") or [])), 1)
+
+    def test_operator_cycle_resolves_relative_output_dir_from_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            raw_input_path = root / "inputs" / "fitness_reviews.json"
+            raw_input_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_input_path.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "id": "feed-rel-1",
+                                "title": "Paywall appears too early",
+                                "text": "Paywall appears before I can try a complete workout.",
+                                "rating": 2,
+                            }
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "operator_cycle_relative_output_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "min_cluster_count": 1,
+                            "proposal_limit": 3,
+                        },
+                        "feed_jobs": [
+                            {
+                                "name": "fitness_reviews",
+                                "url": "inputs/fitness_reviews.json",
+                                "format": "json",
+                                "records_path": "reviews",
+                                "mapping": {
+                                    "id": "id",
+                                    "title": "title",
+                                    "summary": "text",
+                                    "review": "text",
+                                    "rating": "rating",
+                                },
+                                "output_path": "analysis/fitness_feedback.jsonl",
+                            }
+                        ],
+                        "feedback_jobs": [
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "analysis/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ],
+                        "experiment_jobs": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            relative_output_dir = Path("reports/operator")
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=relative_output_dir,
+                inbox_summary_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            previous_cwd = Path.cwd()
+            try:
+                os.chdir(root)
+                with redirect_stdout(out):
+                    cmd_improvement_operator_cycle(args)
+            finally:
+                os.chdir(previous_cwd)
+
+            payload = json.loads(out.getvalue())
+            expected_output_dir = (root / relative_output_dir).resolve()
+            self.assertEqual(str(payload.get("output_dir") or ""), str(expected_output_dir))
+
+            pull_report_path = Path(str(payload.get("pull_report_path") or ""))
+            daily_report_path = Path(str(payload.get("daily_report_path") or ""))
+            retest_report_path = Path(str(payload.get("retest_report_path") or ""))
+            inbox_summary_path = Path(str(payload.get("inbox_summary_path") or ""))
+            self.assertEqual(pull_report_path.parent, expected_output_dir)
+            self.assertEqual(daily_report_path.parent, expected_output_dir)
+            self.assertEqual(retest_report_path.parent, expected_output_dir)
+            self.assertEqual(inbox_summary_path.parent, expected_output_dir)
+            self.assertTrue(pull_report_path.exists())
+            self.assertTrue(daily_report_path.exists())
+            self.assertTrue(retest_report_path.exists())
+            self.assertTrue(inbox_summary_path.exists())
 
     def test_verify_matrix_detects_match_mismatch_and_missing(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -3252,11 +3252,14 @@ def _count_verdict(rows: list[dict[str, Any]], verdict: str) -> int:
 def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
     config_path = args.config_path.resolve()
     default_output_dir = (config_path.parent / "output" / "improvement" / "operator_cycle").resolve()
-    output_dir = _resolve_path_near(
-        default_output_dir.parent,
-        args.output_dir,
-        default_name=default_output_dir.name,
-    )
+    if args.output_dir is None:
+        output_dir = default_output_dir
+    else:
+        explicit_output_dir = Path(str(args.output_dir)).expanduser()
+        if explicit_output_dir.is_absolute():
+            output_dir = explicit_output_dir.resolve()
+        else:
+            output_dir = (Path.cwd() / explicit_output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     pull_report_path = _resolve_path_near(output_dir, None, default_name="pull_feeds_report.json")
