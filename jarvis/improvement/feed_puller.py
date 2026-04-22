@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -34,6 +35,138 @@ def _resolve_path_value(payload: Any, path: Any) -> Any:
 
 
 class FeedbackFeedPuller:
+    _APPLE_APP_STORE_PRESET = "apple_app_store_reviews_csv"
+    _GOOGLE_PLAY_PRESET = "google_play_reviews_csv"
+    _SUPPORTED_SOURCE_PRESETS = {
+        _APPLE_APP_STORE_PRESET,
+        _GOOGLE_PLAY_PRESET,
+    }
+
+    _APPLE_FIELD_CANDIDATES: dict[str, tuple[str, ...]] = {
+        "id": ("review_id", "id", "identifier", "review id"),
+        "title": ("title", "review title"),
+        "review": ("review", "content", "body", "text", "comment"),
+        "summary": ("summary", "review", "content", "body", "text", "comment"),
+        "rating": ("rating", "score", "stars", "star rating"),
+        "created_at": ("submission_date", "date", "created_at", "timestamp", "created"),
+        "app_version": ("app_version", "version", "app version"),
+        "country": ("storefront", "country", "territory"),
+        "language": ("language", "locale"),
+        "developer_response": ("developer_response", "response", "reply"),
+    }
+    _GOOGLE_FIELD_CANDIDATES: dict[str, tuple[str, ...]] = {
+        "id": ("reviewid", "review_id", "id"),
+        "title": ("title", "headline"),
+        "review": ("content", "review", "text", "body", "comment"),
+        "summary": ("summary", "content", "review", "text", "body", "comment"),
+        "rating": ("score", "rating", "stars"),
+        "created_at": ("at", "created_at", "timestamp", "created", "review_date"),
+        "app_version": ("reviewcreatedversion", "app_version", "version"),
+        "language": ("language", "review_language", "locale"),
+        "country": ("country", "storefront"),
+        "developer_response": ("replycontent", "reply_content", "developer_response", "response"),
+        "developer_response_at": ("repliedat", "reply_at", "response_at"),
+    }
+
+    @staticmethod
+    def _normalize_key(value: Any) -> str:
+        return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+    @classmethod
+    def _resolve_record_value(cls, record: dict[str, Any], candidates: tuple[str, ...]) -> Any:
+        for candidate in candidates:
+            if candidate in record:
+                value = record.get(candidate)
+                if value is None:
+                    continue
+                if isinstance(value, str) and not value.strip():
+                    continue
+                return value
+        normalized_lookup = {
+            cls._normalize_key(key): value
+            for key, value in dict(record or {}).items()
+        }
+        for candidate in candidates:
+            normalized_candidate = cls._normalize_key(candidate)
+            if not normalized_candidate:
+                continue
+            if normalized_candidate not in normalized_lookup:
+                continue
+            value = normalized_lookup.get(normalized_candidate)
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            return value
+        return None
+
+    @classmethod
+    def _normalize_review_record(
+        cls,
+        record: dict[str, Any],
+        *,
+        field_candidates: dict[str, tuple[str, ...]],
+        platform: str,
+        source_schema: str,
+    ) -> dict[str, Any]:
+        out = dict(record)
+        for target, candidates in dict(field_candidates).items():
+            value = cls._resolve_record_value(record, candidates)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                value = value.strip()
+                if not value:
+                    continue
+            out[str(target)] = value
+        if not str(out.get("platform") or "").strip():
+            out["platform"] = platform
+        if not str(out.get("summary") or "").strip() and str(out.get("review") or "").strip():
+            out["summary"] = str(out.get("review") or "").strip()
+        if not str(out.get("review") or "").strip() and str(out.get("summary") or "").strip():
+            out["review"] = str(out.get("summary") or "").strip()
+        out["source_schema"] = source_schema
+        return out
+
+    @classmethod
+    def _apply_source_preset(
+        cls,
+        records: list[dict[str, Any]],
+        *,
+        source_preset: str | None,
+        feed_name: str,
+    ) -> list[dict[str, Any]]:
+        if source_preset is None:
+            return [dict(item) for item in records]
+        normalized_preset = str(source_preset or "").strip().lower()
+        if not normalized_preset:
+            return [dict(item) for item in records]
+        if normalized_preset not in cls._SUPPORTED_SOURCE_PRESETS:
+            raise ValueError(f"unsupported_source_preset:{source_preset}:{feed_name}")
+
+        normalized_rows: list[dict[str, Any]] = []
+        for row in records:
+            current = dict(row or {})
+            if normalized_preset == cls._APPLE_APP_STORE_PRESET:
+                normalized_rows.append(
+                    cls._normalize_review_record(
+                        current,
+                        field_candidates=cls._APPLE_FIELD_CANDIDATES,
+                        platform="ios",
+                        source_schema=cls._APPLE_APP_STORE_PRESET,
+                    )
+                )
+                continue
+            normalized_rows.append(
+                cls._normalize_review_record(
+                    current,
+                    field_candidates=cls._GOOGLE_FIELD_CANDIDATES,
+                    platform="android",
+                    source_schema=cls._GOOGLE_PLAY_PRESET,
+                )
+            )
+        return normalized_rows
+
     def _detect_format(self, *, url: str, explicit_format: str | None, content_type: str | None = None) -> str:
         if explicit_format is not None:
             value = str(explicit_format).strip().lower()
@@ -152,8 +285,13 @@ class FeedbackFeedPuller:
         mapping: dict[str, Any] | None,
         static_fields: dict[str, Any] | None,
     ) -> list[dict[str, Any]]:
-        if not mapping and not static_fields:
-            return [dict(item) for item in records]
+        if not mapping:
+            passthrough_rows = [dict(item) for item in records]
+            if static_fields:
+                for row in passthrough_rows:
+                    for key, value in dict(static_fields or {}).items():
+                        row[str(key)] = value
+            return passthrough_rows
         mapped_rows: list[dict[str, Any]] = []
         for item in records:
             row: dict[str, Any] = {}
@@ -168,9 +306,10 @@ class FeedbackFeedPuller:
         return mapped_rows
 
     @staticmethod
-    def _write_jsonl(*, records: list[dict[str, Any]], output_path: Path) -> None:
+    def _write_jsonl(*, records: list[dict[str, Any]], output_path: Path, append: bool = False) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with output_path.open("w", encoding="utf-8") as handle:
+        mode = "a" if append else "w"
+        with output_path.open(mode, encoding="utf-8") as handle:
             for row in records:
                 handle.write(json.dumps(dict(row), sort_keys=True) + "\n")
 
@@ -221,6 +360,13 @@ class FeedbackFeedPuller:
         else:
             raise ValueError(f"unsupported_feed_format:{fmt}")
 
+        source_preset = str(feed.get("source_preset") or "").strip().lower() or None
+        records = self._apply_source_preset(
+            records,
+            source_preset=source_preset,
+            feed_name=name,
+        )
+
         mapped = self._apply_mapping(
             records,
             mapping=dict(feed.get("mapping") or {}) if isinstance(feed.get("mapping"), dict) else None,
@@ -247,12 +393,22 @@ class FeedbackFeedPuller:
         else:
             output_path = output_path.resolve()
 
-        self._write_jsonl(records=mapped, output_path=output_path)
+        write_mode = str(feed.get("write_mode") or feed.get("output_mode") or "overwrite").strip().lower()
+        if write_mode not in {"overwrite", "append"}:
+            raise ValueError(f"unsupported_write_mode:{write_mode}:{name}")
+
+        self._write_jsonl(
+            records=mapped,
+            output_path=output_path,
+            append=(write_mode == "append"),
+        )
         return {
             "name": name,
             "source_url": source_url,
             "resolved_source": url,
             "format": fmt,
+            "source_preset": source_preset,
+            "write_mode": write_mode,
             "record_count": len(records),
             "written_count": len(mapped),
             "output_path": str(output_path),

@@ -1,0 +1,49 @@
+{
+  "defaults": {
+    "owner": "operator",
+    "auto_register": true,
+    "min_cluster_count": 2,
+    "proposal_limit": 6,
+    "allow_missing_inputs": true,
+    "report_cluster_min_count": 1,
+    "report_cluster_limit": 15,
+    "report_hypothesis_limit": 40,
+    "report_experiment_limit": 60,
+    "report_queue_limit": 25
+  },
+  "feed_jobs": [
+    {
+      "name": "fitness_ios_app_store_reviews",
+      "url": "../analysis/raw/fitness/apple_app_store_reviews.csv",
+      "format": "csv",
+      "source_preset": "apple_app_store_reviews_csv",
+      "write_mode": "overwrite",
+      "static_fields": {
+        "source_context": "ios_app_store_export"
+      },
+      "output_path": "../analysis/fitness_market_feedback.jsonl"
+    },
+    {
+      "name": "fitness_android_google_play_reviews",
+      "url": "../analysis/raw/fitness/google_play_reviews.csv",
+      "format": "csv",
+      "source_preset": "google_play_reviews_csv",
+      "write_mode": "append",
+      "static_fields": {
+        "source_context": "google_play_export"
+      },
+      "output_path": "../analysis/fitness_market_feedback.jsonl"
+    }
+  ],
+  "feedback_jobs": [
+    {
+      "domain": "fitness_apps",
+      "source": "market_reviews",
+      "input_path": "../analysis/fitness_market_feedback.jsonl",
+      "input_format": "jsonl",
+      "report_path": "../output/improvement/fitness_market_inbox_report.json"
+    }
+  ],
+  "experiment_jobs": [],
+  "output_path": "../output/improvement/fitness_market_daily_pipeline_report.json"
+}

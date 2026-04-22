@@ -118,6 +118,106 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(len(rows), 2)
             self.assertEqual(str((rows[0] or {}).get("source_context") or ""), "unit_test")
 
+    def test_pull_feeds_supports_app_store_presets_and_append_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            inputs_dir = root / "inputs"
+            inputs_dir.mkdir(parents=True, exist_ok=True)
+
+            apple_csv = inputs_dir / "apple_reviews.csv"
+            apple_csv.write_text(
+                "\n".join(
+                    [
+                        "Review ID,Title,Review,Rating,Submission Date,App Version,Storefront",
+                        "ios-r1,Too rigid onboarding,Plan was too intense for day one,2,2026-04-10T14:00:00Z,3.4.1,US",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            google_csv = inputs_dir / "google_reviews.csv"
+            google_csv.write_text(
+                "\n".join(
+                    [
+                        "reviewId,content,score,at,reviewCreatedVersion,replyContent",
+                        "and-r1,Paywall appeared before first full workout,1,2026-04-11T09:30:00Z,8.2.0,Thanks for the feedback",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "fitness_market_feeds.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "feeds": [
+                            {
+                                "name": "apple_store_reviews",
+                                "url": "inputs/apple_reviews.csv",
+                                "format": "csv",
+                                "source_preset": "apple_app_store_reviews_csv",
+                                "write_mode": "overwrite",
+                                "static_fields": {
+                                    "source_context": "ios_app_store_export",
+                                },
+                                "output_path": "analysis/fitness_market_feedback.jsonl",
+                            },
+                            {
+                                "name": "google_play_reviews",
+                                "url": "inputs/google_reviews.csv",
+                                "format": "csv",
+                                "source_preset": "google_play_reviews_csv",
+                                "write_mode": "append",
+                                "static_fields": {
+                                    "source_context": "google_play_export",
+                                },
+                                "output_path": "analysis/fitness_market_feedback.jsonl",
+                            },
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                config_path=config_path,
+                feed_names=None,
+                allow_missing=False,
+                strict=False,
+                timeout_seconds=20.0,
+                output_path=None,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_pull_feeds(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(int(payload.get("run_count") or 0), 2)
+            self.assertEqual(int(payload.get("error_count") or 0), 0)
+
+            runs = list(payload.get("runs") or [])
+            self.assertEqual(len(runs), 2)
+            self.assertEqual(str((runs[0] or {}).get("write_mode") or ""), "overwrite")
+            self.assertEqual(str((runs[1] or {}).get("write_mode") or ""), "append")
+
+            output_path = Path(str((runs[0] or {}).get("output_path") or ""))
+            self.assertTrue(output_path.exists())
+            rows = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            self.assertEqual(len(rows), 2)
+
+            ios_row = next((row for row in rows if str(row.get("platform") or "") == "ios"), {})
+            android_row = next((row for row in rows if str(row.get("platform") or "") == "android"), {})
+            self.assertEqual(str(ios_row.get("source_schema") or ""), "apple_app_store_reviews_csv")
+            self.assertEqual(str(android_row.get("source_schema") or ""), "google_play_reviews_csv")
+            self.assertEqual(str(ios_row.get("source_context") or ""), "ios_app_store_export")
+            self.assertEqual(str(android_row.get("source_context") or ""), "google_play_export")
+            self.assertEqual(str(ios_row.get("summary") or ""), "Plan was too intense for day one")
+            self.assertEqual(str(android_row.get("summary") or ""), "Paywall appeared before first full workout")
+            self.assertEqual(str(ios_row.get("rating") or ""), "2")
+            self.assertEqual(str(android_row.get("rating") or ""), "1")
+
     def test_run_experiment_artifact_command(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
