@@ -105,8 +105,21 @@ Auto-seed hypothesis queue entries from top `new/rising` leaderboard frustration
 python3 -m jarvis.cli improvement seed-from-leaderboard \
   --leaderboard-path ./output/improvement/fitness_frustration_leaderboard.json \
   --trends new,rising \
+  --entry-source shared_market_displeasures \
+  --min-cross-app-count 2 \
   --limit 8 \
   --output-path ./output/improvement/fitness_leaderboard_seed_report.json
+```
+
+For whitespace-first strategy (competitor pains not observed in your own app aliases), switch to:
+
+```bash
+python3 -m jarvis.cli improvement seed-from-leaderboard \
+  --leaderboard-path ./output/improvement/fitness_frustration_leaderboard.json \
+  --entry-source white_space_candidates \
+  --trends new,rising \
+  --min-cross-app-count 2 \
+  --limit 8
 ```
 
 Scheduling-friendly wrapper:

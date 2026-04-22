@@ -661,6 +661,99 @@ class CliImprovementPipelineTests(unittest.TestCase):
             finally:
                 runtime.close()
 
+    def test_seed_from_leaderboard_can_target_whitespace_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            leaderboard_path = root / "fitness_leaderboard.json"
+            leaderboard_path.write_text(
+                json.dumps(
+                    {
+                        "generated_at": "2026-04-22T12:00:00Z",
+                        "as_of": "2026-04-22T12:00:00Z",
+                        "domain": "fitness_apps",
+                        "source": "market_reviews",
+                        "leaderboard": [],
+                        "white_space_candidates": [
+                            {
+                                "canonical_key": "paywall appears before first full workout trial",
+                                "friction_key": "paywall_before_core_workout_trial",
+                                "trend": "rising",
+                                "impact_score_current": 8.4,
+                                "impact_score_delta": 2.1,
+                                "cross_app_count_current": 3,
+                                "market_recurrence_score": 25.2,
+                                "top_competitor_apps": [
+                                    {"app_identifier": "fitnova", "count": 4, "share": 0.5},
+                                    {"app_identifier": "pulsepro", "count": 4, "share": 0.5},
+                                ],
+                                "top_tags": [{"tag": "paywall", "count": 8}],
+                                "example_summary": "Competitor users report paywall before meaningful workout value.",
+                            },
+                            {
+                                "canonical_key": "minor ui nit",
+                                "friction_key": "minor_ui_nit",
+                                "trend": "rising",
+                                "impact_score_current": 1.0,
+                                "impact_score_delta": 0.1,
+                                "cross_app_count_current": 1,
+                                "market_recurrence_score": 1.0,
+                                "top_competitor_apps": [{"app_identifier": "fitnova", "count": 1, "share": 1.0}],
+                            },
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                leaderboard_path=leaderboard_path,
+                domain="fitness_apps",
+                source="fitness_leaderboard",
+                trends="new,rising",
+                limit=5,
+                min_impact_score=0.0,
+                min_impact_delta=0.0,
+                entry_source="white_space_candidates",
+                min_cross_app_count=2,
+                owner="operator",
+                lookup_limit=200,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_seed_from_leaderboard(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("entry_source") or ""), "white_space_candidates")
+            self.assertEqual(int(payload.get("requested_count") or 0), 2)
+            self.assertEqual(int(payload.get("selected_count") or 0), 2)
+            self.assertEqual(int(payload.get("created_count") or 0), 1)
+            self.assertTrue(
+                any(
+                    str((row or {}).get("reason") or "") == "cross_app_count_below_min"
+                    for row in list(payload.get("skipped") or [])
+                )
+            )
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypotheses = runtime.list_hypotheses(domain="fitness_apps", status=None, limit=20)
+                self.assertEqual(len(hypotheses), 1)
+                hypothesis = dict(hypotheses[0] or {})
+                self.assertEqual(str(hypothesis.get("friction_key") or ""), "paywall_before_core_workout_trial")
+                metadata = dict(hypothesis.get("metadata") or {})
+                self.assertEqual(str(metadata.get("seed_entry_source") or ""), "white_space_candidates")
+                self.assertEqual(int(metadata.get("seed_cross_app_count_current") or 0), 3)
+            finally:
+                runtime.close()
+
     def test_draft_experiment_jobs_from_seed_report_writes_templates_and_updates_config(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

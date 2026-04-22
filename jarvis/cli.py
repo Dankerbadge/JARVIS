@@ -3002,9 +3002,25 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
     if not isinstance(loaded, dict):
         raise ValueError("invalid_leaderboard_report:expected_json_object")
 
+    entry_source = str(getattr(args, "entry_source", "leaderboard") or "leaderboard").strip().lower() or "leaderboard"
+    if entry_source == "entries":
+        entry_source = "leaderboard"
+    allowed_entry_sources = {"leaderboard", "shared_market_displeasures", "white_space_candidates"}
+    if entry_source not in allowed_entry_sources:
+        raise ValueError(
+            "invalid_entry_source:"
+            f"{entry_source}:expected_one_of:{','.join(sorted(allowed_entry_sources))}"
+        )
+    if entry_source == "leaderboard":
+        raw_entries = loaded.get("leaderboard")
+        if raw_entries is None:
+            raw_entries = loaded.get("entries")
+    else:
+        raw_entries = loaded.get(entry_source)
+
     entries = [
         dict(item)
-        for item in list(loaded.get("leaderboard") or loaded.get("entries") or [])
+        for item in list(raw_entries or [])
         if isinstance(item, dict)
     ]
     domain = str(getattr(args, "domain", None) or loaded.get("domain") or "fitness_apps").strip().lower() or "fitness_apps"
@@ -3014,6 +3030,7 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
     limit = max(1, int(getattr(args, "limit", 8) or 8))
     min_impact_score = float(getattr(args, "min_impact_score", 0.0) or 0.0)
     min_impact_delta = float(getattr(args, "min_impact_delta", 0.0) or 0.0)
+    min_cross_app_count = max(0, int(getattr(args, "min_cross_app_count", 0) or 0))
     include_trends = {item.lower() for item in _parse_csv_items(getattr(args, "trends", None))}
     if not include_trends:
         include_trends = {"new", "rising"}
@@ -3118,6 +3135,12 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 if str(item.get("tag") or "").strip()
             ]
             top_app_rows = [dict(item) for item in list(entry.get("top_apps_current") or []) if isinstance(item, dict)]
+            if not top_app_rows:
+                top_app_rows = [
+                    dict(item)
+                    for item in list(entry.get("top_competitor_apps") or [])
+                    if isinstance(item, dict)
+                ]
             top_app_names = [
                 _normalize_app_identifier(item.get("app_identifier"))
                 for item in top_app_rows
@@ -3127,6 +3150,17 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 int(entry.get("cross_app_count_current") or 0),
                 len(set(top_app_names)),
             )
+            if cross_app_count_current < min_cross_app_count:
+                skipped.append(
+                    {
+                        "index": index,
+                        "reason": "cross_app_count_below_min",
+                        "cross_app_count_current": cross_app_count_current,
+                        "min_cross_app_count": min_cross_app_count,
+                        "canonical_key": entry.get("canonical_key"),
+                    }
+                )
+                continue
             summary_hint = str(entry.get("example_summary") or "").strip()
 
             statement = (
@@ -3158,12 +3192,15 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 "seed_canonical_key": canonical_key,
                 "seed_example_summary": summary_hint,
                 "seed_top_tags": top_tag_names,
+                "seed_entry_source": entry_source,
                 "seed_cross_app_count_current": int(cross_app_count_current),
                 "seed_market_recurrence_score": float(entry.get("market_recurrence_score") or 0.0),
                 "seed_top_apps_current": sorted(set(top_app_names)),
             }
             risk_level = "high" if trend == "new" and impact_score_current >= 6.0 else "medium"
             if trend in {"new", "rising"} and cross_app_count_current >= 3 and impact_score_current >= 4.0:
+                risk_level = "high"
+            if entry_source == "white_space_candidates" and trend in {"new", "rising"} and impact_score_current >= 3.0:
                 risk_level = "high"
 
             try:
@@ -3210,9 +3247,13 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
             "domain": domain,
             "source": source,
             "owner": owner,
+            "entry_source": entry_source,
+            "available_entry_sources": sorted(allowed_entry_sources),
+            "entry_source_count": len(entries),
             "trend_filters": sorted(include_trends),
             "min_impact_score": min_impact_score,
             "min_impact_delta": min_impact_delta,
+            "min_cross_app_count": min_cross_app_count,
             "requested_count": len(entries),
             "selected_count": selected_count,
             "created_count": len(created),
@@ -5014,6 +5055,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         limit=max(1, int(getattr(args, "seed_limit", 8) or 8)),
                         min_impact_score=float(getattr(args, "seed_min_impact_score", 0.0) or 0.0),
                         min_impact_delta=float(getattr(args, "seed_min_impact_delta", 0.0) or 0.0),
+                        entry_source=str(getattr(args, "seed_entry_source", "leaderboard") or "leaderboard"),
+                        min_cross_app_count=max(0, int(getattr(args, "seed_min_cross_app_count", 0) or 0)),
                         owner=str(getattr(args, "seed_owner", "operator") or "operator").strip() or "operator",
                         lookup_limit=max(1, int(getattr(args, "seed_lookup_limit", 400) or 400)),
                         strict=False,
@@ -8084,6 +8127,19 @@ def main() -> None:
     improvement_seed_from_leaderboard.add_argument("--limit", type=int, default=8)
     improvement_seed_from_leaderboard.add_argument("--min-impact-score", type=float, default=0.0)
     improvement_seed_from_leaderboard.add_argument("--min-impact-delta", type=float, default=0.0)
+    improvement_seed_from_leaderboard.add_argument(
+        "--entry-source",
+        type=str,
+        default="leaderboard",
+        choices=("leaderboard", "shared_market_displeasures", "white_space_candidates"),
+        help="Select which leaderboard section to seed from",
+    )
+    improvement_seed_from_leaderboard.add_argument(
+        "--min-cross-app-count",
+        type=int,
+        default=0,
+        help="Optional minimum cross-app coverage required per candidate entry (0 disables)",
+    )
     improvement_seed_from_leaderboard.add_argument("--owner", type=str, default="operator")
     improvement_seed_from_leaderboard.add_argument("--lookup-limit", type=int, default=400)
     improvement_seed_from_leaderboard.add_argument("--strict", action="store_true")
@@ -8310,6 +8366,13 @@ def main() -> None:
     improvement_operator_cycle.add_argument("--seed-limit", type=int, default=8)
     improvement_operator_cycle.add_argument("--seed-min-impact-score", type=float, default=0.0)
     improvement_operator_cycle.add_argument("--seed-min-impact-delta", type=float, default=0.0)
+    improvement_operator_cycle.add_argument(
+        "--seed-entry-source",
+        type=str,
+        default="leaderboard",
+        choices=("leaderboard", "shared_market_displeasures", "white_space_candidates"),
+    )
+    improvement_operator_cycle.add_argument("--seed-min-cross-app-count", type=int, default=0)
     improvement_operator_cycle.add_argument("--seed-owner", type=str, default="operator")
     improvement_operator_cycle.add_argument("--seed-lookup-limit", type=int, default=400)
     improvement_operator_cycle.add_argument("--seed-as-of", type=str, default=None)
