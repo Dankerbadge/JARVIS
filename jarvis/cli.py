@@ -5306,6 +5306,26 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
 
     draft_payload: dict[str, Any]
     daily_config_path = config_path
+    draft_statuses_value = str(getattr(args, "draft_statuses", "queued") or "queued")
+    draft_statuses_auto_broadened = False
+    draft_statuses_auto_reason: str | None = None
+    if (
+        draft_seed_report_path is not None
+        and bool(getattr(args, "draft_include_existing", False))
+        and draft_statuses_value.strip().lower() == "queued"
+        and draft_seed_report_path.exists()
+    ):
+        try:
+            loaded_draft_seed_report = json.loads(draft_seed_report_path.read_text(encoding="utf-8"))
+        except Exception:
+            loaded_draft_seed_report = None
+        if isinstance(loaded_draft_seed_report, dict):
+            seed_created_count = max(0, int(loaded_draft_seed_report.get("created_count") or 0))
+            seed_existing_count = max(0, int(loaded_draft_seed_report.get("existing_count") or 0))
+            if seed_created_count <= 0 and seed_existing_count > 0:
+                draft_statuses_value = "queued,testing,validated,rejected"
+                draft_statuses_auto_broadened = True
+                draft_statuses_auto_reason = "seed_created_zero_existing_present"
     if draft_requested:
         try:
             draft_args = argparse.Namespace(
@@ -5316,7 +5336,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     if getattr(args, "draft_domain", None) is not None
                     else None
                 ),
-                statuses=str(getattr(args, "draft_statuses", "queued") or "queued"),
+                statuses=draft_statuses_value,
                 limit=max(1, int(getattr(args, "draft_limit", 8) or 8)),
                 lookup_limit=max(1, int(getattr(args, "draft_lookup_limit", 400) or 400)),
                 pipeline_config_path=draft_base_config_path,
@@ -5376,12 +5396,18 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         daily_config_path.write_text(json.dumps(loaded_draft_config, indent=2), encoding="utf-8")
             if rewritten_artifact_paths > 0:
                 draft_payload["rewritten_artifact_paths"] = int(rewritten_artifact_paths)
+            draft_payload["requested_statuses"] = draft_statuses_value
+            draft_payload["statuses_auto_broadened"] = bool(draft_statuses_auto_broadened)
+            draft_payload["statuses_auto_reason"] = draft_statuses_auto_reason
         except Exception as exc:
             draft_payload = {
                 "status": "error",
                 "error": str(exc),
                 "output_path": str(draft_report_path),
                 "config_output_path": str(draft_output_config_path),
+                "requested_statuses": draft_statuses_value,
+                "statuses_auto_broadened": bool(draft_statuses_auto_broadened),
+                "statuses_auto_reason": draft_statuses_auto_reason,
             }
             daily_config_path = draft_base_config_path
             stage_errors.append({"stage": "draft_experiment_jobs", "error": str(exc)})

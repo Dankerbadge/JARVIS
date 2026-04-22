@@ -2551,6 +2551,187 @@ class CliImprovementPipelineTests(unittest.TestCase):
             total_seeded = int(seed_payload.get("created_count") or 0) + int(seed_payload.get("existing_count") or 0)
             self.assertGreaterEqual(total_seeded, 1)
 
+    def test_operator_cycle_auto_broadens_draft_statuses_for_existing_seed_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            seed_input_path = root / "configs" / "data" / "fitness_feedback.jsonl"
+            seed_input_path.parent.mkdir(parents=True, exist_ok=True)
+            seed_input_path.write_text(
+                json.dumps(
+                    {
+                        "id": "seed-existing-1",
+                        "title": "Paywall too early",
+                        "summary": "I hit a paywall before I could complete a real workout trial.",
+                        "review": "I hit a paywall before I could complete a real workout trial.",
+                        "rating": 2,
+                        "app_name": "FitNova",
+                        "created_at": "2026-04-21T10:00:00Z",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            leaderboard_args = argparse.Namespace(
+                input_path=seed_input_path,
+                input_format="jsonl",
+                domain="fitness_apps",
+                source="market_reviews",
+                timestamp_fields="created_at",
+                as_of="2026-04-22T12:00:00Z",
+                lookback_days=7,
+                min_cluster_count=1,
+                cluster_limit=20,
+                leaderboard_limit=12,
+                cooling_limit=10,
+                app_fields="app_name,source_context.app",
+                top_apps_per_cluster=3,
+                min_cross_app_count=1,
+                own_app_aliases=None,
+                trend_threshold=0.25,
+                include_untimed_current=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+            )
+            leaderboard_out = io.StringIO()
+            with redirect_stdout(leaderboard_out):
+                cmd_improvement_fitness_leaderboard(leaderboard_args)
+            leaderboard_payload = json.loads(leaderboard_out.getvalue())
+            first_row = dict((leaderboard_payload.get("leaderboard") or [{}])[0] or {})
+            friction_key = str(first_row.get("friction_key") or "").strip()
+            self.assertTrue(bool(friction_key))
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title=f"fitness_apps: reduce '{friction_key}' frustration",
+                    statement="Existing hypothesis should be reused by seed stage.",
+                    proposed_change="Keep controlled validation lane active.",
+                    friction_key=friction_key,
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+                runtime.hypothesis_lab.set_hypothesis_status(
+                    hypothesis_id=hypothesis_id,
+                    status="validated",
+                )
+            finally:
+                runtime.close()
+
+            config_path = root / "configs" / "operator_cycle_auto_draft_status_config.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                        },
+                        "feed_jobs": [],
+                        "feedback_jobs": [],
+                        "experiment_jobs": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_auto_draft_status"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                seed_enable=True,
+                seed_domains="fitness_apps",
+                seed_leaderboard_input_path=Path("configs/data/fitness_feedback.jsonl"),
+                seed_leaderboard_input_format="jsonl",
+                seed_leaderboard_report_path=None,
+                seed_report_path=None,
+                seed_domain="fitness_apps",
+                seed_source="market_reviews",
+                seed_hypothesis_source="fitness_leaderboard",
+                seed_trends="new,rising",
+                seed_limit=8,
+                seed_min_impact_score=0.0,
+                seed_min_impact_delta=0.0,
+                seed_entry_source="leaderboard",
+                seed_fallback_entry_source="leaderboard",
+                seed_owner="operator",
+                seed_lookup_limit=200,
+                seed_as_of="2026-04-22T12:00:00Z",
+                seed_lookback_days=7,
+                seed_min_cluster_count=1,
+                seed_cluster_limit=20,
+                seed_leaderboard_limit=12,
+                seed_cooling_limit=10,
+                seed_app_fields="app_name,source_context.app",
+                seed_top_apps_per_cluster=3,
+                seed_min_cross_app_count=1,
+                seed_own_app_aliases=None,
+                seed_trend_threshold=0.25,
+                seed_timestamp_fields="created_at",
+                seed_include_untimed_current=False,
+                draft_enable=True,
+                draft_seed_report_path=None,
+                draft_config_path=None,
+                draft_output_config_path=None,
+                draft_report_path=None,
+                draft_artifacts_dir=None,
+                draft_domain="fitness_apps",
+                draft_statuses="queued",
+                draft_limit=8,
+                draft_lookup_limit=400,
+                draft_include_existing=True,
+                draft_overwrite_artifacts=False,
+                draft_environment="controlled_rollout",
+                draft_default_sample_size=100,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            previous_cwd = Path.cwd()
+            try:
+                os.chdir(root)
+                with redirect_stdout(out):
+                    cmd_improvement_operator_cycle(args)
+            finally:
+                os.chdir(previous_cwd)
+
+            payload = json.loads(out.getvalue())
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("seed_from_leaderboard") or ""), "ok")
+            self.assertEqual(str(stage_statuses.get("draft_experiment_jobs") or ""), "ok")
+
+            seed_payload = dict(payload.get("seed_from_leaderboard") or {})
+            self.assertEqual(int(seed_payload.get("created_count") or 0), 0)
+            self.assertGreaterEqual(int(seed_payload.get("existing_count") or 0), 1)
+
+            draft_payload = dict(payload.get("draft") or {})
+            self.assertTrue(bool(draft_payload.get("statuses_auto_broadened")))
+            self.assertEqual(
+                str(draft_payload.get("requested_statuses") or ""),
+                "queued,testing,validated,rejected",
+            )
+            self.assertGreaterEqual(int(draft_payload.get("selected_hypotheses_count") or 0), 1)
+            self.assertGreaterEqual(int(draft_payload.get("drafted_count") or 0), 1)
+
     def test_operator_cycle_seed_stage_supports_multi_domain_runs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
