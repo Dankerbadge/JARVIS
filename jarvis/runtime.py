@@ -6,7 +6,6 @@ import json
 import os
 import re
 import shlex
-import sqlite3
 import statistics
 import subprocess
 import time
@@ -17,7 +16,6 @@ from urllib.parse import urlparse
 
 from .archive import DigestArchiveService
 from .adaptive_policy import AdaptivePolicyStore
-from .approval_packet import OutcomeSummary, RankedCandidate
 from .codex_delegation import CodexDelegationService
 from .consciousness import ConsciousnessSurfaceService
 from .cognition import CognitionEngine
@@ -27,10 +25,16 @@ from .device_tokens import DeviceTokenStore
 from .execution_service import ApprovalExecutionService
 from .identity_state import IdentityStateStore
 from .interrupts import InterruptStore
+from .learning import (
+    LearningActionRanker,
+    LearningDatasetStore,
+    LearningEvaluator,
+    LearningPolicyRegistry,
+)
 from .memory import MemoryStore
 from .model_backends import build_backend_from_env, cognition_enabled_from_env
 from .model_backends.base import CognitionBackend
-from .models import EventEnvelope, PlanArtifact, PlanStep, new_id, utc_now_iso
+from .models import EventEnvelope, new_id, utc_now_iso
 from .openclaw_ws_bridge import OpenClawWsBridge
 from .openclaw_event_router import OpenClawEventRouter
 from .openclaw_gateway_client import OpenClawGatewayClient, OpenClawGatewayConfig
@@ -38,13 +42,15 @@ from .openclaw_reply_orchestrator import OpenClawReplyOrchestrator, ReplyDraft
 from .node_command_broker import NodeCommandBroker
 from .operator_state import OperatorStateStore
 from .outcomes import map_review_feedback_to_outcome
+from .planning import ProjectDevLoop, ProjectGraphStore
 from .presence_health import PresenceHealthStore
-from .providers.github import GitHubReviewClient
 from .providers.base import ProviderReviewArtifact, ReviewFeedbackSnapshot
 from .pushback_calibration import PushbackCalibrationStore
 from .publication_service import RemotePublicationService
+from .reasoning import ReasoningReplayer, ReasoningStore, ReasoningTracer
 from .relationship_modes import RelationshipModeEngine
 from .review_service import ReviewService
+from .runtime_services import build_default_review_service
 from .security import ActionClass, SecurityManager
 from .secref_nodes import SecretRefError, parse_secret_ref, resolve_secret_ref, validate_node_secret_plan
 from .skills.academics import AcademicsSkill
@@ -74,601 +80,49 @@ from .state_index import (
 )
 from .synthesis import SynthesisEngine
 from .surface_session_state import SurfaceSessionStateStore
+from .suggestions import SuggestionEngine, SuggestionFeedbackStore
 from .signals import SignalIngestStore, normalize_signal_envelope
 from .taskflow_presence_runner import TaskFlowPresenceRunner
 from .tone_balance import ToneBalanceStore
 from .voice_assets import VoiceAssetPackStore
 from .voice_continuity_soak import VoiceContinuitySoakStore
 from .voice_tuning_state import VoiceTuningStateStore
+from .workflows import Executor as WorkflowExecutor
+from .workflows import PlanRepository as WorkflowPlanRepository
+from .workflows import Planner as WorkflowPlanner
 
-
-class PlanRepository:
-    def __init__(self, db_path: str | Path) -> None:
-        self.conn = sqlite3.connect(str(db_path))
-        self.conn.row_factory = sqlite3.Row
-        self._init_schema()
-
-    def _init_schema(self) -> None:
-        cur = self.conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS plan_artifacts (
-                plan_id TEXT PRIMARY KEY,
-                intent TEXT NOT NULL,
-                priority TEXT NOT NULL,
-                reasoning_summary TEXT NOT NULL,
-                approval_requirements_json TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS plan_steps (
-                step_id TEXT PRIMARY KEY,
-                plan_id TEXT NOT NULL,
-                step_idx INTEGER NOT NULL,
-                action_class TEXT NOT NULL,
-                proposed_action TEXT NOT NULL,
-                expected_effect TEXT NOT NULL,
-                rollback_text TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
-                requires_approval INTEGER NOT NULL,
-                idempotency_key TEXT NOT NULL
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS plan_outcomes (
-                plan_id TEXT PRIMARY KEY,
-                repo_id TEXT NOT NULL,
-                branch TEXT NOT NULL,
-                status TEXT NOT NULL,
-                touched_paths_json TEXT NOT NULL,
-                failure_family TEXT,
-                summary TEXT,
-                recorded_at TEXT NOT NULL
-            )
-            """
-        )
-        self.conn.commit()
-
-    def save_plan(self, plan: PlanArtifact, status: str = "proposed") -> str:
-        self.conn.execute(
-            """
-            INSERT INTO plan_artifacts (
-                plan_id, intent, priority, reasoning_summary, approval_requirements_json,
-                expires_at, status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                plan.plan_id,
-                plan.intent,
-                plan.priority,
-                plan.reasoning_summary,
-                json.dumps(plan.approval_requirements, sort_keys=True),
-                plan.expires_at,
-                status,
-                utc_now_iso(),
-            ),
-        )
-        for idx, step in enumerate(plan.steps):
-            self.conn.execute(
-                """
-                INSERT INTO plan_steps (
-                    step_id, plan_id, step_idx, action_class, proposed_action, expected_effect,
-                    rollback_text, payload_json, requires_approval, idempotency_key
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    step.step_id,
-                    plan.plan_id,
-                    idx,
-                    step.action_class,
-                    step.proposed_action,
-                    step.expected_effect,
-                    step.rollback,
-                    json.dumps(step.payload, sort_keys=True),
-                    1 if step.requires_approval else 0,
-                    step.idempotency_key,
-                ),
-            )
-        self.conn.commit()
-        return plan.plan_id
-
-    def set_status(self, plan_id: str, status: str) -> None:
-        self.conn.execute(
-            "UPDATE plan_artifacts SET status = ? WHERE plan_id = ?",
-            (status, plan_id),
-        )
-        self.conn.commit()
-
-    def get_plan(self, plan_id: str) -> PlanArtifact:
-        row = self.conn.execute(
-            "SELECT * FROM plan_artifacts WHERE plan_id = ?",
-            (plan_id,),
-        ).fetchone()
-        if not row:
-            raise KeyError(f"Plan not found: {plan_id}")
-
-        step_rows = self.conn.execute(
-            "SELECT * FROM plan_steps WHERE plan_id = ? ORDER BY step_idx ASC",
-            (plan_id,),
-        ).fetchall()
-        steps: list[PlanStep] = []
-        for step_row in step_rows:
-            steps.append(
-                PlanStep(
-                    action_class=step_row["action_class"],
-                    proposed_action=step_row["proposed_action"],
-                    expected_effect=step_row["expected_effect"],
-                    rollback=step_row["rollback_text"],
-                    payload=json.loads(step_row["payload_json"]),
-                    requires_approval=bool(step_row["requires_approval"]),
-                    step_id=step_row["step_id"],
-                    idempotency_key=step_row["idempotency_key"],
-                )
-            )
-        return PlanArtifact(
-            intent=row["intent"],
-            priority=row["priority"],
-            reasoning_summary=row["reasoning_summary"],
-            steps=steps,
-            approval_requirements=json.loads(row["approval_requirements_json"]),
-            expires_at=row["expires_at"],
-            plan_id=row["plan_id"],
-        )
-
-    def close(self) -> None:
-        self.conn.close()
-
-    def record_outcome(
-        self,
-        *,
-        plan_id: str,
-        repo_id: str,
-        branch: str,
-        status: str,
-        touched_paths: list[str],
-        failure_family: str | None = None,
-        summary: str | None = None,
-        recorded_at: str | None = None,
-    ) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO plan_outcomes (
-                plan_id, repo_id, branch, status, touched_paths_json, failure_family, summary, recorded_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(plan_id) DO UPDATE SET
-                repo_id = excluded.repo_id,
-                branch = excluded.branch,
-                status = excluded.status,
-                touched_paths_json = excluded.touched_paths_json,
-                failure_family = excluded.failure_family,
-                summary = excluded.summary,
-                recorded_at = excluded.recorded_at
-            """,
-            (
-                plan_id,
-                repo_id,
-                branch,
-                status,
-                json.dumps(sorted(set(touched_paths))),
-                failure_family,
-                summary,
-                recorded_at or utc_now_iso(),
-            ),
-        )
-        self.conn.commit()
-
-    def list_recent_outcomes(
-        self,
-        repo_id: str,
-        branch: str,
-        *,
-        limit: int = 100,
-    ) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            """
-            SELECT *
-            FROM plan_outcomes
-            WHERE repo_id = ? AND branch = ?
-            ORDER BY recorded_at DESC
-            LIMIT ?
-            """,
-            (repo_id, branch, limit),
-        ).fetchall()
-        out: list[dict[str, Any]] = []
-        for row in rows:
-            out.append(
-                {
-                    "plan_id": row["plan_id"],
-                    "repo_id": row["repo_id"],
-                    "branch": row["branch"],
-                    "status": row["status"],
-                    "touched_paths": json.loads(row["touched_paths_json"]),
-                    "failure_family": row["failure_family"],
-                    "summary": row["summary"],
-                    "recorded_at": row["recorded_at"],
-                }
-            )
-        return out
-
-    def list_recent_outcomes_global(self, *, limit: int = 100) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            """
-            SELECT *
-            FROM plan_outcomes
-            ORDER BY recorded_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-        out: list[dict[str, Any]] = []
-        for row in rows:
-            out.append(
-                {
-                    "plan_id": row["plan_id"],
-                    "repo_id": row["repo_id"],
-                    "branch": row["branch"],
-                    "status": row["status"],
-                    "touched_paths": json.loads(row["touched_paths_json"]),
-                    "failure_family": row["failure_family"],
-                    "summary": row["summary"],
-                    "recorded_at": row["recorded_at"],
-                }
-            )
-        return out
-
-
-
-
-def _build_default_review_service() -> ReviewService:
-    providers: dict[str, Any] = {}
-    github_token = str(
-        os.getenv("JARVIS_GITHUB_TOKEN")
-        or os.getenv("GITHUB_TOKEN")
-        or ""
-    ).strip()
-    if not github_token:
-        # Fallback to GitHub CLI auth so local runs work even when shell envs are not loaded.
-        try:
-            completed = subprocess.run(
-                ["gh", "auth", "token"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if completed.returncode == 0:
-                github_token = str(completed.stdout or "").strip()
-        except OSError:
-            github_token = ""
-    if github_token:
-        providers["github"] = GitHubReviewClient(
-            token=github_token,
-            api_base=os.getenv("JARVIS_GITHUB_API_BASE", "https://api.github.com"),
-        )
-    return ReviewService(providers)
-
-
-class Planner:
-    def __init__(
-        self,
-        zenith: ZenithSkill,
-        academics: AcademicsSkill,
-        markets: MarketsSkill,
-        state_graph: StateGraph,
-    ) -> None:
-        self.zenith = zenith
-        self.academics = academics
-        self.markets = markets
-        self.state_graph = state_graph
-
-    def build_plans(self, triggers: list[dict[str, Any]]) -> list[PlanArtifact]:
-        if not triggers:
-            return []
-        risks = self.state_graph.get_active_entities("Risk")
-        domains = {
-            str(item.get("domain") or item.get("project") or "").strip().lower()
-            for item in triggers
-        }
-        known_domains = {value for value in domains if value in {"zenith", "academics", "markets"}}
-        if not known_domains:
-            known_domains = {"zenith"}
-        plans: list[PlanArtifact] = []
-        if "zenith" in known_domains:
-            zenith_plan = self.zenith.propose_plan(risks)
-            if zenith_plan:
-                plans.append(zenith_plan)
-        if "academics" in known_domains:
-            academics_plan = self.academics.propose_plan(risks)
-            if academics_plan:
-                plans.append(academics_plan)
-        if "markets" in known_domains:
-            markets_plan = self.markets.propose_plan(risks)
-            if markets_plan:
-                plans.append(markets_plan)
-        return plans
-
-
-class Executor:
-    def __init__(
-        self,
-        *,
-        repo_path: Path,
-        security: SecurityManager,
-        plan_repo: PlanRepository,
-        tools: dict[str, Any],
-        execution_service: ApprovalExecutionService | None = None,
-    ) -> None:
-        self.repo_path = repo_path
-        self.security = security
-        self.plan_repo = plan_repo
-        self.tools = tools
-        self.execution_service = execution_service
-
-    def _prepare_evidence_packet(
-        self,
-        *,
-        plan: PlanArtifact,
-        step: PlanStep,
-        approval_id: str,
-        action_class: ActionClass,
-    ) -> dict[str, Any]:
-        if not self.execution_service:
-            return {}
-
-        existing = self.security.get_approval_packet(approval_id)
-        if existing:
-            return existing
-
-        root_payload = plan.steps[0].payload if plan.steps else {}
-        repo_id = str(
-            root_payload.get("repo_id")
-            or root_payload.get("repo_path")
-            or str(self.repo_path)
-        )
-        branch = str(root_payload.get("branch") or "unknown")
-        confidence = float(root_payload.get("correlation_confidence") or 0.5)
-
-        report = root_payload.get("root_cause_report", {})
-        ranked_candidates = [
-            RankedCandidate(
-                path=str(item.get("path")),
-                score=float(item.get("score", 0)),
-                reasons=tuple(str(reason) for reason in item.get("reasons", [])),
-            )
-            for item in report.get("candidates", [])[:8]
-            if item.get("path")
-        ]
-
-        recent_raw = self.plan_repo.list_recent_outcomes(repo_id, branch, limit=10)
-        recent_outcomes: list[OutcomeSummary] = []
-        for outcome in recent_raw[:8]:
-            status = str(outcome.get("status", "partial"))
-            if status == "success":
-                weight = 1.0
-            elif status == "partial":
-                weight = 0.45
-            elif status == "failure":
-                weight = -0.55
-            else:
-                weight = -0.9
-            for path in outcome.get("touched_paths", [])[:3]:
-                recent_outcomes.append(
-                    OutcomeSummary(
-                        path=str(path),
-                        status=status,
-                        weight=weight,
-                        note=str(outcome.get("failure_family") or ""),
-                    )
-                )
-
-        patch_text = self.execution_service.build_patch_for_step(
-            proposed_action=step.proposed_action,
-            payload=step.payload,
-        )
-
-        prepared = self.execution_service.prepare_protected_step(
-            approval_id=approval_id,
-            plan_id=plan.plan_id,
-            step_id=step.step_id,
-            permission_class=action_class.value,
-            reason=plan.reasoning_summary,
-            repo_id=repo_id,
-            branch=branch,
-            confidence=confidence,
-            patch_text=patch_text,
-            ranked_candidates=ranked_candidates,
-            recent_outcomes=recent_outcomes,
-            action_desc=step.proposed_action,
-        )
-        packet_dict = prepared.packet.to_dict()
-        self.security.store_approval_packet(
-            approval_id=approval_id,
-            plan_id=plan.plan_id,
-            step_id=step.step_id,
-            packet=packet_dict,
-            markdown=prepared.packet.to_markdown(),
-            sandbox={
-                "repo_path": prepared.sandbox.repo_path,
-                "sandbox_path": prepared.sandbox.sandbox_path,
-                "branch_name": prepared.sandbox.branch_name,
-                "base_ref": prepared.sandbox.base_ref,
-            },
-            preflight={
-                "working_dir": prepared.preflight_report.working_dir,
-                "passed": prepared.preflight_report.passed,
-                "summary": prepared.preflight_report.summarize(),
-                "checks": [
-                    {
-                        "name": check.name,
-                        "passed": check.passed,
-                        "return_code": check.return_code,
-                        "stdout_excerpt": check.stdout_excerpt,
-                        "stderr_excerpt": check.stderr_excerpt,
-                    }
-                    for check in prepared.preflight_report.checks
-                ],
-            },
-            touched_files=list(prepared.touched_files),
-            patch_text=prepared.patch_text,
-        )
-        return self.security.get_approval_packet(approval_id) or {}
-
-    def execute_plan(
-        self,
-        plan_id: str,
-        *,
-        dry_run: bool = True,
-        approvals: dict[str, str] | None = None,
-    ) -> list[dict[str, Any]]:
-        approvals = approvals or {}
-        plan = self.plan_repo.get_plan(plan_id)
-        self.plan_repo.set_status(plan_id, "running")
-        results: list[dict[str, Any]] = []
-        awaiting_approval = False
-
-        for step in plan.steps:
-            action_class = ActionClass(step.action_class)
-            approval_id = approvals.get(step.step_id)
-            if action_class in {ActionClass.P2, ActionClass.P3} and (
-                step.requires_approval or action_class == ActionClass.P3
-            ):
-                if not approval_id:
-                    existing = self.security.find_approval(
-                        plan_id=plan_id,
-                        step_id=step.step_id,
-                        statuses=["pending"],
-                    )
-                    if existing:
-                        pending_id = existing["approval_id"]
-                    else:
-                        pending_id = self.security.request_approval(
-                            plan_id=plan_id,
-                            step_id=step.step_id,
-                            action_class=action_class,
-                            action_desc=step.proposed_action,
-                        )
-                    packet = {}
-                    if self.execution_service:
-                        try:
-                            packet = self._prepare_evidence_packet(
-                                plan=plan,
-                                step=step,
-                                approval_id=pending_id,
-                                action_class=action_class,
-                            )
-                        except Exception as exc:
-                            packet = {"error": str(exc)}
-                    awaiting_approval = True
-                    result = {
-                        "step_id": step.step_id,
-                        "status": "awaiting_approval",
-                        "approval_id": pending_id,
-                        "reason": "Protected action requires approval.",
-                        "approval_packet_recommendation": (
-                            (packet.get("packet") or {}).get("recommended_decision")
-                            if packet
-                            else None
-                        ),
-                        "preflight_summary": (packet.get("preflight") or {}).get("summary")
-                        if packet
-                        else None,
-                    }
-                    results.append(result)
-                    self.security.audit(
-                        action=step.proposed_action,
-                        status="awaiting_approval",
-                        details=result,
-                        plan_id=plan_id,
-                        step_id=step.step_id,
-                        action_class=action_class,
-                    )
-                    continue
-            try:
-                self.security.enforce(
-                    action_class,
-                    requires_approval=step.requires_approval,
-                    approval_id=approval_id,
-                )
-            except PermissionError as exc:
-                result = {"step_id": step.step_id, "status": "blocked", "reason": str(exc)}
-                results.append(result)
-                self.security.audit(
-                    action=step.proposed_action,
-                    status="blocked",
-                    details=result,
-                    plan_id=plan_id,
-                    step_id=step.step_id,
-                    action_class=action_class,
-                )
-                continue
-
-            prepare_id: str | None = None
-            if action_class in {ActionClass.P2, ActionClass.P3}:
-                prepare_id = self.security.prepare_action(
-                    plan_id=plan_id,
-                    step_id=step.step_id,
-                    action_class=action_class,
-                    action_desc=step.proposed_action,
-                )
-
-            tool = self.tools.get(step.proposed_action)
-            if not tool:
-                result = {
-                    "step_id": step.step_id,
-                    "status": "failed",
-                    "reason": f"Tool not registered: {step.proposed_action}",
-                }
-                results.append(result)
-                self.security.audit(
-                    action=step.proposed_action,
-                    status="failed",
-                    details=result,
-                    plan_id=plan_id,
-                    step_id=step.step_id,
-                    action_class=action_class,
-                )
-                continue
-
-            output = tool(step.payload, dry_run)
-            if prepare_id and not dry_run:
-                self.security.commit_action(prepare_id)
-            if prepare_id:
-                self.security.add_rollback_marker(
-                    plan_id=plan_id,
-                    step_id=step.step_id,
-                    marker={
-                        "prepare_id": prepare_id,
-                        "rollback_hint": step.rollback,
-                        "payload": step.payload,
-                    },
-                )
-            result = {"step_id": step.step_id, "status": "ok", "output": output}
-            results.append(result)
-            self.security.audit(
-                action=step.proposed_action,
-                status="ok",
-                details={"dry_run": dry_run, "output": output},
-                plan_id=plan_id,
-                step_id=step.step_id,
-                action_class=action_class,
-            )
-
-        if awaiting_approval:
-            self.plan_repo.set_status(plan_id, "awaiting_approval")
-        elif any(result["status"] == "failed" for result in results):
-            self.plan_repo.set_status(plan_id, "failed")
-        else:
-            self.plan_repo.set_status(plan_id, "completed")
-        return results
+# Backward-compatible aliases while workflow internals live in `jarvis.workflows`.
+PlanRepository = WorkflowPlanRepository
+Planner = WorkflowPlanner
+Executor = WorkflowExecutor
 
 
 class JarvisRuntime:
+    _LEARNING_PROMOTION_PRESETS: dict[str, dict[str, Any]] = {
+        # Conservative keeps current defaults for backward-compatible behavior.
+        "conservative": {
+            "min_examples": 3,
+            "min_avg_utility": 0.0,
+            "min_top_action_score": 0.05,
+            "min_top_action_samples": 1,
+            "require_ranked_actions": True,
+        },
+        "strict": {
+            "min_examples": 8,
+            "min_avg_utility": 0.1,
+            "min_top_action_score": 0.15,
+            "min_top_action_samples": 2,
+            "require_ranked_actions": True,
+        },
+        "aggressive": {
+            "min_examples": 1,
+            "min_avg_utility": -0.2,
+            "min_top_action_score": -0.05,
+            "min_top_action_samples": 1,
+            "require_ranked_actions": False,
+        },
+    }
+
     def __init__(
         self,
         db_path: str | Path,
@@ -712,9 +166,26 @@ class JarvisRuntime:
         self.operator_state = OperatorStateStore(self.db_path)
         self.identity_state = IdentityStateStore(self.db_path)
         self.interrupt_store = InterruptStore(self.db_path)
-        self.plan_repo = PlanRepository(self.db_path)
+        # Phase-1 extraction: workflow orchestration internals now live in jarvis.workflows.
+        self.plan_repo = WorkflowPlanRepository(self.db_path)
         self.archive_service = DigestArchiveService(self.db_path)
         self.consciousness_surfaces = ConsciousnessSurfaceService(self.db_path)
+        self.reasoning_store = ReasoningStore(self.db_path)
+        self.reasoning_tracer = ReasoningTracer(self.reasoning_store)
+        self.reasoning_replayer = ReasoningReplayer(self.reasoning_store, self.plan_repo)
+        self.suggestion_engine = SuggestionEngine()
+        self.project_graph_store = ProjectGraphStore(self.db_path)
+        self.project_devloop = ProjectDevLoop(self.project_graph_store)
+        self.suggestion_feedback = SuggestionFeedbackStore(self.db_path)
+        self.learning_dataset = LearningDatasetStore(
+            db_path=self.db_path,
+            reasoning_store=self.reasoning_store,
+            plan_repo=self.plan_repo,
+            feedback_store=self.suggestion_feedback,
+        )
+        self.learning_evaluator = LearningEvaluator()
+        self.learning_ranker = LearningActionRanker()
+        self.learning_registry = LearningPolicyRegistry(self.db_path)
         self.codex_delegation = CodexDelegationService(
             db_path=self.db_path,
             repo_path=self.repo_path,
@@ -735,7 +206,7 @@ class JarvisRuntime:
             protected_prefixes=("ui/",),
         )
         self.publication_service = RemotePublicationService(repo_path=str(self.repo_path))
-        self.review_service = review_service or _build_default_review_service()
+        self.review_service = review_service or build_default_review_service()
 
         self.zenith = ZenithSkill(self.repo_path)
         self.academics = AcademicsSkill(self.repo_path)
@@ -747,13 +218,14 @@ class JarvisRuntime:
             **self.markets.register_tools(),
             **self.identity.register_tools(),
         }
-        self.planner = Planner(self.zenith, self.academics, self.markets, self.state_graph)
-        self.executor = Executor(
+        self.planner = WorkflowPlanner(self.zenith, self.academics, self.markets, self.state_graph)
+        self.executor = WorkflowExecutor(
             repo_path=self.repo_path,
             security=self.security,
             plan_repo=self.plan_repo,
             tools=self.tools,
             execution_service=self.execution_service,
+            reasoning_tracer=self.reasoning_tracer,
         )
         self.openclaw_ws_bridge = OpenClawWsBridge(self)
         self.openclaw_event_router = OpenClawEventRouter(
@@ -10429,6 +9901,1752 @@ class JarvisRuntime:
     def run(self, plan_id: str, *, dry_run: bool = True, approvals: dict[str, str] | None = None) -> list[dict[str, Any]]:
         return self.executor.execute_plan(plan_id, dry_run=dry_run, approvals=approvals)
 
+    def list_plan_step_attempts(
+        self,
+        plan_id: str,
+        *,
+        step_id: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        return self.plan_repo.list_step_attempts(plan_id=plan_id, step_id=step_id, limit=limit)
+
+    def list_plan_step_compensations(
+        self,
+        plan_id: str,
+        *,
+        step_id: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        return self.plan_repo.list_step_compensations(plan_id=plan_id, step_id=step_id, limit=limit)
+
+    def list_decision_traces(
+        self,
+        *,
+        plan_id: str | None = None,
+        step_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.reasoning_store.list_traces(plan_id=plan_id, step_id=step_id, limit=limit)
+
+    def get_decision_trace(self, trace_id: str) -> dict[str, Any] | None:
+        return self.reasoning_store.get_trace(trace_id)
+
+    def replay_step_decision_timeline(self, *, plan_id: str, step_id: str) -> dict[str, Any]:
+        return self.reasoning_replayer.replay_step_timeline(plan_id=plan_id, step_id=step_id)
+
+    def replay_plan_decision_timeline(self, *, plan_id: str, limit_per_step: int = 500) -> dict[str, Any]:
+        return self.reasoning_replayer.replay_plan_timeline(plan_id=plan_id, limit_per_step=limit_per_step)
+
+    def list_suggestion_candidates(
+        self,
+        *,
+        plan_id: str | None = None,
+        step_id: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        traces = self.reasoning_store.list_traces(
+            plan_id=plan_id,
+            step_id=step_id,
+            limit=max(50, int(limit) * 4),
+        )
+        return self.suggestion_engine.propose_from_reasoning(traces, limit=limit)
+
+    def record_suggestion_feedback(
+        self,
+        *,
+        suggestion_id: str,
+        accepted: bool,
+        source_trace_id: str | None = None,
+        action_taken: str | None = None,
+        utility_score: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.suggestion_feedback.record_feedback(
+            suggestion_id=suggestion_id,
+            accepted=accepted,
+            source_trace_id=source_trace_id,
+            action_taken=action_taken,
+            utility_score=utility_score,
+            metadata=metadata,
+        )
+
+    def list_suggestion_feedback(
+        self,
+        *,
+        suggestion_id: str | None = None,
+        source_trace_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.suggestion_feedback.list_feedback(
+            suggestion_id=suggestion_id,
+            source_trace_id=source_trace_id,
+            limit=limit,
+        )
+
+    def materialize_learning_examples(
+        self,
+        *,
+        plan_id: str | None = None,
+        step_id: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return self.learning_dataset.materialize_traces(plan_id=plan_id, step_id=step_id, limit=limit)
+
+    def list_learning_examples(
+        self,
+        *,
+        plan_id: str | None = None,
+        step_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.learning_dataset.list_examples(plan_id=plan_id, step_id=step_id, limit=limit)
+
+    def evaluate_learning_policy(
+        self,
+        *,
+        plan_id: str | None = None,
+        step_id: str | None = None,
+        limit: int = 200,
+        top_actions: int = 5,
+    ) -> dict[str, Any]:
+        examples = self.learning_dataset.list_examples(plan_id=plan_id, step_id=step_id, limit=limit)
+        metrics = self.learning_evaluator.evaluate_examples(examples)
+        ranked_actions = self.learning_ranker.rank_actions(examples, top_k=top_actions)
+        return {
+            "metrics": metrics,
+            "ranked_actions": ranked_actions,
+            "example_count": len(examples),
+        }
+
+    def _adaptive_learning_gate_overrides(self, preset: str) -> dict[str, Any]:
+        policy = self.get_adaptive_policy()
+        learning = policy.get("learning") if isinstance(policy.get("learning"), dict) else {}
+        promotion = learning.get("promotion_gates") if isinstance(learning.get("promotion_gates"), dict) else {}
+        defaults = promotion.get("defaults") if isinstance(promotion.get("defaults"), dict) else {}
+        presets = promotion.get("presets") if isinstance(promotion.get("presets"), dict) else {}
+        preset_overrides = presets.get(str(preset)) if isinstance(presets.get(str(preset)), dict) else {}
+        merged = dict(defaults)
+        merged.update(dict(preset_overrides))
+        return merged
+
+    def _resolve_learning_gate_config(
+        self,
+        *,
+        gate_preset: str,
+        min_examples: int | None = None,
+        min_avg_utility: float | None = None,
+        min_top_action_score: float | None = None,
+        min_top_action_samples: int | None = None,
+        require_ranked_actions: bool | None = None,
+    ) -> dict[str, Any]:
+        normalized_preset = str(gate_preset or "conservative").strip().lower()
+        if normalized_preset not in self._LEARNING_PROMOTION_PRESETS:
+            normalized_preset = "conservative"
+        resolved = dict(self._LEARNING_PROMOTION_PRESETS[normalized_preset])
+        adaptive_overrides = self._adaptive_learning_gate_overrides(normalized_preset)
+        for key in (
+            "min_examples",
+            "min_avg_utility",
+            "min_top_action_score",
+            "min_top_action_samples",
+            "require_ranked_actions",
+        ):
+            if key in adaptive_overrides:
+                resolved[key] = adaptive_overrides[key]
+        if min_examples is not None:
+            resolved["min_examples"] = int(min_examples)
+        if min_avg_utility is not None:
+            resolved["min_avg_utility"] = float(min_avg_utility)
+        if min_top_action_score is not None:
+            resolved["min_top_action_score"] = float(min_top_action_score)
+        if min_top_action_samples is not None:
+            resolved["min_top_action_samples"] = int(min_top_action_samples)
+        if require_ranked_actions is not None:
+            resolved["require_ranked_actions"] = bool(require_ranked_actions)
+        return {
+            "preset": normalized_preset,
+            "thresholds": {
+                "min_examples": int(resolved.get("min_examples", 3)),
+                "min_avg_utility": float(resolved.get("min_avg_utility", 0.0)),
+                "min_top_action_score": float(resolved.get("min_top_action_score", 0.05)),
+                "min_top_action_samples": int(resolved.get("min_top_action_samples", 1)),
+                "require_ranked_actions": bool(resolved.get("require_ranked_actions", True)),
+            },
+            "adaptive_overrides_applied": dict(adaptive_overrides),
+        }
+
+    def get_learning_gate_profile(self, *, gate_preset: str = "conservative") -> dict[str, Any]:
+        return self._resolve_learning_gate_config(gate_preset=gate_preset)
+
+    def set_learning_gate_profile(
+        self,
+        *,
+        gate_preset: str = "conservative",
+        min_examples: int | None = None,
+        min_avg_utility: float | None = None,
+        min_top_action_score: float | None = None,
+        min_top_action_samples: int | None = None,
+        require_ranked_actions: bool | None = None,
+        actor: str = "operator",
+        reason: str = "manual_learning_gate_profile_update",
+        apply_as_defaults: bool = False,
+    ) -> dict[str, Any]:
+        normalized_preset = str(gate_preset or "conservative").strip().lower()
+        if normalized_preset not in self._LEARNING_PROMOTION_PRESETS:
+            raise ValueError(f"Unsupported learning gate preset: {gate_preset}")
+
+        patch_payload: dict[str, Any] = {}
+        if min_examples is not None:
+            patch_payload["min_examples"] = int(min_examples)
+        if min_avg_utility is not None:
+            patch_payload["min_avg_utility"] = float(min_avg_utility)
+        if min_top_action_score is not None:
+            patch_payload["min_top_action_score"] = float(min_top_action_score)
+        if min_top_action_samples is not None:
+            patch_payload["min_top_action_samples"] = int(min_top_action_samples)
+        if require_ranked_actions is not None:
+            patch_payload["require_ranked_actions"] = bool(require_ranked_actions)
+        if patch_payload:
+            if apply_as_defaults:
+                patch = {
+                    "learning": {
+                        "promotion_gates": {
+                            "defaults": patch_payload,
+                        }
+                    }
+                }
+            else:
+                patch = {
+                    "learning": {
+                        "promotion_gates": {
+                            "presets": {
+                                normalized_preset: patch_payload,
+                            }
+                        }
+                    }
+                }
+            self.update_adaptive_policy(
+                patch=patch,
+                reason=f"learning_gate_profile:{reason}",
+                metrics={
+                    "actor": str(actor or "operator"),
+                    "preset": normalized_preset,
+                    "apply_as_defaults": bool(apply_as_defaults),
+                },
+            )
+            self.memory.append_event(
+                "learning.gate_profile_updated",
+                {
+                    "actor": str(actor or "operator"),
+                    "reason": str(reason or "manual_learning_gate_profile_update"),
+                    "preset": normalized_preset,
+                    "apply_as_defaults": bool(apply_as_defaults),
+                    "patch": patch_payload,
+                },
+            )
+        return self.get_learning_gate_profile(gate_preset=normalized_preset)
+
+    def _evaluate_learning_promotion_gate(
+        self,
+        *,
+        report: dict[str, Any],
+        gate_preset: str,
+        min_examples: int,
+        min_avg_utility: float,
+        min_top_action_score: float,
+        min_top_action_samples: int,
+        require_ranked_actions: bool,
+    ) -> dict[str, Any]:
+        metrics = report.get("metrics") if isinstance(report.get("metrics"), dict) else {}
+        ranked_actions = list(report.get("ranked_actions") or [])
+        total_examples = int(metrics.get("total_examples") or report.get("example_count") or 0)
+        avg_utility = float(metrics.get("avg_utility") or 0.0)
+        top_action = ranked_actions[0] if ranked_actions else None
+        top_action_score = float((top_action or {}).get("score") or 0.0)
+        top_action_samples = int((top_action or {}).get("sample_size") or 0)
+
+        reasons: list[str] = []
+        if total_examples < int(min_examples):
+            reasons.append("insufficient_examples")
+        if avg_utility < float(min_avg_utility):
+            reasons.append("avg_utility_below_threshold")
+        if require_ranked_actions and not ranked_actions:
+            reasons.append("no_ranked_actions")
+        if ranked_actions and top_action_score < float(min_top_action_score):
+            reasons.append("top_action_score_below_threshold")
+        if ranked_actions and top_action_samples < int(min_top_action_samples):
+            reasons.append("top_action_sample_size_below_threshold")
+
+        return {
+            "passed": len(reasons) == 0,
+            "reasons": reasons,
+            "thresholds": {
+                "preset": str(gate_preset),
+                "min_examples": int(min_examples),
+                "min_avg_utility": float(min_avg_utility),
+                "min_top_action_score": float(min_top_action_score),
+                "min_top_action_samples": int(min_top_action_samples),
+                "require_ranked_actions": bool(require_ranked_actions),
+            },
+            "observed": {
+                "total_examples": total_examples,
+                "avg_utility": avg_utility,
+                "top_action_score": top_action_score,
+                "top_action_samples": top_action_samples,
+                "ranked_action_count": len(ranked_actions),
+            },
+            "top_action": dict(top_action or {}),
+        }
+
+    def promote_learning_policy(
+        self,
+        *,
+        task_family: str,
+        policy_name: str,
+        plan_id: str | None = None,
+        step_id: str | None = None,
+        evaluation_limit: int = 200,
+        top_actions: int = 5,
+        enforce_gates: bool = True,
+        gate_preset: str = "conservative",
+        min_examples: int | None = None,
+        min_avg_utility: float | None = None,
+        min_top_action_score: float | None = None,
+        min_top_action_samples: int | None = None,
+        require_ranked_actions: bool | None = None,
+        metrics: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+        promoted_by: str = "runtime",
+    ) -> dict[str, Any]:
+        gate_config = self._resolve_learning_gate_config(
+            gate_preset=gate_preset,
+            min_examples=min_examples,
+            min_avg_utility=min_avg_utility,
+            min_top_action_score=min_top_action_score,
+            min_top_action_samples=min_top_action_samples,
+            require_ranked_actions=require_ranked_actions,
+        )
+        resolved_thresholds = gate_config.get("thresholds") if isinstance(gate_config.get("thresholds"), dict) else {}
+        report = self.evaluate_learning_policy(
+            plan_id=plan_id,
+            step_id=step_id,
+            limit=evaluation_limit,
+            top_actions=top_actions,
+        )
+        gate = self._evaluate_learning_promotion_gate(
+            report=report,
+            gate_preset=str(gate_config.get("preset") or "conservative"),
+            min_examples=int(resolved_thresholds.get("min_examples", 3)),
+            min_avg_utility=float(resolved_thresholds.get("min_avg_utility", 0.0)),
+            min_top_action_score=float(resolved_thresholds.get("min_top_action_score", 0.05)),
+            min_top_action_samples=int(resolved_thresholds.get("min_top_action_samples", 1)),
+            require_ranked_actions=bool(resolved_thresholds.get("require_ranked_actions", True)),
+        )
+        gate["adaptive_overrides_applied"] = dict(gate_config.get("adaptive_overrides_applied") or {})
+        gate["enforce_gates"] = bool(enforce_gates)
+        base_audit_metadata = {
+            "plan_id": plan_id,
+            "step_id": step_id,
+            "evaluation_limit": int(evaluation_limit),
+            "top_actions": int(top_actions),
+            "enforce_gates": bool(enforce_gates),
+            "gate_preset": str(gate_config.get("preset") or "conservative"),
+            "adaptive_overrides_applied": dict(gate_config.get("adaptive_overrides_applied") or {}),
+        }
+        if enforce_gates and not bool(gate.get("passed")):
+            audit = self.learning_registry.record_promotion_audit(
+                task_family=task_family,
+                policy_name=policy_name,
+                decision="blocked",
+                actor=promoted_by,
+                gate=gate,
+                report=report,
+                metadata=dict(base_audit_metadata),
+                policy_id=None,
+            )
+            return {
+                "promoted": False,
+                "gate": gate,
+                "report": report,
+                "audit": audit,
+            }
+
+        resolved_metrics = dict(metrics or {})
+        if not resolved_metrics:
+            resolved_metrics = dict(report.get("metrics") or {})
+        resolved_metadata = dict(metadata or {})
+        resolved_metadata.update(
+            {
+                "gate": gate,
+                "evaluation_scope": {
+                    "plan_id": plan_id,
+                    "step_id": step_id,
+                    "evaluation_limit": int(evaluation_limit),
+                    "top_actions": int(top_actions),
+                },
+                "gate_preset": str(gate_config.get("preset") or "conservative"),
+            }
+        )
+        policy = self.learning_registry.register_policy(
+            task_family=task_family,
+            policy_name=policy_name,
+            metrics=resolved_metrics,
+            metadata=resolved_metadata,
+            promoted_by=promoted_by,
+        )
+        previous_active_policies = self.learning_registry.list_policies(
+            task_family=task_family,
+            policy_status="active",
+            limit=200,
+        )
+        for existing in previous_active_policies:
+            existing_policy_id = str(existing.get("policy_id") or "")
+            current_policy_id = str(policy.get("policy_id") or "")
+            if not existing_policy_id or existing_policy_id == current_policy_id:
+                continue
+            self.learning_registry.set_policy_status(
+                policy_id=existing_policy_id,
+                policy_status="superseded",
+                actor=promoted_by,
+                reason=f"superseded_by:{current_policy_id}",
+                superseded_by_policy_id=current_policy_id,
+                metadata_patch={"superseded_by_policy_id": current_policy_id},
+            )
+            self.learning_registry.record_promotion_audit(
+                task_family=task_family,
+                policy_name=str(existing.get("policy_name") or ""),
+                decision="superseded",
+                actor=promoted_by,
+                gate=gate,
+                report=report,
+                metadata={
+                    **base_audit_metadata,
+                    "superseded_by_policy_id": current_policy_id,
+                    "previous_policy_id": existing_policy_id,
+                    "from_status": str(existing.get("policy_status") or "active"),
+                    "to_status": "superseded",
+                },
+                policy_id=existing_policy_id,
+            )
+        audit = self.learning_registry.record_promotion_audit(
+            task_family=task_family,
+            policy_name=policy_name,
+            decision="promoted",
+            actor=promoted_by,
+            gate=gate,
+            report=report,
+            metadata={
+                **base_audit_metadata,
+                "policy_id": policy.get("policy_id"),
+                "from_status": None,
+                "to_status": "active",
+            },
+            policy_id=str(policy.get("policy_id") or ""),
+        )
+        linked_policy = self.learning_registry.update_policy_metadata(
+            policy_id=str(policy.get("policy_id") or ""),
+            metadata_patch={"promotion_audit_id": audit.get("audit_id")},
+        )
+        return {
+            **linked_policy,
+            "promoted": True,
+            "gate": gate,
+            "report": report,
+            "audit": audit,
+        }
+
+    def list_learning_policies(
+        self,
+        *,
+        task_family: str | None = None,
+        policy_status: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        return self.learning_registry.list_policies(
+            task_family=task_family,
+            policy_status=policy_status,
+            limit=limit,
+        )
+
+    def get_active_learning_policy(
+        self,
+        *,
+        task_family: str,
+        fallback_to_latest: bool = False,
+    ) -> dict[str, Any] | None:
+        resolved_family = str(task_family)
+        active = self.learning_registry.latest_policy(task_family=resolved_family)
+        if isinstance(active, dict):
+            return active
+        if not bool(fallback_to_latest):
+            return None
+        latest = self.learning_registry.list_policies(
+            task_family=resolved_family,
+            limit=1,
+        )
+        return latest[0] if latest else None
+
+    def list_learning_promotion_audits(
+        self,
+        *,
+        task_family: str | None = None,
+        decision: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        return self.learning_registry.list_promotion_audits(
+            task_family=task_family,
+            decision=decision,
+            limit=limit,
+        )
+
+    def disable_learning_policy(
+        self,
+        *,
+        policy_id: str,
+        actor: str = "operator",
+        reason: str = "manual_disable",
+        metadata: dict[str, Any] | None = None,
+        allow_superseded_disable: bool = False,
+    ) -> dict[str, Any]:
+        current = self.learning_registry.get_policy(policy_id=str(policy_id))
+        from_status = str((current or {}).get("policy_status") or "") if isinstance(current, dict) else None
+        metadata_patch = dict(metadata or {})
+        if allow_superseded_disable:
+            metadata_patch.setdefault("allow_superseded_disable", True)
+        policy = self.learning_registry.set_policy_status(
+            policy_id=policy_id,
+            policy_status="disabled",
+            actor=actor,
+            reason=reason,
+            metadata_patch=metadata_patch,
+            allow_superseded_disable=bool(allow_superseded_disable),
+        )
+        audit = self.learning_registry.record_promotion_audit(
+            task_family=str(policy.get("task_family") or ""),
+            policy_name=str(policy.get("policy_name") or ""),
+            decision="disabled",
+            actor=actor,
+            gate={"reason": str(reason or "manual_disable")},
+            report={},
+            metadata={
+                "policy_id": str(policy_id),
+                "allow_superseded_disable": bool(allow_superseded_disable),
+                "from_status": from_status,
+                "to_status": "disabled",
+                **metadata_patch,
+            },
+            policy_id=str(policy_id),
+        )
+        linked = self.learning_registry.update_policy_metadata(
+            policy_id=str(policy_id),
+            metadata_patch={"last_status_audit_id": str(audit.get("audit_id") or "")},
+        )
+        return {"policy": linked, "audit": audit}
+
+    def activate_learning_policy(
+        self,
+        *,
+        policy_id: str,
+        actor: str = "operator",
+        reason: str = "manual_activate",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        current = self.learning_registry.get_policy(policy_id=str(policy_id))
+        if not isinstance(current, dict):
+            raise KeyError(f"Policy not found: {policy_id}")
+        task_family = str(current.get("task_family") or "")
+        active_policies = self.learning_registry.list_policies(
+            task_family=task_family,
+            policy_status="active",
+            limit=200,
+        )
+        superseded_ids: list[str] = []
+        for item in active_policies:
+            item_id = str(item.get("policy_id") or "")
+            if not item_id or item_id == str(policy_id):
+                continue
+            prior_item_status = str(item.get("policy_status") or "active")
+            self.learning_registry.set_policy_status(
+                policy_id=item_id,
+                policy_status="superseded",
+                actor=actor,
+                reason=f"superseded_by:{policy_id}",
+                superseded_by_policy_id=str(policy_id),
+                metadata_patch={"superseded_by_policy_id": str(policy_id)},
+            )
+            superseded_ids.append(item_id)
+            self.learning_registry.record_promotion_audit(
+                task_family=task_family,
+                policy_name=str(item.get("policy_name") or ""),
+                decision="superseded",
+                actor=actor,
+                gate={"reason": f"superseded_by:{policy_id}"},
+                report={},
+                metadata={
+                    "superseded_by_policy_id": str(policy_id),
+                    "reason": str(reason),
+                    "from_status": prior_item_status,
+                    "to_status": "superseded",
+                },
+                policy_id=item_id,
+            )
+
+        from_status = str(current.get("policy_status") or "")
+        activated = self.learning_registry.set_policy_status(
+            policy_id=str(policy_id),
+            policy_status="active",
+            actor=actor,
+            reason=reason,
+            metadata_patch=dict(metadata or {}),
+        )
+        audit = self.learning_registry.record_promotion_audit(
+            task_family=task_family,
+            policy_name=str(activated.get("policy_name") or ""),
+            decision="activated",
+            actor=actor,
+            gate={"reason": str(reason or "manual_activate")},
+            report={},
+            metadata={
+                "policy_id": str(policy_id),
+                "superseded_policy_ids": superseded_ids,
+                "from_status": from_status,
+                "to_status": "active",
+                **dict(metadata or {}),
+            },
+            policy_id=str(policy_id),
+        )
+        linked = self.learning_registry.update_policy_metadata(
+            policy_id=str(policy_id),
+            metadata_patch={"last_status_audit_id": str(audit.get("audit_id") or "")},
+        )
+        return {"policy": linked, "audit": audit, "superseded_policy_ids": superseded_ids}
+
+    def rollback_learning_policy(
+        self,
+        *,
+        task_family: str,
+        target_policy_id: str,
+        actor: str = "operator",
+        reason: str = "manual_rollback",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        target = self.learning_registry.get_policy(policy_id=str(target_policy_id))
+        if not isinstance(target, dict):
+            raise KeyError(f"Policy not found: {target_policy_id}")
+        if str(target.get("task_family") or "") != str(task_family):
+            raise ValueError("Target policy does not belong to the requested task family.")
+        from_status = str(target.get("policy_status") or "")
+
+        activation = self.activate_learning_policy(
+            policy_id=str(target_policy_id),
+            actor=actor,
+            reason=f"rollback:{reason}",
+            metadata=metadata,
+        )
+        rollback_audit = self.learning_registry.record_promotion_audit(
+            task_family=str(task_family),
+            policy_name=str((activation.get("policy") or {}).get("policy_name") or ""),
+            decision="rolled_back",
+            actor=actor,
+            gate={"reason": str(reason or "manual_rollback")},
+            report={},
+            metadata={
+                "target_policy_id": str(target_policy_id),
+                "superseded_policy_ids": list(activation.get("superseded_policy_ids") or []),
+                "from_status": from_status,
+                "to_status": "active",
+                **dict(metadata or {}),
+            },
+            policy_id=str(target_policy_id),
+        )
+        linked = self.learning_registry.update_policy_metadata(
+            policy_id=str(target_policy_id),
+            metadata_patch={"last_rollback_audit_id": str(rollback_audit.get("audit_id") or "")},
+        )
+        return {
+            "policy": linked,
+            "activation": activation,
+            "audit": rollback_audit,
+        }
+
+    def ingest_project_signal(
+        self,
+        *,
+        project_id: str,
+        signal: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.project_devloop.ingest_signal(project_id=project_id, signal=signal)
+
+    def list_project_graph(
+        self,
+        *,
+        project_id: str,
+        node_limit: int = 200,
+        edge_limit: int = 200,
+    ) -> dict[str, Any]:
+        return self.project_devloop.get_project_graph(
+            project_id=project_id,
+            node_limit=node_limit,
+            edge_limit=edge_limit,
+        )
+
+    def list_project_actions(
+        self,
+        *,
+        project_id: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.project_graph_store.list_actions(project_id=project_id, limit=limit)
+
+    def propose_project_next_actions(
+        self,
+        *,
+        project_id: str,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        return self.project_devloop.propose_next_actions(project_id=project_id, limit=limit)
+
+    def summarize_project_milestones(self, *, project_id: str) -> dict[str, Any]:
+        return self.project_devloop.milestones.summarize_progress(project_id=project_id)
+
+    @staticmethod
+    def _project_signal_from_outcome(outcome: dict[str, Any]) -> dict[str, Any]:
+        status = str(outcome.get("status") or "").strip().lower()
+        signal_type = "workflow_updated"
+        if status in {"failure", "regression"}:
+            signal_type = "ci_failed"
+        elif status == "success":
+            signal_type = "workflow_succeeded"
+        elif status == "partial":
+            signal_type = "workflow_partial"
+        return {
+            "type": signal_type,
+            "plan_id": outcome.get("plan_id"),
+            "repo_id": outcome.get("repo_id"),
+            "branch": outcome.get("branch"),
+            "status": status,
+            "summary": outcome.get("summary"),
+            "failure_family": outcome.get("failure_family"),
+            "touched_paths": list(outcome.get("touched_paths") or []),
+            "recorded_at": outcome.get("recorded_at"),
+        }
+
+    def ingest_project_signals_from_plan_outcomes(
+        self,
+        *,
+        project_id: str,
+        plan_id: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        outcomes = self.plan_repo.list_recent_outcomes_global(limit=max(1, int(limit)))
+        ingestions: list[dict[str, Any]] = []
+        signals: list[dict[str, Any]] = []
+        for outcome in outcomes:
+            if plan_id is not None and str(outcome.get("plan_id") or "") != str(plan_id):
+                continue
+            signal = self._project_signal_from_outcome(outcome)
+            ingestions.append(self.project_devloop.ingest_signal(project_id=project_id, signal=signal))
+            signals.append(signal)
+        return {
+            "project_id": str(project_id),
+            "source": "plan_outcomes",
+            "signals_count": len(signals),
+            "signals": signals,
+            "ingestions": ingestions,
+        }
+
+    def _resolve_project_backfill_since_inputs(
+        self,
+        *,
+        project_id: str,
+        since_updated_at: str | None = None,
+        since_outcomes_at: str | None = None,
+        since_review_artifacts_at: str | None = None,
+        since_merge_outcomes_at: str | None = None,
+        load_since_from_cursor_profile: bool = False,
+        cursor_profile_key: str = "default",
+    ) -> dict[str, Any]:
+        resolved_profile_key = str(cursor_profile_key or "default")
+        profile_snapshot: dict[str, Any] | None = None
+        profile_loaded = bool(load_since_from_cursor_profile)
+        if profile_loaded:
+            profile_snapshot = self.get_project_backfill_cursor_profile(
+                project_id=str(project_id),
+                profile_key=resolved_profile_key,
+            )
+        profile_sources = (
+            dict((profile_snapshot or {}).get("source_cursors") or {})
+            if isinstance((profile_snapshot or {}).get("source_cursors"), dict)
+            else {}
+        )
+        profile_global_since = (
+            str((profile_snapshot or {}).get("next_since_updated_at"))
+            if (profile_snapshot or {}).get("next_since_updated_at") is not None
+            else None
+        )
+
+        def _profile_source_since(source: str) -> str | None:
+            entry = profile_sources.get(str(source))
+            if not isinstance(entry, dict):
+                return None
+            value = entry.get("next_since")
+            return str(value) if value is not None else None
+
+        input_global_since = str(since_updated_at) if since_updated_at is not None else None
+        resolved_global_since = input_global_since if input_global_since is not None else profile_global_since
+        input_outcomes_since = str(since_outcomes_at) if since_outcomes_at is not None else None
+        input_review_since = (
+            str(since_review_artifacts_at) if since_review_artifacts_at is not None else None
+        )
+        input_merge_since = str(since_merge_outcomes_at) if since_merge_outcomes_at is not None else None
+        profile_outcomes_since = _profile_source_since("plan_outcomes")
+        profile_review_since = _profile_source_since("review_artifacts")
+        profile_merge_since = _profile_source_since("merge_outcomes")
+        resolved_since_outcomes_at = (
+            input_outcomes_since
+            if input_outcomes_since is not None
+            else (profile_outcomes_since if profile_outcomes_since is not None else resolved_global_since)
+        )
+        resolved_since_review_artifacts_at = (
+            input_review_since
+            if input_review_since is not None
+            else (profile_review_since if profile_review_since is not None else resolved_global_since)
+        )
+        resolved_since_merge_outcomes_at = (
+            input_merge_since
+            if input_merge_since is not None
+            else (profile_merge_since if profile_merge_since is not None else resolved_global_since)
+        )
+        defaults_applied = {
+            "global": bool(input_global_since is None and profile_global_since is not None),
+            "plan_outcomes": bool(input_outcomes_since is None and profile_outcomes_since is not None),
+            "review_artifacts": bool(input_review_since is None and profile_review_since is not None),
+            "merge_outcomes": bool(input_merge_since is None and profile_merge_since is not None),
+        }
+        global_resolved_from = (
+            "explicit"
+            if input_global_since is not None
+            else ("profile.global" if profile_global_since is not None else "none")
+        )
+
+        def _resolved_from(
+            *,
+            input_value: str | None,
+            profile_value: str | None,
+            global_value: str | None,
+        ) -> str:
+            if input_value is not None:
+                return "explicit"
+            if profile_value is not None:
+                return "profile.source"
+            if global_value is not None:
+                if input_global_since is not None:
+                    return "global.explicit"
+                if profile_global_since is not None:
+                    return "global.profile"
+                return "global"
+            return "none"
+
+        resolution_source = {
+            "global": global_resolved_from,
+            "plan_outcomes": _resolved_from(
+                input_value=input_outcomes_since,
+                profile_value=profile_outcomes_since,
+                global_value=resolved_global_since,
+            ),
+            "review_artifacts": _resolved_from(
+                input_value=input_review_since,
+                profile_value=profile_review_since,
+                global_value=resolved_global_since,
+            ),
+            "merge_outcomes": _resolved_from(
+                input_value=input_merge_since,
+                profile_value=profile_merge_since,
+                global_value=resolved_global_since,
+            ),
+        }
+        return {
+            "profile_loaded": profile_loaded,
+            "profile_key": resolved_profile_key,
+            "profile_snapshot": profile_snapshot if profile_loaded else None,
+            "defaults_applied": defaults_applied,
+            "resolution_source": resolution_source,
+            "since": {
+                "global": resolved_global_since,
+                "plan_outcomes": resolved_since_outcomes_at,
+                "review_artifacts": resolved_since_review_artifacts_at,
+                "merge_outcomes": resolved_since_merge_outcomes_at,
+            },
+        }
+
+    def preview_project_backfill_cursor_inputs(
+        self,
+        *,
+        project_id: str,
+        since_updated_at: str | None = None,
+        since_outcomes_at: str | None = None,
+        since_review_artifacts_at: str | None = None,
+        since_merge_outcomes_at: str | None = None,
+        load_since_from_cursor_profile: bool = False,
+        cursor_profile_key: str = "default",
+    ) -> dict[str, Any]:
+        resolved = self._resolve_project_backfill_since_inputs(
+            project_id=project_id,
+            since_updated_at=since_updated_at,
+            since_outcomes_at=since_outcomes_at,
+            since_review_artifacts_at=since_review_artifacts_at,
+            since_merge_outcomes_at=since_merge_outcomes_at,
+            load_since_from_cursor_profile=load_since_from_cursor_profile,
+            cursor_profile_key=cursor_profile_key,
+        )
+        return {
+            "project_id": str(project_id),
+            "effective_since": dict(resolved.get("since") or {}),
+            "cursor_profile": {
+                "loaded": bool(resolved.get("profile_loaded")),
+                "profile_key": str(resolved.get("profile_key") or cursor_profile_key or "default"),
+                "defaults_applied": dict(resolved.get("defaults_applied") or {}),
+                "resolution_source": dict(resolved.get("resolution_source") or {}),
+                "snapshot": (
+                    dict(resolved.get("profile_snapshot") or {})
+                    if isinstance(resolved.get("profile_snapshot"), dict)
+                    else None
+                ),
+            },
+        }
+
+    def backfill_project_signals(
+        self,
+        *,
+        project_id: str,
+        limit: int = 100,
+        include_outcomes: bool = True,
+        include_review_artifacts: bool = True,
+        include_merge_outcomes: bool = True,
+        skip_seen: bool = True,
+        since_updated_at: str | None = None,
+        since_outcomes_at: str | None = None,
+        since_review_artifacts_at: str | None = None,
+        since_merge_outcomes_at: str | None = None,
+        load_since_from_cursor_profile: bool = False,
+        cursor_profile_key: str = "default",
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        resolved_limit = max(1, int(limit))
+        dry_run_mode = bool(dry_run)
+        resolved_since_inputs = self._resolve_project_backfill_since_inputs(
+            project_id=project_id,
+            since_updated_at=since_updated_at,
+            since_outcomes_at=since_outcomes_at,
+            since_review_artifacts_at=since_review_artifacts_at,
+            since_merge_outcomes_at=since_merge_outcomes_at,
+            load_since_from_cursor_profile=load_since_from_cursor_profile,
+            cursor_profile_key=cursor_profile_key,
+        )
+        since_bundle = dict(resolved_since_inputs.get("since") or {})
+        resolved_since_updated_at = (
+            str(since_bundle.get("global")) if since_bundle.get("global") is not None else None
+        )
+        resolved_since_outcomes_at = (
+            str(since_bundle.get("plan_outcomes"))
+            if since_bundle.get("plan_outcomes") is not None
+            else None
+        )
+        resolved_since_review_artifacts_at = (
+            str(since_bundle.get("review_artifacts"))
+            if since_bundle.get("review_artifacts") is not None
+            else None
+        )
+        resolved_since_merge_outcomes_at = (
+            str(since_bundle.get("merge_outcomes"))
+            if since_bundle.get("merge_outcomes") is not None
+            else None
+        )
+        signal_entries: list[dict[str, Any]] = []
+        outcome_rows: list[dict[str, Any]] = []
+        review_artifact_rows: list[dict[str, Any]] = []
+        merge_outcome_rows: list[dict[str, Any]] = []
+        if include_outcomes:
+            outcome_rows = self.plan_repo.list_recent_outcomes_global(
+                limit=resolved_limit,
+                since_recorded_at=resolved_since_outcomes_at,
+            )
+            for outcome in outcome_rows:
+                recorded_at = str(outcome.get("recorded_at") or "")
+                signal_entries.append(
+                    {
+                        "signal": self._project_signal_from_outcome(outcome),
+                        "source": "plan_outcomes",
+                        "dedupe": f"outcome:{outcome.get('plan_id')}:{recorded_at}",
+                    }
+                )
+        if include_review_artifacts:
+            review_artifact_rows = self.security.list_recent_review_artifacts(
+                limit=resolved_limit,
+                since_updated_at=resolved_since_review_artifacts_at,
+            )
+            for row in review_artifact_rows:
+                artifact = row.get("artifact") if isinstance(row.get("artifact"), dict) else {}
+                status = artifact.get("status") if isinstance(artifact.get("status"), dict) else {}
+                checks_state = str(status.get("checks_state") or "").strip().lower()
+                updated_at = str(row.get("updated_at") or "")
+                signal_entries.append(
+                    {
+                        "signal": {
+                            "type": "pull_request_updated",
+                            "pr_number": row.get("pr_number"),
+                            "repo_slug": row.get("repo_slug"),
+                            "branch": row.get("branch"),
+                            "plan_id": row.get("plan_id"),
+                            "step_id": row.get("step_id"),
+                            "checks_state": checks_state,
+                            "updated_at": updated_at,
+                        },
+                        "source": "review_artifacts",
+                        "dedupe": f"review:{row.get('plan_id')}:{row.get('step_id')}:{updated_at}:updated",
+                    }
+                )
+                if checks_state in {"failed", "failure", "error", "timed_out", "cancelled"}:
+                    signal_entries.append(
+                        {
+                            "signal": {
+                                "type": "ci_failed",
+                                "run_id": f"review:{row.get('plan_id')}:{row.get('step_id')}",
+                                "repo_slug": row.get("repo_slug"),
+                                "branch": row.get("branch"),
+                                "plan_id": row.get("plan_id"),
+                                "step_id": row.get("step_id"),
+                                "checks_state": checks_state,
+                                "updated_at": updated_at,
+                            },
+                            "source": "review_artifacts",
+                            "dedupe": f"review:{row.get('plan_id')}:{row.get('step_id')}:{updated_at}:ci_failed",
+                        }
+                    )
+        if include_merge_outcomes:
+            merge_outcome_rows = self.security.list_recent_merge_outcomes(
+                limit=resolved_limit,
+                since_updated_at=resolved_since_merge_outcomes_at,
+            )
+            for row in merge_outcome_rows:
+                merge_outcome = str(row.get("merge_outcome") or "").strip().lower()
+                signal_type = "pull_request_updated"
+                if merge_outcome in {"approved", "merged"}:
+                    signal_type = "pull_request_opened"
+                elif merge_outcome in {"blocked", "failed", "rejected"}:
+                    signal_type = "pull_request_review_changes"
+                updated_at = str(row.get("updated_at") or "")
+                signal_entries.append(
+                    {
+                        "signal": {
+                            "type": signal_type,
+                            "pr_number": row.get("pr_number"),
+                            "repo_slug": row.get("repo_slug"),
+                            "branch": row.get("branch"),
+                            "plan_id": row.get("plan_id"),
+                            "step_id": row.get("step_id"),
+                            "merge_outcome": merge_outcome,
+                            "review_decision": row.get("review_decision"),
+                            "updated_at": updated_at,
+                        },
+                        "source": "merge_outcomes",
+                        "dedupe": f"merge:{row.get('plan_id')}:{row.get('step_id')}:{merge_outcome}:{updated_at}",
+                    }
+                )
+
+        deduped: dict[str, dict[str, Any]] = {}
+        for entry in signal_entries:
+            dedupe_key = str(entry.get("dedupe") or "")
+            if not dedupe_key:
+                continue
+            deduped[dedupe_key] = entry
+
+        sorted_entries = sorted(
+            deduped.values(),
+            key=lambda item: (
+                str(item.get("source") or ""),
+                str((item.get("signal") or {}).get("plan_id") or ""),
+                str((item.get("signal") or {}).get("step_id") or ""),
+            ),
+        )
+        scan_limit = max(1, int(resolved_limit) * 3)
+        scanned_entries = sorted_entries[:scan_limit]
+
+        def _count_entries_by_source(entries: list[dict[str, Any]]) -> dict[str, int]:
+            counts: dict[str, int] = {}
+            for item in entries:
+                source_name = str(item.get("source") or "unknown").strip().lower() or "unknown"
+                counts[source_name] = int(counts.get(source_name, 0)) + 1
+            return counts
+
+        candidate_pool_by_source = _count_entries_by_source(sorted_entries)
+        candidate_scanned_by_source = _count_entries_by_source(scanned_entries)
+        candidate_unscanned_by_source: dict[str, int] = {}
+        for source_name, pool_count in candidate_pool_by_source.items():
+            scanned_count = int(candidate_scanned_by_source.get(source_name) or 0)
+            unscanned_count = max(0, int(pool_count) - scanned_count)
+            if unscanned_count > 0:
+                candidate_unscanned_by_source[source_name] = int(unscanned_count)
+        ingestions: list[dict[str, Any]] = []
+        signals: list[dict[str, Any]] = []
+        skipped_existing = 0
+        would_ingest_count = 0
+        persisted_marker_count = 0
+        for entry in scanned_entries:
+            signal = dict(entry.get("signal") or {})
+            dedupe_key = str(entry.get("dedupe") or "")
+            marker_key = f"backfill:{project_id}:{dedupe_key}"
+            if skip_seen and self.project_graph_store.has_backfill_marker(
+                project_id=project_id,
+                marker_key=marker_key,
+            ):
+                skipped_existing += 1
+                continue
+            would_ingest_count += 1
+            signals.append({"source": entry.get("source"), "signal": signal})
+            if dry_run_mode:
+                continue
+            ingestions.append(self.project_devloop.ingest_signal(project_id=project_id, signal=signal))
+            self.project_graph_store.record_backfill_marker(
+                project_id=project_id,
+                source=str(entry.get("source") or "unknown"),
+                marker_key=marker_key,
+                payload={"signal": signal, "dedupe": dedupe_key},
+            )
+            persisted_marker_count += 1
+
+        def _next_since(rows: list[dict[str, Any]], *, key: str, fallback: str | None) -> str | None:
+            candidates = [str(item.get(key) or "") for item in rows if item.get(key)]
+            if candidates:
+                return max(candidates)
+            return fallback
+
+        source_cursors: dict[str, dict[str, Any]] = {}
+        next_since_candidates: list[str] = []
+        if include_outcomes:
+            next_since_outcomes = _next_since(
+                outcome_rows,
+                key="recorded_at",
+                fallback=resolved_since_outcomes_at,
+            )
+            if next_since_outcomes is not None:
+                next_since_candidates.append(str(next_since_outcomes))
+            source_cursors["plan_outcomes"] = {
+                "since": resolved_since_outcomes_at,
+                "next_since": next_since_outcomes,
+                "fetched_count": len(outcome_rows),
+            }
+        if include_review_artifacts:
+            next_since_review_artifacts = _next_since(
+                review_artifact_rows,
+                key="updated_at",
+                fallback=resolved_since_review_artifacts_at,
+            )
+            if next_since_review_artifacts is not None:
+                next_since_candidates.append(str(next_since_review_artifacts))
+            source_cursors["review_artifacts"] = {
+                "since": resolved_since_review_artifacts_at,
+                "next_since": next_since_review_artifacts,
+                "fetched_count": len(review_artifact_rows),
+            }
+        if include_merge_outcomes:
+            next_since_merge_outcomes = _next_since(
+                merge_outcome_rows,
+                key="updated_at",
+                fallback=resolved_since_merge_outcomes_at,
+            )
+            if next_since_merge_outcomes is not None:
+                next_since_candidates.append(str(next_since_merge_outcomes))
+            source_cursors["merge_outcomes"] = {
+                "since": resolved_since_merge_outcomes_at,
+                "next_since": next_since_merge_outcomes,
+                "fetched_count": len(merge_outcome_rows),
+            }
+        next_since_updated_value = max(next_since_candidates) if next_since_candidates else resolved_since_updated_at
+        return {
+            "project_id": str(project_id),
+            "source": "bulk_backfill",
+            "signals_count": len(signals),
+            "skipped_existing_count": int(skipped_existing),
+            "skip_seen": bool(skip_seen),
+            "dry_run": dry_run_mode,
+            "would_ingest_count": int(would_ingest_count),
+            "persisted_marker_count": int(persisted_marker_count),
+            "next_since_updated_at": str(next_since_updated_value) if next_since_updated_value is not None else None,
+            "effective_since": {
+                "global": resolved_since_updated_at,
+                "plan_outcomes": resolved_since_outcomes_at,
+                "review_artifacts": resolved_since_review_artifacts_at,
+                "merge_outcomes": resolved_since_merge_outcomes_at,
+            },
+            "cursor_profile": {
+                "loaded": bool(resolved_since_inputs.get("profile_loaded")),
+                "profile_key": str(resolved_since_inputs.get("profile_key") or cursor_profile_key or "default"),
+                "defaults_applied": dict(resolved_since_inputs.get("defaults_applied") or {}),
+                "resolution_source": dict(resolved_since_inputs.get("resolution_source") or {}),
+            },
+            "source_cursors": source_cursors,
+            "sampling": {
+                "candidate_pool_count": int(len(sorted_entries)),
+                "candidate_scan_limit": int(scan_limit),
+                "candidate_scanned_count": int(len(scanned_entries)),
+                "candidate_unscanned_count": int(
+                    max(0, int(len(sorted_entries)) - int(len(scanned_entries)))
+                ),
+                "candidate_pool_by_source": candidate_pool_by_source,
+                "candidate_scanned_by_source": candidate_scanned_by_source,
+                "candidate_unscanned_by_source": candidate_unscanned_by_source,
+            },
+            "signals": signals,
+            "ingestions": ingestions,
+        }
+
+    def get_project_backfill_cursor_profile(
+        self,
+        *,
+        project_id: str,
+        profile_key: str = "default",
+    ) -> dict[str, Any]:
+        rows = self.project_graph_store.list_backfill_cursors(
+            project_id=str(project_id),
+            profile_key=str(profile_key),
+            limit=200,
+        )
+        source_cursors: dict[str, dict[str, Any]] = {}
+        next_since_updated_at: str | None = None
+        for row in rows:
+            source = str(row.get("source") or "").strip().lower()
+            if not source:
+                continue
+            entry = {
+                "next_since": row.get("cursor_value"),
+                "updated_at": row.get("updated_at"),
+                "metadata": (
+                    dict(row.get("metadata") or {})
+                    if isinstance(row.get("metadata"), dict)
+                    else {}
+                ),
+            }
+            if source == "global":
+                next_since_updated_at = (
+                    str(row.get("cursor_value"))
+                    if row.get("cursor_value") is not None
+                    else None
+                )
+                continue
+            source_cursors[source] = entry
+        return {
+            "project_id": str(project_id),
+            "profile_key": str(profile_key),
+            "next_since_updated_at": next_since_updated_at,
+            "source_cursors": source_cursors,
+        }
+
+    def save_project_backfill_cursor_profile(
+        self,
+        *,
+        project_id: str,
+        profile_key: str = "default",
+        next_since_updated_at: str | None = None,
+        source_cursors: dict[str, Any] | None = None,
+        actor: str = "runtime",
+    ) -> dict[str, Any]:
+        resolved_project_id = str(project_id)
+        resolved_profile_key = str(profile_key or "default")
+        resolved_actor = str(actor or "runtime")
+        if next_since_updated_at is not None:
+            self.project_graph_store.upsert_backfill_cursor(
+                project_id=resolved_project_id,
+                profile_key=resolved_profile_key,
+                source="global",
+                cursor_value=str(next_since_updated_at),
+                metadata={"actor": resolved_actor},
+            )
+
+        for raw_source, raw_payload in sorted(dict(source_cursors or {}).items(), key=lambda item: str(item[0])):
+            source = str(raw_source or "").strip().lower()
+            if not source:
+                continue
+            if source == "global":
+                continue
+
+            cursor_value: str | None = None
+            metadata: dict[str, Any] = {"actor": resolved_actor}
+            if isinstance(raw_payload, dict):
+                next_since = raw_payload.get("next_since")
+                since_value = raw_payload.get("since")
+                fetched_count = raw_payload.get("fetched_count")
+                if next_since is not None:
+                    cursor_value = str(next_since)
+                elif since_value is not None:
+                    cursor_value = str(since_value)
+                if since_value is not None:
+                    metadata["since"] = str(since_value)
+                if fetched_count is not None:
+                    try:
+                        metadata["fetched_count"] = int(fetched_count)
+                    except (TypeError, ValueError):
+                        pass
+            elif raw_payload is not None:
+                cursor_value = str(raw_payload)
+
+            if cursor_value is None:
+                continue
+            self.project_graph_store.upsert_backfill_cursor(
+                project_id=resolved_project_id,
+                profile_key=resolved_profile_key,
+                source=source,
+                cursor_value=cursor_value,
+                metadata=metadata,
+            )
+
+        return self.get_project_backfill_cursor_profile(
+            project_id=resolved_project_id,
+            profile_key=resolved_profile_key,
+        )
+
+    def save_project_backfill_cursors_from_result(
+        self,
+        *,
+        project_id: str,
+        backfill_result: dict[str, Any],
+        profile_key: str = "default",
+        actor: str = "runtime",
+    ) -> dict[str, Any]:
+        result = dict(backfill_result or {})
+        source_cursors = (
+            dict(result.get("source_cursors") or {})
+            if isinstance(result.get("source_cursors"), dict)
+            else {}
+        )
+        next_since_updated_at = (
+            str(result.get("next_since_updated_at"))
+            if result.get("next_since_updated_at") is not None
+            else None
+        )
+        return self.save_project_backfill_cursor_profile(
+            project_id=project_id,
+            profile_key=profile_key,
+            next_since_updated_at=next_since_updated_at,
+            source_cursors=source_cursors,
+            actor=actor,
+        )
+
+    def run_project_backfill_with_cursor_profile(
+        self,
+        *,
+        project_id: str,
+        profile_key: str = "default",
+        actor: str = "runtime",
+        limit: int = 100,
+        include_outcomes: bool = True,
+        include_review_artifacts: bool = True,
+        include_merge_outcomes: bool = True,
+        skip_seen: bool = True,
+        since_updated_at: str | None = None,
+        since_outcomes_at: str | None = None,
+        since_review_artifacts_at: str | None = None,
+        since_merge_outcomes_at: str | None = None,
+        load_since_from_cursor_profile: bool = True,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        dry_run_mode = bool(dry_run)
+        backfill = self.backfill_project_signals(
+            project_id=str(project_id),
+            limit=max(1, int(limit)),
+            include_outcomes=bool(include_outcomes),
+            include_review_artifacts=bool(include_review_artifacts),
+            include_merge_outcomes=bool(include_merge_outcomes),
+            skip_seen=bool(skip_seen),
+            since_updated_at=since_updated_at,
+            since_outcomes_at=since_outcomes_at,
+            since_review_artifacts_at=since_review_artifacts_at,
+            since_merge_outcomes_at=since_merge_outcomes_at,
+            load_since_from_cursor_profile=bool(load_since_from_cursor_profile),
+            cursor_profile_key=str(profile_key or "default"),
+            dry_run=dry_run_mode,
+        )
+        persisted = False
+        if dry_run_mode:
+            persisted_profile = self.get_project_backfill_cursor_profile(
+                project_id=str(project_id),
+                profile_key=str(profile_key or "default"),
+            )
+        else:
+            persisted_profile = self.save_project_backfill_cursors_from_result(
+                project_id=str(project_id),
+                profile_key=str(profile_key or "default"),
+                backfill_result=backfill,
+                actor=str(actor or "runtime"),
+            )
+            persisted = True
+        return {
+            "project_id": str(project_id),
+            "profile_key": str(profile_key or "default"),
+            "actor": str(actor or "runtime"),
+            "dry_run": dry_run_mode,
+            "cursor_persisted": bool(persisted),
+            "backfill": backfill,
+            "cursor_profile": persisted_profile,
+        }
+
+    @staticmethod
+    def _cursor_values_from_profile(profile: dict[str, Any] | None) -> dict[str, str | None]:
+        resolved = {
+            "global": None,
+            "plan_outcomes": None,
+            "review_artifacts": None,
+            "merge_outcomes": None,
+        }
+        block = dict(profile or {})
+        if block.get("next_since_updated_at") is not None:
+            resolved["global"] = str(block.get("next_since_updated_at"))
+        source_cursors = (
+            dict(block.get("source_cursors") or {})
+            if isinstance(block.get("source_cursors"), dict)
+            else {}
+        )
+        for source in ("plan_outcomes", "review_artifacts", "merge_outcomes"):
+            entry = source_cursors.get(source)
+            if not isinstance(entry, dict):
+                continue
+            next_since = entry.get("next_since")
+            if next_since is not None:
+                resolved[source] = str(next_since)
+        return resolved
+
+    def summarize_project_backfill_run(
+        self,
+        *,
+        run_result: dict[str, Any],
+        before_cursor_profile: dict[str, Any] | None = None,
+        top_signal_types: int = 5,
+        max_source_counts: int | None = None,
+        max_signal_type_counts: int | None = None,
+    ) -> dict[str, Any]:
+        run_block = dict(run_result or {})
+        backfill = dict(run_block.get("backfill") or {})
+        after_cursor_profile = (
+            dict(run_block.get("cursor_profile") or {})
+            if isinstance(run_block.get("cursor_profile"), dict)
+            else {}
+        )
+        signals = list(backfill.get("signals") or [])
+        sampling = (
+            dict(backfill.get("sampling") or {})
+            if isinstance(backfill.get("sampling"), dict)
+            else {}
+        )
+        sampling_pool_by_source = (
+            dict(sampling.get("candidate_pool_by_source") or {})
+            if isinstance(sampling.get("candidate_pool_by_source"), dict)
+            else {}
+        )
+        sampling_scanned_by_source = (
+            dict(sampling.get("candidate_scanned_by_source") or {})
+            if isinstance(sampling.get("candidate_scanned_by_source"), dict)
+            else {}
+        )
+        sampling_unscanned_by_source = (
+            dict(sampling.get("candidate_unscanned_by_source") or {})
+            if isinstance(sampling.get("candidate_unscanned_by_source"), dict)
+            else {}
+        )
+
+        source_counts: dict[str, int] = {}
+        signal_type_counts: dict[str, int] = {}
+        for item in signals:
+            if not isinstance(item, dict):
+                continue
+            source = str(item.get("source") or "unknown").strip().lower() or "unknown"
+            source_counts[source] = int(source_counts.get(source, 0)) + 1
+            signal = item.get("signal") if isinstance(item.get("signal"), dict) else {}
+            signal_type = str(signal.get("type") or "unknown").strip().lower() or "unknown"
+            signal_type_counts[signal_type] = int(signal_type_counts.get(signal_type, 0)) + 1
+
+        def _apply_counts_cap(
+            counts: dict[str, int],
+            *,
+            cap: int | None,
+        ) -> tuple[dict[str, int], dict[str, int | None]]:
+            sorted_rows = sorted(
+                counts.items(),
+                key=lambda item: (-int(item[1]), str(item[0])),
+            )
+            total_keys = int(len(sorted_rows))
+            effective_cap: int | None = None
+            if cap is not None:
+                effective_cap = max(1, int(cap))
+            if effective_cap is None:
+                selected_rows = sorted_rows
+            else:
+                selected_rows = sorted_rows[:effective_cap]
+            selected = {
+                str(name): int(count)
+                for name, count in selected_rows
+            }
+            omitted_keys = max(0, int(total_keys) - int(len(selected)))
+            return selected, {
+                "total_keys": int(total_keys),
+                "returned_keys": int(len(selected)),
+                "omitted_keys": int(omitted_keys),
+                "cap": int(effective_cap) if effective_cap is not None else None,
+            }
+
+        source_counts_capped, source_counts_meta = _apply_counts_cap(
+            source_counts,
+            cap=max_source_counts,
+        )
+        signal_type_counts_capped, signal_type_counts_meta = _apply_counts_cap(
+            signal_type_counts,
+            cap=max_signal_type_counts,
+        )
+
+        top_n = max(1, int(top_signal_types))
+        top_signal_type_rows = [
+            {"type": str(name), "count": int(count)}
+            for name, count in sorted(
+                signal_type_counts.items(),
+                key=lambda item: (-int(item[1]), str(item[0])),
+            )[:top_n]
+        ]
+
+        before_values = self._cursor_values_from_profile(
+            before_cursor_profile if isinstance(before_cursor_profile, dict) else None
+        )
+        after_values = self._cursor_values_from_profile(after_cursor_profile)
+        backfill_source_cursors = (
+            dict(backfill.get("source_cursors") or {})
+            if isinstance(backfill.get("source_cursors"), dict)
+            else {}
+        )
+        target_values: dict[str, str | None] = {
+            "global": (
+                str(backfill.get("next_since_updated_at"))
+                if backfill.get("next_since_updated_at") is not None
+                else before_values.get("global")
+            ),
+            "plan_outcomes": before_values.get("plan_outcomes"),
+            "review_artifacts": before_values.get("review_artifacts"),
+            "merge_outcomes": before_values.get("merge_outcomes"),
+        }
+        for source in ("plan_outcomes", "review_artifacts", "merge_outcomes"):
+            cursor_entry = backfill_source_cursors.get(source)
+            if not isinstance(cursor_entry, dict):
+                continue
+            next_since = cursor_entry.get("next_since")
+            if next_since is not None:
+                target_values[source] = str(next_since)
+
+        cursor_movement: dict[str, dict[str, Any]] = {}
+        for key in ("global", "plan_outcomes", "review_artifacts", "merge_outcomes"):
+            before_value = before_values.get(key)
+            target_value = target_values.get(key)
+            after_value = after_values.get(key)
+            cursor_movement[key] = {
+                "from": before_value,
+                "to": target_value,
+                "after": after_value,
+                "changed": bool(target_value != before_value),
+                "persisted": bool(after_value == target_value),
+            }
+
+        return {
+            "project_id": str(run_block.get("project_id") or ""),
+            "profile_key": str(run_block.get("profile_key") or ""),
+            "dry_run": bool(run_block.get("dry_run")),
+            "cursor_persisted": bool(run_block.get("cursor_persisted")),
+            "signals_count": int(backfill.get("signals_count") or 0),
+            "skipped_existing_count": int(backfill.get("skipped_existing_count") or 0),
+            "would_ingest_count": int(backfill.get("would_ingest_count") or 0),
+            "persisted_marker_count": int(backfill.get("persisted_marker_count") or 0),
+            "candidate_pool_count": int(sampling.get("candidate_pool_count") or len(signals)),
+            "candidate_scan_limit": int(sampling.get("candidate_scan_limit") or 0),
+            "candidate_scanned_count": int(sampling.get("candidate_scanned_count") or len(signals)),
+            "candidate_unscanned_count": int(sampling.get("candidate_unscanned_count") or 0),
+            "candidate_pool_by_source": {
+                str(name): int(count)
+                for name, count in sorted(sampling_pool_by_source.items(), key=lambda item: str(item[0]))
+            },
+            "candidate_scanned_by_source": {
+                str(name): int(count)
+                for name, count in sorted(sampling_scanned_by_source.items(), key=lambda item: str(item[0]))
+            },
+            "candidate_unscanned_by_source": {
+                str(name): int(count)
+                for name, count in sorted(sampling_unscanned_by_source.items(), key=lambda item: str(item[0]))
+            },
+            "source_counts": source_counts_capped,
+            "source_counts_metadata": source_counts_meta,
+            "signal_type_counts": signal_type_counts_capped,
+            "signal_type_counts_metadata": signal_type_counts_meta,
+            "top_signal_types": top_signal_type_rows,
+            "cursor_movement": cursor_movement,
+        }
+
+    def run_project_backfill_with_cursor_profile_summary(
+        self,
+        *,
+        project_id: str,
+        profile_key: str = "default",
+        actor: str = "runtime",
+        limit: int = 100,
+        include_outcomes: bool = True,
+        include_review_artifacts: bool = True,
+        include_merge_outcomes: bool = True,
+        skip_seen: bool = True,
+        since_updated_at: str | None = None,
+        since_outcomes_at: str | None = None,
+        since_review_artifacts_at: str | None = None,
+        since_merge_outcomes_at: str | None = None,
+        load_since_from_cursor_profile: bool = True,
+        dry_run: bool = False,
+        top_signal_types: int = 5,
+        max_source_counts: int | None = None,
+        max_signal_type_counts: int | None = None,
+        include_raw_signals: bool = False,
+        include_raw_ingestions: bool = False,
+    ) -> dict[str, Any]:
+        before_cursor_profile = self.get_project_backfill_cursor_profile(
+            project_id=str(project_id),
+            profile_key=str(profile_key or "default"),
+        )
+        run_result = self.run_project_backfill_with_cursor_profile(
+            project_id=str(project_id),
+            profile_key=str(profile_key or "default"),
+            actor=str(actor or "runtime"),
+            limit=max(1, int(limit)),
+            include_outcomes=bool(include_outcomes),
+            include_review_artifacts=bool(include_review_artifacts),
+            include_merge_outcomes=bool(include_merge_outcomes),
+            skip_seen=bool(skip_seen),
+            since_updated_at=since_updated_at,
+            since_outcomes_at=since_outcomes_at,
+            since_review_artifacts_at=since_review_artifacts_at,
+            since_merge_outcomes_at=since_merge_outcomes_at,
+            load_since_from_cursor_profile=bool(load_since_from_cursor_profile),
+            dry_run=bool(dry_run),
+        )
+        summary = self.summarize_project_backfill_run(
+            run_result=run_result,
+            before_cursor_profile=before_cursor_profile,
+            top_signal_types=max(1, int(top_signal_types)),
+            max_source_counts=max_source_counts,
+            max_signal_type_counts=max_signal_type_counts,
+        )
+        run_result_compact = dict(run_result)
+        backfill_block = (
+            dict(run_result_compact.get("backfill") or {})
+            if isinstance(run_result_compact.get("backfill"), dict)
+            else {}
+        )
+        if include_raw_signals:
+            backfill_block["signals_omitted"] = False
+            backfill_block["signals_omitted_count"] = 0
+        else:
+            omitted_count = int(backfill_block.get("signals_count") or len(list(backfill_block.get("signals") or [])))
+            backfill_block["signals"] = []
+            backfill_block["signals_omitted"] = True
+            backfill_block["signals_omitted_count"] = omitted_count
+        if include_raw_ingestions:
+            backfill_block["ingestions_omitted"] = False
+            backfill_block["ingestions_omitted_count"] = 0
+        else:
+            omitted_count = int(len(list(backfill_block.get("ingestions") or [])))
+            backfill_block["ingestions"] = []
+            backfill_block["ingestions_omitted"] = True
+            backfill_block["ingestions_omitted_count"] = omitted_count
+        run_result_compact["backfill"] = backfill_block
+        return {
+            **run_result_compact,
+            "summary": summary,
+        }
+
+    def ingest_project_signals_from_review_artifacts(
+        self,
+        *,
+        project_id: str,
+        plan_id: str,
+        step_id: str,
+    ) -> dict[str, Any]:
+        summary = self.get_review_summary(plan_id, step_id)
+        artifact_row = self.security.find_review_artifact(plan_id=plan_id, step_id=step_id) or {}
+        artifact = artifact_row.get("artifact") if isinstance(artifact_row.get("artifact"), dict) else {}
+        review = summary.get("review") if isinstance(summary.get("review"), dict) else {}
+        hosted = summary.get("hosted_feedback") if isinstance(summary.get("hosted_feedback"), dict) else {}
+        policy = summary.get("approval_evidence") if isinstance(summary.get("approval_evidence"), dict) else {}
+
+        pr_number = str(review.get("number") or "")
+        repo_slug = str(review.get("repo_slug") or "")
+        head_branch = str(review.get("head_branch") or "")
+        checks_state = str((artifact.get("status") or {}).get("checks_state") or "").lower()
+        review_decision = str((hosted.get("review_summary") or {}).get("decision") or "").lower()
+        merge_outcome = str(hosted.get("merge_outcome") or "").lower()
+        timeline_cursor = hosted.get("timeline_cursor")
+
+        signals: list[dict[str, Any]] = [
+            {
+                "type": "pull_request_updated",
+                "pr_number": pr_number,
+                "repo_slug": repo_slug,
+                "branch": head_branch,
+                "plan_id": plan_id,
+                "step_id": step_id,
+                "timeline_cursor": timeline_cursor,
+            }
+        ]
+        if review_decision in {"changes_requested", "changes-requested"}:
+            signals.append(
+                {
+                    "type": "pull_request_review_changes",
+                    "pr_number": pr_number,
+                    "repo_slug": repo_slug,
+                    "branch": head_branch,
+                    "plan_id": plan_id,
+                    "step_id": step_id,
+                    "review_decision": review_decision,
+                }
+            )
+        if checks_state in {"failed", "failure", "error", "timed_out", "cancelled"}:
+            signals.append(
+                {
+                    "type": "ci_failed",
+                    "run_id": f"review:{plan_id}:{step_id}",
+                    "repo_slug": repo_slug,
+                    "branch": head_branch,
+                    "plan_id": plan_id,
+                    "step_id": step_id,
+                    "checks_state": checks_state,
+                }
+            )
+        if merge_outcome in {"approved", "merged"}:
+            signals.append(
+                {
+                    "type": "pull_request_opened",
+                    "pr_number": pr_number,
+                    "repo_slug": repo_slug,
+                    "branch": head_branch,
+                    "plan_id": plan_id,
+                    "step_id": step_id,
+                    "merge_outcome": merge_outcome,
+                }
+            )
+
+        ingestions = [self.project_devloop.ingest_signal(project_id=project_id, signal=item) for item in signals]
+        return {
+            "project_id": str(project_id),
+            "source": "review_artifacts",
+            "plan_id": str(plan_id),
+            "step_id": str(step_id),
+            "checks_state": checks_state,
+            "review_decision": review_decision,
+            "merge_outcome": merge_outcome,
+            "approval_packet_present": bool(policy.get("packet")),
+            "signals_count": len(signals),
+            "signals": signals,
+            "ingestions": ingestions,
+        }
+
     def preflight_plan(self, plan_id: str) -> list[dict[str, Any]]:
         plan = self.plan_repo.get_plan(plan_id)
         prepared: list[dict[str, Any]] = []
@@ -11337,6 +12555,11 @@ class JarvisRuntime:
         self.tone_balance.close()
         self.voice_soak.close()
         self.voice_tuning_state.close()
+        self.project_graph_store.close()
+        self.suggestion_feedback.close()
+        self.learning_dataset.close()
+        self.learning_registry.close()
+        self.reasoning_store.close()
         self.adaptive_policy.close()
         self.security.close()
         self.plan_repo.close()

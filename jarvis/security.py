@@ -766,6 +766,76 @@ class SecurityManager:
             "updated_at": row["updated_at"],
         }
 
+    def list_recent_review_artifacts(
+        self,
+        *,
+        limit: int = 100,
+        repo_id: str | None = None,
+        since_updated_at: str | None = None,
+    ) -> list[dict[str, Any]]:
+        resolved_limit = max(1, int(limit))
+        if repo_id is None and since_updated_at is None:
+            rows = self.conn.execute(
+                """
+                SELECT *
+                FROM review_artifacts
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (resolved_limit,),
+            ).fetchall()
+        elif repo_id is not None and since_updated_at is None:
+            rows = self.conn.execute(
+                """
+                SELECT *
+                FROM review_artifacts
+                WHERE repo_id = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (str(repo_id), resolved_limit),
+            ).fetchall()
+        elif repo_id is None and since_updated_at is not None:
+            rows = self.conn.execute(
+                """
+                SELECT *
+                FROM review_artifacts
+                WHERE updated_at > ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (str(since_updated_at), resolved_limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                """
+                SELECT *
+                FROM review_artifacts
+                WHERE repo_id = ? AND updated_at > ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (str(repo_id), str(since_updated_at), resolved_limit),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            out.append(
+                {
+                    "approval_id": row["approval_id"],
+                    "plan_id": row["plan_id"],
+                    "step_id": row["step_id"],
+                    "provider": row["provider"],
+                    "repo_id": row["repo_id"],
+                    "repo_slug": row["repo_slug"],
+                    "pr_number": row["pr_number"],
+                    "branch": row["branch"],
+                    "artifact": json.loads(row["artifact_json"]),
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+            )
+        return out
+
     def store_review_feedback(
         self,
         *,
@@ -1097,6 +1167,78 @@ class SecurityManager:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
+    def list_recent_merge_outcomes(
+        self,
+        *,
+        limit: int = 100,
+        repo_id: str | None = None,
+        since_updated_at: str | None = None,
+    ) -> list[dict[str, Any]]:
+        resolved_limit = max(1, int(limit))
+        if repo_id is None and since_updated_at is None:
+            rows = self.conn.execute(
+                """
+                SELECT *
+                FROM merge_outcomes
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (resolved_limit,),
+            ).fetchall()
+        elif repo_id is not None and since_updated_at is None:
+            rows = self.conn.execute(
+                """
+                SELECT *
+                FROM merge_outcomes
+                WHERE repo_id = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (str(repo_id), resolved_limit),
+            ).fetchall()
+        elif repo_id is None and since_updated_at is not None:
+            rows = self.conn.execute(
+                """
+                SELECT *
+                FROM merge_outcomes
+                WHERE updated_at > ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (str(since_updated_at), resolved_limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                """
+                SELECT *
+                FROM merge_outcomes
+                WHERE repo_id = ? AND updated_at > ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (str(repo_id), str(since_updated_at), resolved_limit),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            out.append(
+                {
+                    "approval_id": row["approval_id"],
+                    "plan_id": row["plan_id"],
+                    "step_id": row["step_id"],
+                    "provider": row["provider"],
+                    "repo_id": row["repo_id"],
+                    "repo_slug": row["repo_slug"],
+                    "pr_number": row["pr_number"],
+                    "branch": row["branch"],
+                    "merge_outcome": row["merge_outcome"],
+                    "review_decision": row["review_decision"],
+                    "outcome": json.loads(row["outcome_json"]),
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+            )
+        return out
 
     def find_provider_review_by_ref(
         self,

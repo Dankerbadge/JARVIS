@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,76 @@ from .reactors import ZenithCorrelationReactor, ZenithGitDeltaReactor, ZenithRis
 from .runtime import JarvisRuntime
 from .security import ActionClass, SecurityManager
 from .server import run_operator_server
+
+
+PROJECT_BACKFILL_PRESETS: dict[str, dict[str, Any]] = {
+    "quick": {
+        "limit": 50,
+        "include_outcomes": True,
+        "include_review_artifacts": False,
+        "include_merge_outcomes": False,
+        "skip_seen": True,
+        "load_since_from_cursor_profile": True,
+        "top_signal_types": 5,
+        "include_raw_signals": False,
+        "include_raw_ingestions": False,
+    },
+    "balanced": {
+        "limit": 100,
+        "include_outcomes": True,
+        "include_review_artifacts": True,
+        "include_merge_outcomes": True,
+        "skip_seen": True,
+        "load_since_from_cursor_profile": True,
+        "top_signal_types": 5,
+        "include_raw_signals": False,
+        "include_raw_ingestions": False,
+    },
+    "deep": {
+        "limit": 300,
+        "include_outcomes": True,
+        "include_review_artifacts": True,
+        "include_merge_outcomes": True,
+        "skip_seen": True,
+        "load_since_from_cursor_profile": True,
+        "top_signal_types": 10,
+        "include_raw_signals": False,
+        "include_raw_ingestions": False,
+    },
+}
+
+WARNING_SEVERITY_ORDER: dict[str, int] = {
+    "info": 0,
+    "warning": 1,
+    "error": 2,
+}
+
+WARNING_POLICY_PROFILES: dict[str, dict[str, Any]] = {
+    "default": {
+        "min_warning_severity": "info",
+        "exit_code_policy": "off",
+        "warning_exit_code": 2,
+        "error_exit_code": 3,
+        "suppress_warning_codes": [],
+    },
+    "strict": {
+        "min_warning_severity": "warning",
+        "exit_code_policy": "warning",
+        "warning_exit_code": 2,
+        "error_exit_code": 3,
+        "suppress_warning_codes": [],
+    },
+    "quiet": {
+        "min_warning_severity": "warning",
+        "exit_code_policy": "off",
+        "warning_exit_code": 2,
+        "error_exit_code": 3,
+        "suppress_warning_codes": [
+            "source_counts_capped",
+            "signal_type_counts_capped",
+        ],
+    },
+}
 
 
 def _build_demo_repo(repo_path: Path) -> None:
@@ -55,6 +127,45 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _parse_csv_items(raw_value: str | None) -> list[str]:
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return []
+    normalized = raw.replace("\n", ",").replace("\t", ",").replace(";", ",")
+    return [part.strip() for part in normalized.split(",") if part.strip()]
+
+
+def _coerce_warning_code_items(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return _parse_csv_items(value)
+    if isinstance(value, (list, tuple, set)):
+        return [
+            str(item).strip()
+            for item in value
+            if str(item).strip()
+        ]
+    return []
+
+
+def _load_warning_policy_config(path_value: Any) -> tuple[dict[str, Any], str | None]:
+    if path_value is None:
+        return {}, None
+    raw_path = str(path_value).strip()
+    if not raw_path:
+        return {}, None
+    path = Path(raw_path).expanduser()
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ValueError(f"failed_to_load_warning_policy_config:{path}:{exc}") from exc
+    if not isinstance(loaded, dict):
+        raise ValueError(f"invalid_warning_policy_config_type:{path}:expected_json_object")
+    resolved_path = str(path.resolve())
+    return dict(loaded), resolved_path
+
+
 def _resolve_token(
     *,
     explicit_value: str | None,
@@ -75,6 +186,835 @@ def _resolve_secret(
     env_var_name: str | None,
 ) -> str | None:
     return _resolve_token(explicit_value=explicit_value, env_var_name=env_var_name)
+
+
+def _resolve_project_backfill_options(args: argparse.Namespace) -> dict[str, Any]:
+    preset_name = str(getattr(args, "preset", "balanced") or "balanced").strip().lower()
+    preset = dict(PROJECT_BACKFILL_PRESETS.get(preset_name) or PROJECT_BACKFILL_PRESETS["balanced"])
+    warning_policy_config_source: str | None = None
+    warning_policy_config_input = getattr(args, "warning_policy_config", None)
+    if warning_policy_config_input is not None and str(warning_policy_config_input).strip():
+        warning_policy_config_source = "explicit"
+    else:
+        repo_path_value = getattr(args, "repo_path", None)
+        if repo_path_value is not None:
+            repo_path = Path(str(repo_path_value)).expanduser()
+            candidates = [
+                repo_path / ".jarvis" / "backfill.warning_policy.json",
+                repo_path / ".jarvis" / "backfill_warning_policy.json",
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    warning_policy_config_input = candidate
+                    warning_policy_config_source = "repo_default"
+                    break
+    warning_policy_config, warning_policy_config_path = _load_warning_policy_config(
+        warning_policy_config_input
+    )
+    warning_policy_resolution_fallbacks: list[dict[str, Any]] = []
+    warning_policy_profile_source = "profile_default"
+    warning_policy_profile = str(getattr(args, "warning_policy_profile", None) or "").strip().lower()
+    if warning_policy_profile:
+        warning_policy_profile_source = "explicit"
+    else:
+        config_profile = str(warning_policy_config.get("warning_policy_profile") or "").strip().lower()
+        if config_profile:
+            warning_policy_profile = config_profile
+            warning_policy_profile_source = "config"
+        else:
+            env_profile = str(os.getenv("JARVIS_BACKFILL_WARNING_POLICY_PROFILE") or "").strip().lower()
+            if env_profile:
+                warning_policy_profile = env_profile
+                warning_policy_profile_source = "env"
+            else:
+                warning_policy_profile = "default"
+                warning_policy_profile_source = "profile_default"
+    if warning_policy_profile not in WARNING_POLICY_PROFILES:
+        warning_policy_resolution_fallbacks.append(
+            {
+                "field": "warning_policy_profile",
+                "invalid_value": warning_policy_profile,
+                "source": warning_policy_profile_source,
+                "fallback_value": "default",
+                "fallback_source": "profile_default",
+            }
+        )
+        warning_policy_profile = "default"
+        warning_policy_profile_source = "profile_default"
+    warning_profile_defaults = dict(WARNING_POLICY_PROFILES[warning_policy_profile])
+
+    def _pick(name: str) -> Any:
+        value = getattr(args, name, None)
+        if value is None:
+            return preset.get(name)
+        return value
+
+    max_source_counts_value = _pick("max_source_counts")
+    max_signal_type_counts_value = _pick("max_signal_type_counts")
+    min_warning_severity_source = "profile_default"
+    min_warning_severity_raw = getattr(args, "min_warning_severity", None)
+    if min_warning_severity_raw is not None:
+        min_warning_severity_source = "explicit"
+    else:
+        min_warning_severity_raw = warning_policy_config.get("min_warning_severity")
+        if min_warning_severity_raw is not None:
+            min_warning_severity_source = "config"
+        else:
+            env_min_warning_severity = str(os.getenv("JARVIS_BACKFILL_MIN_WARNING_SEVERITY") or "").strip().lower()
+            if env_min_warning_severity:
+                min_warning_severity_raw = env_min_warning_severity
+                min_warning_severity_source = "env"
+            else:
+                min_warning_severity_raw = warning_profile_defaults.get("min_warning_severity")
+                min_warning_severity_source = "profile_default"
+    min_warning_severity = str(min_warning_severity_raw or "info").strip().lower()
+    if min_warning_severity not in WARNING_SEVERITY_ORDER:
+        warning_policy_resolution_fallbacks.append(
+            {
+                "field": "min_warning_severity",
+                "invalid_value": min_warning_severity_raw,
+                "source": min_warning_severity_source,
+                "fallback_value": "info",
+                "fallback_source": "profile_default",
+            }
+        )
+        min_warning_severity = "info"
+        min_warning_severity_source = "profile_default"
+    exit_code_policy_source = "profile_default"
+    exit_code_policy_raw = getattr(args, "exit_code_policy", None)
+    if exit_code_policy_raw is not None:
+        exit_code_policy_source = "explicit"
+    else:
+        exit_code_policy_raw = warning_policy_config.get("exit_code_policy")
+        if exit_code_policy_raw is not None:
+            exit_code_policy_source = "config"
+        else:
+            env_exit_code_policy = str(os.getenv("JARVIS_BACKFILL_EXIT_CODE_POLICY") or "").strip().lower()
+            if env_exit_code_policy:
+                exit_code_policy_raw = env_exit_code_policy
+                exit_code_policy_source = "env"
+            else:
+                exit_code_policy_raw = warning_profile_defaults.get("exit_code_policy")
+                exit_code_policy_source = "profile_default"
+    exit_code_policy = str(exit_code_policy_raw or "off").strip().lower()
+    if exit_code_policy not in {"off", "warning", "error"}:
+        warning_policy_resolution_fallbacks.append(
+            {
+                "field": "exit_code_policy",
+                "invalid_value": exit_code_policy_raw,
+                "source": exit_code_policy_source,
+                "fallback_value": "off",
+                "fallback_source": "profile_default",
+            }
+        )
+        exit_code_policy = "off"
+        exit_code_policy_source = "profile_default"
+    warning_exit_code_source = "profile_default"
+    warning_exit_code_raw = getattr(args, "warning_exit_code", None)
+    if warning_exit_code_raw is not None:
+        warning_exit_code_source = "explicit"
+    else:
+        warning_exit_code_raw = warning_policy_config.get("warning_exit_code")
+        if warning_exit_code_raw is not None:
+            warning_exit_code_source = "config"
+        else:
+            env_warning_exit_code = str(os.getenv("JARVIS_BACKFILL_WARNING_EXIT_CODE") or "").strip()
+            if env_warning_exit_code:
+                warning_exit_code_raw = env_warning_exit_code
+                warning_exit_code_source = "env"
+            else:
+                warning_exit_code_raw = warning_profile_defaults.get("warning_exit_code", 2)
+                warning_exit_code_source = "profile_default"
+    try:
+        warning_exit_code = max(1, int(warning_exit_code_raw))
+    except (TypeError, ValueError):
+        warning_policy_resolution_fallbacks.append(
+            {
+                "field": "warning_exit_code",
+                "invalid_value": warning_exit_code_raw,
+                "source": warning_exit_code_source,
+                "fallback_value": 2,
+                "fallback_source": "profile_default",
+            }
+        )
+        warning_exit_code = 2
+        warning_exit_code_source = "profile_default"
+    error_exit_code_source = "profile_default"
+    error_exit_code_raw = getattr(args, "error_exit_code", None)
+    if error_exit_code_raw is not None:
+        error_exit_code_source = "explicit"
+    else:
+        error_exit_code_raw = warning_policy_config.get("error_exit_code")
+        if error_exit_code_raw is not None:
+            error_exit_code_source = "config"
+        else:
+            env_error_exit_code = str(os.getenv("JARVIS_BACKFILL_ERROR_EXIT_CODE") or "").strip()
+            if env_error_exit_code:
+                error_exit_code_raw = env_error_exit_code
+                error_exit_code_source = "env"
+            else:
+                error_exit_code_raw = warning_profile_defaults.get("error_exit_code", 3)
+                error_exit_code_source = "profile_default"
+    try:
+        error_exit_code = max(1, int(error_exit_code_raw))
+    except (TypeError, ValueError):
+        warning_policy_resolution_fallbacks.append(
+            {
+                "field": "error_exit_code",
+                "invalid_value": error_exit_code_raw,
+                "source": error_exit_code_source,
+                "fallback_value": 3,
+                "fallback_source": "profile_default",
+            }
+        )
+        error_exit_code = 3
+        error_exit_code_source = "profile_default"
+    suppress_warning_codes_raw = list(getattr(args, "suppress_warning_code", None) or [])
+    env_suppress_warning_codes_raw = _parse_csv_items(
+        os.getenv("JARVIS_BACKFILL_SUPPRESS_WARNING_CODES")
+    )
+    profile_suppress_warning_codes_raw = list(warning_profile_defaults.get("suppress_warning_codes") or [])
+    config_suppress_warning_codes_raw = _coerce_warning_code_items(
+        warning_policy_config.get("suppress_warning_codes")
+    )
+    suppress_candidates = (
+        profile_suppress_warning_codes_raw
+        + config_suppress_warning_codes_raw
+        + env_suppress_warning_codes_raw
+        + suppress_warning_codes_raw
+    )
+    suppress_warning_codes = sorted(
+        {
+            str(item or "").strip().lower()
+            for item in suppress_candidates
+            if str(item or "").strip()
+        }
+    )
+    suppress_warning_codes_sources = sorted(
+        {
+            source
+            for source, values in (
+                ("profile_default", profile_suppress_warning_codes_raw),
+                ("config", config_suppress_warning_codes_raw),
+                ("env", env_suppress_warning_codes_raw),
+                ("explicit", suppress_warning_codes_raw),
+            )
+            if any(str(item or "").strip() for item in values)
+        }
+    )
+
+    return {
+        "preset": preset_name,
+        "warning_policy_config_path": warning_policy_config_path,
+        "warning_policy_config_source": warning_policy_config_source,
+        "warning_policy_profile": warning_policy_profile,
+        "warning_policy_resolution": {
+            "profile": {
+                "value": warning_policy_profile,
+                "source": warning_policy_profile_source,
+            },
+            "config": {
+                "path": warning_policy_config_path,
+                "source": warning_policy_config_source,
+            },
+            "min_warning_severity": {
+                "value": min_warning_severity,
+                "source": min_warning_severity_source,
+            },
+            "exit_code_policy": {
+                "value": exit_code_policy,
+                "source": exit_code_policy_source,
+            },
+            "warning_exit_code": {
+                "value": warning_exit_code,
+                "source": warning_exit_code_source,
+            },
+            "error_exit_code": {
+                "value": error_exit_code,
+                "source": error_exit_code_source,
+            },
+            "suppress_warning_codes": {
+                "value": suppress_warning_codes,
+                "sources": suppress_warning_codes_sources,
+            },
+            "fallbacks": warning_policy_resolution_fallbacks,
+            "has_fallbacks": bool(warning_policy_resolution_fallbacks),
+        },
+        "limit": int(_pick("limit") or preset.get("limit") or 100),
+        "include_outcomes": bool(_pick("include_outcomes")),
+        "include_review_artifacts": bool(_pick("include_review_artifacts")),
+        "include_merge_outcomes": bool(_pick("include_merge_outcomes")),
+        "skip_seen": bool(_pick("skip_seen")),
+        "load_since_from_cursor_profile": bool(_pick("load_since_from_cursor_profile")),
+        "top_signal_types": int(_pick("top_signal_types") or preset.get("top_signal_types") or 5),
+        "max_source_counts": int(max_source_counts_value) if max_source_counts_value is not None else None,
+        "max_signal_type_counts": (
+            int(max_signal_type_counts_value)
+            if max_signal_type_counts_value is not None
+            else None
+        ),
+        "min_warning_severity": min_warning_severity,
+        "exit_code_policy": exit_code_policy,
+        "warning_exit_code": warning_exit_code,
+        "error_exit_code": error_exit_code,
+        "suppress_warning_codes": suppress_warning_codes,
+        "include_raw_signals": bool(_pick("include_raw_signals")),
+        "include_raw_ingestions": bool(_pick("include_raw_ingestions")),
+    }
+
+
+def _print_json_payload(payload: dict[str, Any], *, compact: bool) -> None:
+    if compact:
+        print(json.dumps(payload, separators=(",", ":"), ensure_ascii=False))
+        return
+    print(json.dumps(payload, indent=2))
+
+
+def _compute_policy_resolution_checksum(resolution: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        resolution if isinstance(resolution, dict) else {},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return digest
+
+
+def _resolve_color_enabled(mode: str) -> bool:
+    normalized = str(mode or "auto").strip().lower()
+    if normalized == "always":
+        return True
+    if normalized == "never":
+        return False
+    stream = getattr(sys, "stdout", None)
+    isatty_fn = getattr(stream, "isatty", None)
+    if callable(isatty_fn):
+        try:
+            return bool(isatty_fn())
+        except Exception:
+            return False
+    return False
+
+
+def _ansi(text: str, code: str, *, enabled: bool) -> str:
+    if not enabled:
+        return text
+    return f"\033[{code}m{text}\033[0m"
+
+
+def _render_project_backfill_pretty(payload: dict[str, Any], *, color_enabled: bool) -> str:
+    result = dict(payload.get("result") or {})
+    summary = (
+        dict(result.get("summary") or {})
+        if isinstance(result.get("summary"), dict)
+        else {}
+    )
+    hints = list(payload.get("operator_hints") or [])
+
+    lines: list[str] = []
+    lines.append(_ansi("JARVIS Backfill Summary", "1;36", enabled=color_enabled))
+    lines.append(
+        " ".join(
+            [
+                f"project={str(payload.get('project_id') or '')}",
+                f"profile={str(payload.get('profile_key') or '')}",
+                f"preset={str(payload.get('preset') or '')}",
+                f"warning_profile={str(payload.get('warning_policy_profile') or 'default')}",
+                f"execute={bool(payload.get('execute'))}",
+                f"dry_run={bool(result.get('dry_run'))}",
+                f"cursor_persisted={bool(result.get('cursor_persisted'))}",
+            ]
+        )
+    )
+    warning_policy_config_path = payload.get("warning_policy_config_path")
+    if warning_policy_config_path:
+        warning_policy_config_source = str(payload.get("warning_policy_config_source") or "").strip()
+        if warning_policy_config_source:
+            lines.append(
+                " ".join(
+                    [
+                        f"warning_policy_config={str(warning_policy_config_path)}",
+                        f"source={warning_policy_config_source}",
+                    ]
+                )
+            )
+        else:
+            lines.append(f"warning_policy_config={str(warning_policy_config_path)}")
+    warning_policy_resolution = (
+        dict(payload.get("warning_policy_resolution") or {})
+        if isinstance(payload.get("warning_policy_resolution"), dict)
+        else {}
+    )
+    if warning_policy_resolution:
+        profile_resolution = (
+            dict(warning_policy_resolution.get("profile") or {})
+            if isinstance(warning_policy_resolution.get("profile"), dict)
+            else {}
+        )
+        exit_policy_resolution = (
+            dict(warning_policy_resolution.get("exit_code_policy") or {})
+            if isinstance(warning_policy_resolution.get("exit_code_policy"), dict)
+            else {}
+        )
+        profile_source = str(profile_resolution.get("source") or "").strip()
+        exit_policy_source = str(exit_policy_resolution.get("source") or "").strip()
+        if profile_source or exit_policy_source:
+            lines.append(
+                " ".join(
+                    [
+                        f"profile_source={profile_source or 'unknown'}",
+                        f"exit_policy_source={exit_policy_source or 'unknown'}",
+                    ]
+                )
+            )
+    warning_policy_checksum = str(payload.get("warning_policy_checksum") or "").strip()
+    if warning_policy_checksum:
+        lines.append(f"warning_policy_checksum={warning_policy_checksum}")
+    lines.append("")
+    lines.append(_ansi("Counts", "1", enabled=color_enabled))
+    lines.append(
+        " ".join(
+            [
+                f"signals={int(summary.get('signals_count') or 0)}",
+                f"would_ingest={int(summary.get('would_ingest_count') or 0)}",
+                f"skipped_existing={int(summary.get('skipped_existing_count') or 0)}",
+                f"persisted_markers={int(summary.get('persisted_marker_count') or 0)}",
+            ]
+        )
+    )
+    lines.append(
+        " ".join(
+            [
+                f"candidate_pool={int(summary.get('candidate_pool_count') or 0)}",
+                f"scan_limit={int(summary.get('candidate_scan_limit') or 0)}",
+                f"scanned={int(summary.get('candidate_scanned_count') or 0)}",
+                f"unscanned={int(summary.get('candidate_unscanned_count') or 0)}",
+            ]
+        )
+    )
+
+    source_counts = (
+        dict(summary.get("source_counts") or {})
+        if isinstance(summary.get("source_counts"), dict)
+        else {}
+    )
+    if source_counts:
+        parts = [
+            f"{str(name)}={int(count)}"
+            for name, count in sorted(
+                source_counts.items(),
+                key=lambda item: (-int(item[1]), str(item[0])),
+            )
+        ]
+        lines.append("")
+        lines.append(_ansi("Source Counts", "1", enabled=color_enabled))
+        lines.append(", ".join(parts))
+
+    top_signal_types = list(summary.get("top_signal_types") or [])
+    if top_signal_types:
+        parts = [
+            f"{str((row or {}).get('type') or 'unknown')}={int((row or {}).get('count') or 0)}"
+            for row in top_signal_types
+            if isinstance(row, dict)
+        ]
+        lines.append("")
+        lines.append(_ansi("Top Signal Types", "1", enabled=color_enabled))
+        lines.append(", ".join(parts))
+
+    if hints:
+        lines.append("")
+        lines.append(_ansi(f"Warnings ({len(hints)})", "1;33", enabled=color_enabled))
+        for item in hints:
+            if not isinstance(item, dict):
+                continue
+            code = str(item.get("code") or "warning")
+            message = str(item.get("message") or "").strip()
+            lines.append(f"- [{code}] {message}")
+            actions = list(item.get("recommended_actions") or [])
+            if actions:
+                lines.append(f"  suggestion: {str(actions[0])}")
+    else:
+        lines.append("")
+        lines.append(_ansi("Warnings (0)", "1;32", enabled=color_enabled))
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_project_backfill_warnings_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    result = dict(payload.get("result") or {})
+    summary = (
+        dict(result.get("summary") or {})
+        if isinstance(result.get("summary"), dict)
+        else {}
+    )
+    warnings = list(payload.get("operator_hints") or [])
+    warning_codes = [
+        str(item.get("code") or "warning")
+        for item in warnings
+        if isinstance(item, dict)
+    ]
+    source_meta = (
+        dict(summary.get("source_counts_metadata") or {})
+        if isinstance(summary.get("source_counts_metadata"), dict)
+        else {}
+    )
+    signal_type_meta = (
+        dict(summary.get("signal_type_counts_metadata") or {})
+        if isinstance(summary.get("signal_type_counts_metadata"), dict)
+        else {}
+    )
+    suppression = (
+        dict(payload.get("operator_hints_suppression") or {})
+        if isinstance(payload.get("operator_hints_suppression"), dict)
+        else {}
+    )
+    severity_filter = (
+        dict(payload.get("operator_hints_severity_filter") or {})
+        if isinstance(payload.get("operator_hints_severity_filter"), dict)
+        else {}
+    )
+    warning_count = int(len(warning_codes))
+    return {
+        "status": "warning" if warning_count > 0 else "ok",
+        "project_id": str(payload.get("project_id") or ""),
+        "profile_key": str(payload.get("profile_key") or ""),
+        "preset": str(payload.get("preset") or ""),
+        "warning_policy_profile": str(payload.get("warning_policy_profile") or "default"),
+        "warning_policy_config_path": (
+            str(payload.get("warning_policy_config_path") or "")
+            if payload.get("warning_policy_config_path") is not None
+            else None
+        ),
+        "warning_policy_config_source": (
+            str(payload.get("warning_policy_config_source") or "")
+            if payload.get("warning_policy_config_source") is not None
+            else None
+        ),
+        "warning_policy_resolution": (
+            dict(payload.get("warning_policy_resolution") or {})
+            if isinstance(payload.get("warning_policy_resolution"), dict)
+            else {}
+        ),
+        "warning_policy_checksum": str(payload.get("warning_policy_checksum") or ""),
+        "execute": bool(payload.get("execute")),
+        "dry_run": bool(result.get("dry_run")),
+        "cursor_persisted": bool(result.get("cursor_persisted")),
+        "exit_code_policy": str(payload.get("exit_code_policy") or "off"),
+        "exit_code": int(payload.get("exit_code") or 0),
+        "exit_triggered": bool(payload.get("exit_triggered")),
+        "max_warning_severity": str(payload.get("max_warning_severity") or "none"),
+        "has_warnings": bool(warning_count > 0),
+        "warning_count": warning_count,
+        "warning_codes": warning_codes,
+        "warnings": warnings,
+        "warning_suppression": suppression,
+        "warning_severity_filter": severity_filter,
+        "signal_summary": {
+            "signals_count": int(summary.get("signals_count") or 0),
+            "candidate_unscanned_count": int(summary.get("candidate_unscanned_count") or 0),
+            "source_counts_omitted_keys": int(source_meta.get("omitted_keys") or 0),
+            "signal_type_counts_omitted_keys": int(signal_type_meta.get("omitted_keys") or 0),
+        },
+    }
+
+
+def _build_project_backfill_policy_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    result = dict(payload.get("result") or {})
+    summary = (
+        dict(result.get("summary") or {})
+        if isinstance(result.get("summary"), dict)
+        else {}
+    )
+    warnings = list(payload.get("operator_hints") or [])
+    warning_codes = [
+        str(item.get("code") or "warning")
+        for item in warnings
+        if isinstance(item, dict)
+    ]
+    warning_count = int(len(warning_codes))
+    return {
+        "status": "warning" if warning_count > 0 else "ok",
+        "project_id": str(payload.get("project_id") or ""),
+        "profile_key": str(payload.get("profile_key") or ""),
+        "preset": str(payload.get("preset") or ""),
+        "warning_policy_profile": str(payload.get("warning_policy_profile") or "default"),
+        "warning_policy_config_path": (
+            str(payload.get("warning_policy_config_path") or "")
+            if payload.get("warning_policy_config_path") is not None
+            else None
+        ),
+        "warning_policy_config_source": (
+            str(payload.get("warning_policy_config_source") or "")
+            if payload.get("warning_policy_config_source") is not None
+            else None
+        ),
+        "warning_policy_resolution": (
+            dict(payload.get("warning_policy_resolution") or {})
+            if isinstance(payload.get("warning_policy_resolution"), dict)
+            else {}
+        ),
+        "warning_policy_checksum": str(payload.get("warning_policy_checksum") or ""),
+        "exit_code_policy": str(payload.get("exit_code_policy") or "off"),
+        "exit_code": int(payload.get("exit_code") or 0),
+        "exit_triggered": bool(payload.get("exit_triggered")),
+        "max_warning_severity": str(payload.get("max_warning_severity") or "none"),
+        "warning_count": warning_count,
+        "warning_codes": warning_codes,
+        "signal_summary": {
+            "signals_count": int(summary.get("signals_count") or 0),
+            "candidate_unscanned_count": int(summary.get("candidate_unscanned_count") or 0),
+        },
+    }
+
+
+def _next_project_backfill_preset(preset: str) -> str | None:
+    order = ("quick", "balanced", "deep")
+    normalized = str(preset or "").strip().lower()
+    if normalized not in order:
+        return None
+    idx = order.index(normalized)
+    if idx >= len(order) - 1:
+        return None
+    return str(order[idx + 1])
+
+
+def _build_project_backfill_operator_hints(
+    *,
+    preset: str,
+    resolved_options: dict[str, Any],
+    run_result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    summary = (
+        dict(run_result.get("summary") or {})
+        if isinstance(run_result.get("summary"), dict)
+        else {}
+    )
+    hints: list[dict[str, Any]] = []
+
+    unscanned_total = int(summary.get("candidate_unscanned_count") or 0)
+    if unscanned_total > 0:
+        unscanned_by_source = (
+            dict(summary.get("candidate_unscanned_by_source") or {})
+            if isinstance(summary.get("candidate_unscanned_by_source"), dict)
+            else {}
+        )
+        recommended_actions: list[str] = []
+        next_preset = _next_project_backfill_preset(preset)
+        if next_preset:
+            recommended_actions.append(
+                f"Rerun with --preset {next_preset} for a wider scan window."
+            )
+        recommended_actions.append(
+            "Increase --limit to raise the candidate scan budget (scan limit is limit*3)."
+        )
+        recommended_actions.append(
+            "Narrow included sources if one source dominates clipping."
+        )
+        hints.append(
+            {
+                "code": "candidate_scan_clipped",
+                "severity": "warning",
+                "message": (
+                    f"Candidate scan clipped {unscanned_total} deduped item(s) "
+                    f"after scan cap."
+                ),
+                "details": {
+                    "candidate_pool_count": int(summary.get("candidate_pool_count") or 0),
+                    "candidate_scan_limit": int(summary.get("candidate_scan_limit") or 0),
+                    "candidate_scanned_count": int(summary.get("candidate_scanned_count") or 0),
+                    "candidate_unscanned_count": int(unscanned_total),
+                    "unscanned_by_source": {
+                        str(name): int(count)
+                        for name, count in sorted(
+                            unscanned_by_source.items(),
+                            key=lambda item: (-int(item[1]), str(item[0])),
+                        )
+                    },
+                },
+                "recommended_actions": recommended_actions,
+            }
+        )
+
+    source_meta = (
+        dict(summary.get("source_counts_metadata") or {})
+        if isinstance(summary.get("source_counts_metadata"), dict)
+        else {}
+    )
+    source_omitted = int(source_meta.get("omitted_keys") or 0)
+    if source_omitted > 0:
+        hints.append(
+            {
+                "code": "source_counts_capped",
+                "severity": "warning",
+                "message": (
+                    f"source_counts omitted {source_omitted} key(s) due to cap."
+                ),
+                "details": {
+                    "cap": source_meta.get("cap"),
+                    "total_keys": int(source_meta.get("total_keys") or 0),
+                    "returned_keys": int(source_meta.get("returned_keys") or 0),
+                    "omitted_keys": int(source_omitted),
+                },
+                "recommended_actions": [
+                    "Increase --max-source-counts or remove it to inspect full source cardinality."
+                ],
+            }
+        )
+
+    signal_type_meta = (
+        dict(summary.get("signal_type_counts_metadata") or {})
+        if isinstance(summary.get("signal_type_counts_metadata"), dict)
+        else {}
+    )
+    signal_type_omitted = int(signal_type_meta.get("omitted_keys") or 0)
+    if signal_type_omitted > 0:
+        hints.append(
+            {
+                "code": "signal_type_counts_capped",
+                "severity": "warning",
+                "message": (
+                    f"signal_type_counts omitted {signal_type_omitted} key(s) due to cap."
+                ),
+                "details": {
+                    "cap": signal_type_meta.get("cap"),
+                    "total_keys": int(signal_type_meta.get("total_keys") or 0),
+                    "returned_keys": int(signal_type_meta.get("returned_keys") or 0),
+                    "omitted_keys": int(signal_type_omitted),
+                },
+                "recommended_actions": [
+                    "Increase --max-signal-type-counts or remove it to inspect full signal-type cardinality."
+                ],
+            }
+        )
+
+    if not hints:
+        return []
+    hints_context = {
+        "preset": str(preset or ""),
+        "limit": int(resolved_options.get("limit") or 0),
+        "dry_run": bool(run_result.get("dry_run")),
+    }
+    return [
+        {
+            **hint,
+            "context": hints_context,
+        }
+        for hint in hints
+    ]
+
+
+def _apply_project_backfill_warning_suppression(
+    *,
+    hints: list[dict[str, Any]],
+    suppress_warning_codes: list[str] | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    requested = sorted(
+        {
+            str(item or "").strip().lower()
+            for item in list(suppress_warning_codes or [])
+            if str(item or "").strip()
+        }
+    )
+    if not requested:
+        return list(hints), {
+            "requested_codes": [],
+            "applied_codes": [],
+            "suppressed_count": 0,
+            "remaining_count": int(len(hints)),
+            "total_count": int(len(hints)),
+        }
+    requested_set = set(requested)
+    filtered: list[dict[str, Any]] = []
+    applied_codes: list[str] = []
+    for hint in hints:
+        if not isinstance(hint, dict):
+            filtered.append(hint)
+            continue
+        code = str(hint.get("code") or "").strip().lower()
+        if code and code in requested_set:
+            applied_codes.append(code)
+            continue
+        filtered.append(hint)
+    total_count = int(len(hints))
+    remaining_count = int(len(filtered))
+    suppressed_count = int(max(0, total_count - remaining_count))
+    return filtered, {
+        "requested_codes": requested,
+        "applied_codes": sorted(set(applied_codes)),
+        "suppressed_count": suppressed_count,
+        "remaining_count": remaining_count,
+        "total_count": total_count,
+    }
+
+
+def _apply_project_backfill_warning_severity_filter(
+    *,
+    hints: list[dict[str, Any]],
+    min_warning_severity: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    requested = str(min_warning_severity or "info").strip().lower()
+    if requested not in WARNING_SEVERITY_ORDER:
+        requested = "info"
+    threshold_rank = int(WARNING_SEVERITY_ORDER.get(requested, 0))
+    filtered: list[dict[str, Any]] = []
+    for hint in hints:
+        if not isinstance(hint, dict):
+            filtered.append(hint)
+            continue
+        severity = str(hint.get("severity") or "warning").strip().lower()
+        severity_rank = int(WARNING_SEVERITY_ORDER.get(severity, WARNING_SEVERITY_ORDER["warning"]))
+        if severity_rank < threshold_rank:
+            continue
+        filtered.append(hint)
+    total_count = int(len(hints))
+    remaining_count = int(len(filtered))
+    filtered_out_count = int(max(0, total_count - remaining_count))
+    return filtered, {
+        "requested_min_severity": requested,
+        "filtered_out_count": filtered_out_count,
+        "remaining_count": remaining_count,
+        "total_count": total_count,
+    }
+
+
+def _max_project_backfill_warning_severity(hints: list[dict[str, Any]]) -> str:
+    max_rank = -1
+    max_label = "none"
+    for hint in hints:
+        if not isinstance(hint, dict):
+            continue
+        severity = str(hint.get("severity") or "warning").strip().lower()
+        rank = int(WARNING_SEVERITY_ORDER.get(severity, WARNING_SEVERITY_ORDER["warning"]))
+        if rank > max_rank:
+            max_rank = rank
+            max_label = severity
+    return max_label
+
+
+def _compute_project_backfill_exit_code(
+    *,
+    hints: list[dict[str, Any]],
+    exit_code_policy: str,
+    warning_exit_code: int,
+    error_exit_code: int,
+) -> tuple[int, str]:
+    policy = str(exit_code_policy or "off").strip().lower()
+    if policy not in {"off", "warning", "error"}:
+        policy = "off"
+    max_severity = _max_project_backfill_warning_severity(hints)
+    max_rank = int(WARNING_SEVERITY_ORDER.get(max_severity, -1))
+    if policy == "off":
+        return 0, max_severity
+    if policy == "error":
+        if max_rank >= WARNING_SEVERITY_ORDER["error"]:
+            return max(1, int(error_exit_code)), max_severity
+        return 0, max_severity
+    if max_rank >= WARNING_SEVERITY_ORDER["error"]:
+        return max(1, int(error_exit_code)), max_severity
+    if max_rank >= WARNING_SEVERITY_ORDER["warning"]:
+        return max(1, int(warning_exit_code)), max_severity
+    return 0, max_severity
 
 
 def _configure_openclaw_gateway(runtime: JarvisRuntime, args: argparse.Namespace) -> dict[str, Any] | None:
@@ -564,6 +1504,124 @@ def cmd_plans_promote_ready(args: argparse.Namespace) -> None:
             override_sunset_condition=args.override_sunset_condition,
         )
         print(json.dumps(result, indent=2))
+    finally:
+        runtime.close()
+
+
+def cmd_plans_backfill_project_signals(args: argparse.Namespace) -> None:
+    runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+    resolved = _resolve_project_backfill_options(args)
+    try:
+        run_result = runtime.run_project_backfill_with_cursor_profile_summary(
+            project_id=str(args.project_id),
+            profile_key=str(args.profile_key or "default"),
+            actor=str(args.actor or "operator"),
+            limit=max(1, int(resolved.get("limit") or 100)),
+            include_outcomes=bool(resolved.get("include_outcomes")),
+            include_review_artifacts=bool(resolved.get("include_review_artifacts")),
+            include_merge_outcomes=bool(resolved.get("include_merge_outcomes")),
+            skip_seen=bool(resolved.get("skip_seen")),
+            since_updated_at=args.since_updated_at,
+            since_outcomes_at=args.since_outcomes_at,
+            since_review_artifacts_at=args.since_review_artifacts_at,
+            since_merge_outcomes_at=args.since_merge_outcomes_at,
+            load_since_from_cursor_profile=bool(resolved.get("load_since_from_cursor_profile")),
+            dry_run=not bool(args.execute),
+            top_signal_types=max(1, int(resolved.get("top_signal_types") or 5)),
+            max_source_counts=resolved.get("max_source_counts"),
+            max_signal_type_counts=resolved.get("max_signal_type_counts"),
+            include_raw_signals=bool(resolved.get("include_raw_signals")),
+            include_raw_ingestions=bool(resolved.get("include_raw_ingestions")),
+        )
+        operator_hints = _build_project_backfill_operator_hints(
+            preset=str(resolved.get("preset") or "balanced"),
+            resolved_options=resolved,
+            run_result=run_result,
+        )
+        operator_hints, suppression_meta = _apply_project_backfill_warning_suppression(
+            hints=operator_hints,
+            suppress_warning_codes=list(resolved.get("suppress_warning_codes") or []),
+        )
+        operator_hints, severity_meta = _apply_project_backfill_warning_severity_filter(
+            hints=operator_hints,
+            min_warning_severity=str(resolved.get("min_warning_severity") or "info"),
+        )
+        exit_code, max_warning_severity = _compute_project_backfill_exit_code(
+            hints=operator_hints,
+            exit_code_policy=str(resolved.get("exit_code_policy") or "off"),
+            warning_exit_code=int(resolved.get("warning_exit_code") or 2),
+            error_exit_code=int(resolved.get("error_exit_code") or 3),
+        )
+        warning_policy_resolution = (
+            dict(resolved.get("warning_policy_resolution") or {})
+            if isinstance(resolved.get("warning_policy_resolution"), dict)
+            else {}
+        )
+        warning_policy_checksum = _compute_policy_resolution_checksum(warning_policy_resolution)
+        base_payload = {
+            "project_id": str(args.project_id),
+            "profile_key": str(args.profile_key or "default"),
+            "actor": str(args.actor or "operator"),
+            "execute": bool(args.execute),
+            "preset": str(resolved.get("preset") or "balanced"),
+            "warning_policy_profile": str(resolved.get("warning_policy_profile") or "default"),
+            "warning_policy_config_path": resolved.get("warning_policy_config_path"),
+            "warning_policy_config_source": resolved.get("warning_policy_config_source"),
+            "warning_policy_resolution": warning_policy_resolution,
+            "warning_policy_checksum": warning_policy_checksum,
+            "resolved_options": resolved,
+            "exit_code_policy": str(resolved.get("exit_code_policy") or "off"),
+            "max_warning_severity": str(max_warning_severity),
+            "exit_code": int(exit_code),
+            "exit_triggered": bool(int(exit_code) != 0),
+            "operator_hints_total_count": int(suppression_meta.get("total_count") or len(operator_hints)),
+            "operator_hints_count": int(len(operator_hints)),
+            "operator_hints_suppressed_count": int(suppression_meta.get("suppressed_count") or 0),
+            "operator_hints_suppression": suppression_meta,
+            "operator_hints_filtered_by_severity_count": int(severity_meta.get("filtered_out_count") or 0),
+            "operator_hints_severity_filter": severity_meta,
+            "operator_hints": operator_hints,
+            "result": run_result,
+        }
+        output_mode = str(getattr(args, "output", "json") or "json").strip().lower()
+        color_enabled = _resolve_color_enabled(str(getattr(args, "color", "auto") or "auto"))
+        output_payload = base_payload
+        if bool(getattr(args, "summary_only", False)):
+            result_block = {
+                "dry_run": bool(run_result.get("dry_run")),
+                "cursor_persisted": bool(run_result.get("cursor_persisted")),
+                "summary": (
+                    dict(run_result.get("summary") or {})
+                    if isinstance(run_result.get("summary"), dict)
+                    else {}
+                ),
+            }
+            output_payload = {
+                **{k: v for k, v in base_payload.items() if k != "result"},
+                "result": result_block,
+            }
+
+        if output_mode == "warnings":
+            warnings_payload = _build_project_backfill_warnings_payload(output_payload)
+            _print_json_payload(
+                warnings_payload,
+                compact=bool(getattr(args, "json_compact", False)),
+            )
+        elif output_mode == "policy":
+            policy_payload = _build_project_backfill_policy_payload(output_payload)
+            _print_json_payload(
+                policy_payload,
+                compact=bool(getattr(args, "json_compact", False)),
+            )
+        elif output_mode == "pretty":
+            print(_render_project_backfill_pretty(output_payload, color_enabled=color_enabled), end="")
+        else:
+            _print_json_payload(
+                output_payload,
+                compact=bool(getattr(args, "json_compact", False)),
+            )
+        if int(exit_code) != 0:
+            raise SystemExit(int(exit_code))
     finally:
         runtime.close()
 
@@ -1628,6 +2686,183 @@ def main() -> None:
     plans_promote_ready.add_argument("--repo-path", type=Path, default=_default_repo_path())
     plans_promote_ready.add_argument("--db-path", type=Path, default=_default_db_path())
 
+    plans_project_backfill = plans_sub.add_parser(
+        "backfill-project-signals",
+        help="Run cursor-profile-backed project signal backfill summary (safe dry-run by default)",
+    )
+    plans_project_backfill.add_argument("project_id", type=str)
+    plans_project_backfill.add_argument("--profile-key", type=str, default="default")
+    plans_project_backfill.add_argument("--actor", type=str, default="operator")
+    plans_project_backfill.add_argument(
+        "--preset",
+        type=str,
+        default="balanced",
+        choices=sorted(PROJECT_BACKFILL_PRESETS.keys()),
+    )
+    plans_project_backfill.add_argument(
+        "--execute",
+        action="store_true",
+        help="Persist backfill markers and cursor movement (default is dry-run)",
+    )
+    plans_project_backfill.add_argument("--limit", type=int, default=None)
+    plans_project_backfill.add_argument("--top-signal-types", type=int, default=None)
+    plans_project_backfill.add_argument("--max-source-counts", type=int, default=None)
+    plans_project_backfill.add_argument("--max-signal-type-counts", type=int, default=None)
+    plans_project_backfill.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="Emit only summary-focused result payload (without full backfill block)",
+    )
+    plans_project_backfill.add_argument(
+        "--json-compact",
+        action="store_true",
+        help="Emit minified JSON output",
+    )
+    plans_project_backfill.add_argument(
+        "--output",
+        type=str,
+        default="json",
+        choices=("json", "pretty", "warnings", "policy"),
+        help=(
+            "Output mode: machine JSON, human-readable pretty text, warnings-only JSON, "
+            "or compact warning-policy provenance JSON"
+        ),
+    )
+    plans_project_backfill.add_argument(
+        "--color",
+        type=str,
+        default="auto",
+        choices=("auto", "always", "never"),
+        help="Color mode for --output pretty",
+    )
+    plans_project_backfill.add_argument(
+        "--warning-policy-config",
+        type=Path,
+        default=None,
+        help="Path to JSON warning-policy defaults (overridden by explicit CLI flags)",
+    )
+    plans_project_backfill.add_argument(
+        "--warning-policy-profile",
+        type=str,
+        default=None,
+        choices=sorted(WARNING_POLICY_PROFILES.keys()),
+        help=(
+            "Warning-policy profile defaults (explicit warning flags override profile values; "
+            "env fallback: JARVIS_BACKFILL_WARNING_POLICY_PROFILE)"
+        ),
+    )
+    plans_project_backfill.add_argument(
+        "--suppress-warning-code",
+        action="append",
+        default=[],
+        help=(
+            "Suppress operator warning hints by code (repeatable; "
+            "env defaults via JARVIS_BACKFILL_SUPPRESS_WARNING_CODES)"
+        ),
+    )
+    plans_project_backfill.add_argument(
+        "--min-warning-severity",
+        type=str,
+        default=None,
+        choices=("info", "warning", "error"),
+        help=(
+            "Minimum warning severity to include in operator hints output "
+            "(env fallback: JARVIS_BACKFILL_MIN_WARNING_SEVERITY; then warning profile)"
+        ),
+    )
+    plans_project_backfill.add_argument(
+        "--exit-code-policy",
+        type=str,
+        default=None,
+        choices=("off", "warning", "error"),
+        help=(
+            "Exit code policy based on filtered warning severity "
+            "(env fallback: JARVIS_BACKFILL_EXIT_CODE_POLICY; then warning profile)"
+        ),
+    )
+    plans_project_backfill.add_argument(
+        "--warning-exit-code",
+        type=int,
+        default=None,
+        help=(
+            "Exit code used for warning-level policy hits "
+            "(env fallback: JARVIS_BACKFILL_WARNING_EXIT_CODE; then warning profile)"
+        ),
+    )
+    plans_project_backfill.add_argument(
+        "--error-exit-code",
+        type=int,
+        default=None,
+        help=(
+            "Exit code used for error-level policy hits "
+            "(env fallback: JARVIS_BACKFILL_ERROR_EXIT_CODE; then warning profile)"
+        ),
+    )
+    plans_project_backfill.add_argument("--since-updated-at", type=str, default=None)
+    plans_project_backfill.add_argument("--since-outcomes-at", type=str, default=None)
+    plans_project_backfill.add_argument("--since-review-artifacts-at", type=str, default=None)
+    plans_project_backfill.add_argument("--since-merge-outcomes-at", type=str, default=None)
+    plans_project_backfill.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    plans_project_backfill.add_argument("--db-path", type=Path, default=_default_db_path())
+
+    plans_project_backfill.add_argument("--include-outcomes", dest="include_outcomes", action="store_true")
+    plans_project_backfill.add_argument("--no-include-outcomes", dest="include_outcomes", action="store_false")
+    plans_project_backfill.add_argument(
+        "--include-review-artifacts",
+        dest="include_review_artifacts",
+        action="store_true",
+    )
+    plans_project_backfill.add_argument(
+        "--no-include-review-artifacts",
+        dest="include_review_artifacts",
+        action="store_false",
+    )
+    plans_project_backfill.add_argument(
+        "--include-merge-outcomes",
+        dest="include_merge_outcomes",
+        action="store_true",
+    )
+    plans_project_backfill.add_argument(
+        "--no-include-merge-outcomes",
+        dest="include_merge_outcomes",
+        action="store_false",
+    )
+    plans_project_backfill.add_argument("--skip-seen", dest="skip_seen", action="store_true")
+    plans_project_backfill.add_argument("--no-skip-seen", dest="skip_seen", action="store_false")
+    plans_project_backfill.add_argument(
+        "--load-since-from-cursor-profile",
+        dest="load_since_from_cursor_profile",
+        action="store_true",
+    )
+    plans_project_backfill.add_argument(
+        "--no-load-since-from-cursor-profile",
+        dest="load_since_from_cursor_profile",
+        action="store_false",
+    )
+    plans_project_backfill.add_argument("--include-raw-signals", dest="include_raw_signals", action="store_true")
+    plans_project_backfill.add_argument("--no-include-raw-signals", dest="include_raw_signals", action="store_false")
+    plans_project_backfill.add_argument(
+        "--include-raw-ingestions",
+        dest="include_raw_ingestions",
+        action="store_true",
+    )
+    plans_project_backfill.add_argument(
+        "--no-include-raw-ingestions",
+        dest="include_raw_ingestions",
+        action="store_false",
+    )
+    plans_project_backfill.set_defaults(
+        include_outcomes=None,
+        include_review_artifacts=None,
+        include_merge_outcomes=None,
+        skip_seen=None,
+        load_since_from_cursor_profile=None,
+        max_source_counts=None,
+        max_signal_type_counts=None,
+        include_raw_signals=None,
+        include_raw_ingestions=None,
+    )
+
     args = parser.parse_args()
 
     if args.cmd == "demo":
@@ -1789,6 +3024,9 @@ def main() -> None:
         return
     if args.cmd == "plans" and args.plans_cmd == "promote-ready":
         cmd_plans_promote_ready(args)
+        return
+    if args.cmd == "plans" and args.plans_cmd == "backfill-project-signals":
+        cmd_plans_backfill_project_signals(args)
         return
 
     raise ValueError("Unsupported command")

@@ -49,13 +49,22 @@ class DialogueModelPolicyTests(unittest.TestCase):
                 cognition_backend=StubModelBackend(local_only=True),
             )
             try:
+                telemetry: dict[str, Any] = {}
                 reply = runtime.generate_presence_reply_body(
                     user_text="What tradeoff should we prioritize today?",
                     mode="equal",
                     modality="text",
                     continuity_ok=True,
+                    telemetry_out=telemetry,
                 )
-                self.assertIn("Model-first reply active", reply)
+                self.assertTrue(str(reply or "").strip())
+                self.assertTrue(telemetry.get("model_used"))
+                self.assertFalse(telemetry.get("fallback_used"))
+                self.assertEqual(str(telemetry.get("answer_source") or ""), "model")
+                self.assertIn(
+                    str(telemetry.get("route_reason") or ""),
+                    {"model", "partner_model", "partner_model_deep"},
+                )
             finally:
                 runtime.close()
 
@@ -123,10 +132,13 @@ class DialogueModelPolicyTests(unittest.TestCase):
                     continuity_ok=True,
                     telemetry_out=telemetry,
                 )
-                self.assertIn("Model-first reply active", reply)
+                self.assertIn("tradeoff", reply.lower())
                 self.assertTrue(telemetry.get("model_used"))
                 self.assertFalse(telemetry.get("fallback_used"))
-                self.assertEqual(str(telemetry.get("route_reason") or ""), "model")
+                self.assertIn(
+                    str(telemetry.get("route_reason") or ""),
+                    {"model", "partner_model", "partner_model_deep"},
+                )
             finally:
                 runtime.close()
 

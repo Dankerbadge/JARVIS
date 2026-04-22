@@ -15,6 +15,14 @@ python3 -m unittest discover -s tests -v
 python3 -m jarvis.cli demo
 ```
 
+## M23 Operator Runbook (Backfill Cursor Profiles)
+
+For project-signal incremental backfills with cursor profiles (preview, dry-run,
+summary mode, and cursor persistence), use:
+
+- `M23_BACKFILL_CURSOR_RUNBOOK.md`
+- `configs/backfill_workflow_snippets/README.md` (scheduled automation templates + warning-policy presets)
+
 ## Frozen Daily Dialogue Stack (M20B -> M21)
 
 The daily stack is frozen to:

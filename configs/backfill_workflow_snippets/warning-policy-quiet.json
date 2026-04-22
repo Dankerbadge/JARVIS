@@ -1,0 +1,11 @@
+{
+  "warning_policy_profile": "quiet",
+  "suppress_warning_codes": [
+    "source_counts_capped",
+    "signal_type_counts_capped"
+  ],
+  "min_warning_severity": "warning",
+  "exit_code_policy": "off",
+  "warning_exit_code": 2,
+  "error_exit_code": 3
+}

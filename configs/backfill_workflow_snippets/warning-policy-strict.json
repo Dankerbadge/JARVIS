@@ -1,0 +1,8 @@
+{
+  "warning_policy_profile": "strict",
+  "suppress_warning_codes": [],
+  "min_warning_severity": "warning",
+  "exit_code_policy": "warning",
+  "warning_exit_code": 2,
+  "error_exit_code": 3
+}
