@@ -877,6 +877,94 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(source_counts.get("shared_market_displeasures") or 0), 0)
             self.assertEqual(int(source_counts.get("leaderboard") or 0), 1)
 
+    def test_seed_from_leaderboard_filters_low_signal_count_current(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            leaderboard_path = root / "fitness_leaderboard.json"
+            leaderboard_path.write_text(
+                json.dumps(
+                    {
+                        "generated_at": "2026-04-22T12:00:00Z",
+                        "as_of": "2026-04-22T12:00:00Z",
+                        "domain": "fitness_apps",
+                        "source": "market_reviews",
+                        "leaderboard": [
+                            {
+                                "rank": 1,
+                                "canonical_key": "paywall appears before first full workout trial",
+                                "friction_key": "paywall_before_core_workout_trial",
+                                "trend": "rising",
+                                "impact_score_current": 8.5,
+                                "impact_score_delta": 2.0,
+                                "signal_count_current": 1,
+                                "signal_count_previous": 0,
+                                "cross_app_count_current": 2,
+                            },
+                            {
+                                "rank": 2,
+                                "canonical_key": "beginner onboarding too intense and rigid",
+                                "friction_key": "onboarding_plan_too_rigid_for_beginner_adherence",
+                                "trend": "new",
+                                "impact_score_current": 7.0,
+                                "impact_score_delta": 7.0,
+                                "signal_count_current": 4,
+                                "signal_count_previous": 0,
+                                "cross_app_count_current": 2,
+                            },
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                leaderboard_path=leaderboard_path,
+                domain="fitness_apps",
+                source="fitness_leaderboard",
+                trends="new,rising",
+                limit=5,
+                min_impact_score=0.0,
+                min_impact_delta=0.0,
+                entry_source="leaderboard",
+                fallback_entry_source="none",
+                min_cross_app_count=0,
+                min_signal_count_current=3,
+                owner="operator",
+                lookup_limit=200,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_seed_from_leaderboard(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(int(payload.get("min_signal_count_current") or 0), 3)
+            self.assertEqual(int(payload.get("created_count") or 0), 1)
+            self.assertTrue(
+                any(
+                    str((row or {}).get("reason") or "") == "signal_count_current_below_min"
+                    for row in list(payload.get("skipped") or [])
+                )
+            )
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypotheses = runtime.list_hypotheses(domain="fitness_apps", status=None, limit=20)
+                self.assertEqual(len(hypotheses), 1)
+                self.assertEqual(
+                    str((hypotheses[0] or {}).get("friction_key") or ""),
+                    "onboarding_plan_too_rigid_for_beginner_adherence",
+                )
+            finally:
+                runtime.close()
+
     def test_draft_experiment_jobs_from_seed_report_writes_templates_and_updates_config(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -2983,6 +3071,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 seed_limit=6,
                 seed_min_impact_score=0.0,
                 seed_min_impact_delta=0.0,
+                seed_min_signal_count_current=1,
                 seed_owner="operator",
                 seed_lookup_limit=200,
                 seed_as_of="2026-04-22T12:00:00Z",
@@ -3029,6 +3118,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(stage_statuses.get("execute_retests") or ""), "ok")
 
             seed_payload = dict(payload.get("seed_from_leaderboard") or {})
+            self.assertEqual(int(seed_payload.get("min_signal_count_current") or 0), 1)
             created_rows = [row for row in list(seed_payload.get("created") or []) if isinstance(row, dict)]
             self.assertGreaterEqual(len(created_rows), 1)
 

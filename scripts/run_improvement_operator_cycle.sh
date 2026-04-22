@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "usage: $0 <config_path> [--output-dir <path>] [--strict] [--no-allow-missing-feeds] [--no-allow-missing-inputs] [--no-allow-missing-retests] [--seed-enable] [--seed-domains <csv>] [--seed-leaderboard-input-path <path>] [--draft-enable] [--draft-seed-report-path <path>] [extra_cli_flags...]"
+  echo "usage: $0 <config_path> [--output-dir <path>] [--strict] [--no-allow-missing-feeds] [--no-allow-missing-inputs] [--no-allow-missing-retests] [--seed-enable] [--seed-domains <csv>] [--seed-leaderboard-input-path <path>] [--seed-min-signal-count-current <n>] [--draft-enable] [--draft-seed-report-path <path>] [extra_cli_flags...]"
   exit 2
 fi
 
@@ -17,6 +17,7 @@ ALLOW_MISSING_RETESTS_FLAG=""
 SEED_ENABLE_FLAG=""
 SEED_DOMAINS="${JARVIS_IMPROVEMENT_OPERATOR_SEED_DOMAINS:-}"
 SEED_LEADERBOARD_INPUT_PATH="${JARVIS_IMPROVEMENT_OPERATOR_SEED_LEADERBOARD_INPUT_PATH:-}"
+SEED_MIN_SIGNAL_COUNT_CURRENT="${JARVIS_IMPROVEMENT_OPERATOR_SEED_MIN_SIGNAL_COUNT_CURRENT:-}"
 DRAFT_ENABLE_FLAG=""
 DRAFT_SEED_REPORT_PATH="${JARVIS_IMPROVEMENT_OPERATOR_DRAFT_SEED_REPORT_PATH:-}"
 EXTRA_ARGS=()
@@ -65,6 +66,14 @@ while [[ $# -gt 0 ]]; do
         exit 2
       fi
       SEED_LEADERBOARD_INPUT_PATH="$2"
+      shift 2
+      ;;
+    --seed-min-signal-count-current)
+      if [[ $# -lt 2 ]]; then
+        echo "error: --seed-min-signal-count-current requires an integer value"
+        exit 2
+      fi
+      SEED_MIN_SIGNAL_COUNT_CURRENT="$2"
       shift 2
       ;;
     --draft-enable)
@@ -127,6 +136,10 @@ fi
 
 if [[ -n "$SEED_LEADERBOARD_INPUT_PATH" ]]; then
   CMD+=(--seed-leaderboard-input-path "$SEED_LEADERBOARD_INPUT_PATH")
+fi
+
+if [[ -n "$SEED_MIN_SIGNAL_COUNT_CURRENT" ]]; then
+  CMD+=(--seed-min-signal-count-current "$SEED_MIN_SIGNAL_COUNT_CURRENT")
 fi
 
 if [[ -n "$DRAFT_ENABLE_FLAG" ]]; then

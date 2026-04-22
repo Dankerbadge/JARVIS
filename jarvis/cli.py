@@ -2886,6 +2886,8 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
                     "trend": trend,
                     "impact_score_current": row.get("impact_score_current"),
                     "impact_score_delta": row.get("impact_score_delta"),
+                    "signal_count_current": int(row.get("signal_count_current") or 0),
+                    "signal_count_previous": int(row.get("signal_count_previous") or 0),
                     "market_recurrence_score": row.get("market_recurrence_score"),
                     "cross_app_count_current": row.get("cross_app_count_current"),
                     "top_competitor_apps": top_competitor_apps[:top_apps_per_cluster],
@@ -3080,6 +3082,7 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
     min_impact_score = float(getattr(args, "min_impact_score", 0.0) or 0.0)
     min_impact_delta = float(getattr(args, "min_impact_delta", 0.0) or 0.0)
     min_cross_app_count = max(0, int(getattr(args, "min_cross_app_count", 0) or 0))
+    min_signal_count_current = max(0, int(getattr(args, "min_signal_count_current", 0) or 0))
     include_trends = {item.lower() for item in _parse_csv_items(getattr(args, "trends", None))}
     if not include_trends:
         include_trends = {"new", "rising"}
@@ -3161,6 +3164,26 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 )
                 continue
 
+            try:
+                signal_count_current = max(0, int(entry.get("signal_count_current") or 0))
+            except (TypeError, ValueError):
+                signal_count_current = 0
+            if signal_count_current < min_signal_count_current:
+                skipped.append(
+                    {
+                        "index": index,
+                        "reason": "signal_count_current_below_min",
+                        "signal_count_current": signal_count_current,
+                        "min_signal_count_current": min_signal_count_current,
+                        "canonical_key": entry.get("canonical_key"),
+                    }
+                )
+                continue
+            try:
+                signal_count_previous = max(0, int(entry.get("signal_count_previous") or 0))
+            except (TypeError, ValueError):
+                signal_count_previous = 0
+
             selected_count += 1
             title = f"{domain}: reduce '{friction_key}' frustration"
             existing_match = existing_by_key.get(friction_key) or existing_title_keys.get(title.strip().lower())
@@ -3236,8 +3259,8 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 "seed_rank": entry.get("rank"),
                 "seed_impact_score_current": impact_score_current,
                 "seed_impact_score_delta": impact_score_delta,
-                "seed_signal_count_current": int(entry.get("signal_count_current") or 0),
-                "seed_signal_count_previous": int(entry.get("signal_count_previous") or 0),
+                "seed_signal_count_current": int(signal_count_current),
+                "seed_signal_count_previous": int(signal_count_previous),
                 "seed_canonical_key": canonical_key,
                 "seed_example_summary": summary_hint,
                 "seed_top_tags": top_tag_names,
@@ -3308,6 +3331,7 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
             "min_impact_score": min_impact_score,
             "min_impact_delta": min_impact_delta,
             "min_cross_app_count": min_cross_app_count,
+            "min_signal_count_current": min_signal_count_current,
             "requested_count": len(entries),
             "selected_count": selected_count,
             "created_count": len(created),
@@ -5114,6 +5138,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                             getattr(args, "seed_fallback_entry_source", "leaderboard") or "leaderboard"
                         ),
                         min_cross_app_count=max(0, int(getattr(args, "seed_min_cross_app_count", 0) or 0)),
+                        min_signal_count_current=max(
+                            0,
+                            int(getattr(args, "seed_min_signal_count_current", 0) or 0),
+                        ),
                         owner=str(getattr(args, "seed_owner", "operator") or "operator").strip() or "operator",
                         lookup_limit=max(1, int(getattr(args, "seed_lookup_limit", 400) or 400)),
                         strict=False,
@@ -8230,6 +8258,12 @@ def main() -> None:
         default=0,
         help="Optional minimum cross-app coverage required per candidate entry (0 disables)",
     )
+    improvement_seed_from_leaderboard.add_argument(
+        "--min-signal-count-current",
+        type=int,
+        default=0,
+        help="Optional minimum current-window signal count required per candidate entry (0 disables)",
+    )
     improvement_seed_from_leaderboard.add_argument("--owner", type=str, default="operator")
     improvement_seed_from_leaderboard.add_argument("--lookup-limit", type=int, default=400)
     improvement_seed_from_leaderboard.add_argument("--strict", action="store_true")
@@ -8490,6 +8524,12 @@ def main() -> None:
             "Minimum cross-app coverage used by fitness-leaderboard shared-market ranking "
             "and seed-from-leaderboard candidate filtering"
         ),
+    )
+    improvement_operator_cycle.add_argument(
+        "--seed-min-signal-count-current",
+        type=int,
+        default=0,
+        help="Optional minimum current-window signal count required during seed-from-leaderboard filtering",
     )
     improvement_operator_cycle.add_argument("--seed-own-app-aliases", type=str, default=None)
     improvement_operator_cycle.add_argument("--seed-trend-threshold", type=float, default=0.25)

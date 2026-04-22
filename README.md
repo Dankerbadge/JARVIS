@@ -111,6 +111,7 @@ python3 -m jarvis.cli improvement seed-from-leaderboard \
   --entry-source shared_market_displeasures \
   --fallback-entry-source leaderboard \
   --min-cross-app-count 2 \
+  --min-signal-count-current 3 \
   --limit 8 \
   --output-path ./output/improvement/fitness_leaderboard_seed_report.json
 ```
@@ -124,8 +125,12 @@ python3 -m jarvis.cli improvement seed-from-leaderboard \
   --fallback-entry-source leaderboard \
   --trends new,rising \
   --min-cross-app-count 2 \
+  --min-signal-count-current 3 \
   --limit 8
 ```
+
+`--min-signal-count-current` is useful for controlled validation lanes: it avoids auto-seeding
+hypotheses from low-volume one-off complaints.
 
 Scheduling-friendly wrapper:
 
@@ -248,6 +253,7 @@ python3 -m jarvis.cli improvement operator-cycle \
   --config-path ./configs/improvement_pipeline_example.json \
   --output-dir ./output/improvement/operator_cycle \
   --seed-enable \
+  --seed-min-signal-count-current 3 \
   --draft-enable \
   --strict
 ```
@@ -260,6 +266,7 @@ python3 -m jarvis.cli improvement operator-cycle \
   --output-dir ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded \
   --seed-enable \
   --seed-domains quant_finance,kalshi_weather,fitness_apps,market_ml \
+  --seed-min-signal-count-current 3 \
   --draft-enable \
   --draft-statuses queued,validated \
   --strict
