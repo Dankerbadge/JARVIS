@@ -1,0 +1,73 @@
+name: reconcile-codeowner-review-gate
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "5 14 * * 1-5"
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconcile code-owner review gate
+        id: reconcile
+        env:
+          GH_TOKEN: ${{ secrets.JARVIS_ADMIN_GH_TOKEN }}
+        run: |
+          mkdir -p output/ci
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "JARVIS_ADMIN_GH_TOKEN is not set; skipping reconcile run."
+            printf '%s\n' \
+              '{' \
+              '  "status": "skipped",' \
+              '  "reason": "missing_secret",' \
+              '  "required_secret": "JARVIS_ADMIN_GH_TOKEN"' \
+              '}' \
+              > output/ci/codeowner_review_reconcile.json
+            exit 0
+          fi
+
+          bash ./scripts/reconcile_codeowner_review_gate.sh \
+            --repo-slug Dankerbadge/JARVIS \
+            --branch main \
+            --min-collaborators 2 \
+            --apply \
+            > output/ci/codeowner_review_reconcile.json
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path("output/ci/codeowner_review_reconcile.json").read_text(encoding="utf-8"))
+          reviews = dict(payload.get("required_pull_request_reviews") or {})
+
+          collaborator_count = int(payload.get("collaborator_count") or 0)
+          current = bool(reviews.get("current_require_code_owner_reviews"))
+          desired = bool(reviews.get("desired_require_code_owner_reviews"))
+
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as handle:
+              handle.write(f"collaborator_count={collaborator_count}\n")
+              handle.write(f"current_require_code_owner_reviews={'true' if current else 'false'}\n")
+              handle.write(f"desired_require_code_owner_reviews={'true' if desired else 'false'}\n")
+          PY
+
+      - name: Upload reconcile artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeowner-review-reconcile
+          path: output/ci/codeowner_review_reconcile.json
+
+      - name: Print reconcile summary
+        if: always()
+        run: |
+          echo "collaborator_count=${{ steps.reconcile.outputs.collaborator_count || 'n/a' }}"
+          echo "current_require_code_owner_reviews=${{ steps.reconcile.outputs.current_require_code_owner_reviews || 'n/a' }}"
+          echo "desired_require_code_owner_reviews=${{ steps.reconcile.outputs.desired_require_code_owner_reviews || 'n/a' }}"
