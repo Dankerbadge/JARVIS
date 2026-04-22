@@ -272,6 +272,21 @@ python3 -m jarvis.cli improvement operator-cycle \
   --strict
 ```
 
+For config-driven thresholding (no extra CLI flags), add these under `defaults`:
+
+```json
+{
+  "seed_min_signal_count_current": 2,
+  "seed_min_signal_count_current_by_domain": {
+    "kalshi_weather": 3,
+    "market_ml": 3
+  }
+}
+```
+
+Resolution order is: CLI `--seed-min-signal-count-current` override, then
+`seed_min_signal_count_current_by_domain`, then `seed_min_signal_count_current`.
+
 If you already generated a seed report, you can still draft directly from that report:
 
 ```bash

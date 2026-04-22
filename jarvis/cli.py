@@ -4870,6 +4870,63 @@ def _aggregate_stage_status(statuses: list[str]) -> str:
     return normalized[0]
 
 
+def _normalize_seed_domain_name(raw_domain: Any) -> str:
+    normalized = str(raw_domain or "").strip().lower()
+    aliases = {
+        "quantitative_finance": "quant_finance",
+        "weather_betting": "kalshi_weather",
+        "kalshi": "kalshi_weather",
+        "fitness": "fitness_apps",
+        "market_machine_learning": "market_ml",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _load_operator_cycle_defaults_from_config(*, config_path: Path) -> dict[str, Any]:
+    try:
+        loaded = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    defaults = loaded.get("defaults")
+    return dict(defaults) if isinstance(defaults, dict) else {}
+
+
+def _resolve_seed_min_signal_count_current(
+    *,
+    domain: str,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[int, str]:
+    if cli_value is not None:
+        try:
+            return max(0, int(cli_value)), "cli_override"
+        except (TypeError, ValueError):
+            return 0, "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain)
+    by_domain_raw = defaults.get("seed_min_signal_count_current_by_domain")
+    if isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            try:
+                return max(0, int(raw_value)), "config_by_domain"
+            except (TypeError, ValueError):
+                break
+
+    global_default_raw = defaults.get("seed_min_signal_count_current")
+    if global_default_raw is not None:
+        try:
+            return max(0, int(global_default_raw)), "config_global"
+        except (TypeError, ValueError):
+            pass
+
+    return 0, "builtin_default"
+
+
 def _infer_feedback_seed_context_from_config(*, config_path: Path, domain: str) -> dict[str, Any] | None:
     try:
         loaded = json.loads(config_path.read_text(encoding="utf-8"))
@@ -4955,6 +5012,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
     )
 
     stage_errors: list[dict[str, Any]] = []
+    operator_cycle_defaults = _load_operator_cycle_defaults_from_config(config_path=config_path)
 
     pull_payload: dict[str, Any]
     try:
@@ -5015,6 +5073,11 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
     if seed_requested:
         for domain_index, seed_domain in enumerate(seed_domains):
             domain_slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", seed_domain) or f"domain_{domain_index + 1}"
+            resolved_min_signal_count_current, min_signal_count_source = _resolve_seed_min_signal_count_current(
+                domain=seed_domain,
+                cli_value=getattr(args, "seed_min_signal_count_current", None),
+                defaults=operator_cycle_defaults,
+            )
             if domain_index == 0:
                 domain_leaderboard_report_path = seed_leaderboard_report_path
                 domain_seed_report_path = seed_report_output_path
@@ -5138,10 +5201,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                             getattr(args, "seed_fallback_entry_source", "leaderboard") or "leaderboard"
                         ),
                         min_cross_app_count=max(0, int(getattr(args, "seed_min_cross_app_count", 0) or 0)),
-                        min_signal_count_current=max(
-                            0,
-                            int(getattr(args, "seed_min_signal_count_current", 0) or 0),
-                        ),
+                        min_signal_count_current=int(resolved_min_signal_count_current),
                         owner=str(getattr(args, "seed_owner", "operator") or "operator").strip() or "operator",
                         lookup_limit=max(1, int(getattr(args, "seed_lookup_limit", 400) or 400)),
                         strict=False,
@@ -5171,6 +5231,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "input_format": domain_input_format,
                     "leaderboard_report_path": str(domain_leaderboard_report_path),
                     "seed_report_path": str(domain_seed_report_path),
+                    "seed_min_signal_count_current": int(resolved_min_signal_count_current),
+                    "seed_min_signal_count_current_source": str(min_signal_count_source),
                     "fitness_leaderboard": domain_leaderboard_payload,
                     "seed_from_leaderboard": domain_seed_payload,
                 }
@@ -5220,6 +5282,12 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         "domain": row.get("domain"),
                         "status": str((row.get("seed_from_leaderboard") or {}).get("status") or ""),
                         "source": row.get("hypothesis_source"),
+                        "min_signal_count_current": int(
+                            (row.get("seed_from_leaderboard") or {}).get("min_signal_count_current")
+                            or row.get("seed_min_signal_count_current")
+                            or 0
+                        ),
+                        "min_signal_count_current_source": str(row.get("seed_min_signal_count_current_source") or ""),
                         "output_path": str((row.get("seed_from_leaderboard") or {}).get("output_path") or ""),
                         "created_count": int((row.get("seed_from_leaderboard") or {}).get("created_count") or 0),
                         "existing_count": int((row.get("seed_from_leaderboard") or {}).get("existing_count") or 0),
@@ -8528,8 +8596,11 @@ def main() -> None:
     improvement_operator_cycle.add_argument(
         "--seed-min-signal-count-current",
         type=int,
-        default=0,
-        help="Optional minimum current-window signal count required during seed-from-leaderboard filtering",
+        default=None,
+        help=(
+            "Optional minimum current-window signal count required during seed-from-leaderboard filtering "
+            "(when omitted, resolves from config defaults per domain)"
+        ),
     )
     improvement_operator_cycle.add_argument("--seed-own-app-aliases", type=str, default=None)
     improvement_operator_cycle.add_argument("--seed-trend-threshold", type=float, default=0.25)
