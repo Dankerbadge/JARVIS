@@ -1,0 +1,81 @@
+{
+  "defaults": {
+    "owner": "operator",
+    "auto_register": true,
+    "min_cluster_count": 2,
+    "proposal_limit": 5,
+    "hypothesis_lookup_limit": 200,
+    "preferred_statuses": ["testing", "queued", "validated", "rejected"],
+    "compare_experiment_history": true,
+    "comparison_limit": 25,
+    "auto_retest_lane": true,
+    "insufficient_sample_multiplier": 1.5,
+    "guardrail_sample_multiplier": 1.1,
+    "min_sample_increment": 50,
+    "guardrail_safety_factor": 0.9,
+    "collect_experiment_debug": true,
+    "include_decision_timeline": true,
+    "experiment_debug_output_dir": "output/improvement/debug_runs",
+    "report_cluster_min_count": 1,
+    "report_cluster_limit": 10,
+    "report_hypothesis_limit": 30,
+    "report_experiment_limit": 50,
+    "report_queue_limit": 20,
+    "allow_missing_inputs": true
+  },
+  "feed_jobs": [
+    {
+      "name": "fitness_app_reviews_feed",
+      "url": "analysis/raw/fitness_app_reviews.json",
+      "format": "json",
+      "records_path": "reviews",
+      "mapping": {
+        "id": "id",
+        "title": "title",
+        "summary": "text",
+        "review": "text",
+        "rating": "rating",
+        "created_at": "created_at"
+      },
+      "output_path": "analysis/fitness_feedback.jsonl"
+    },
+    {
+      "name": "kalshi_trade_journal_feed",
+      "url": "analysis/raw/kalshi_trade_journal.csv",
+      "format": "csv",
+      "mapping": {
+        "id": "trade_id",
+        "summary": "note",
+        "review": "postmortem",
+        "severity": "severity",
+        "created_at": "closed_at"
+      },
+      "output_path": "analysis/kalshi_feedback.jsonl"
+    }
+  ],
+  "feedback_jobs": [
+    {
+      "domain": "fitness_apps",
+      "source": "app_store_reviews",
+      "input_path": "analysis/fitness_feedback.jsonl",
+      "input_format": "jsonl",
+      "report_path": "output/improvement/fitness_inbox_report.json"
+    },
+    {
+      "domain": "kalshi_weather",
+      "source": "kalshi_trade_journal",
+      "input_path": "analysis/kalshi_feedback.jsonl",
+      "input_format": "jsonl",
+      "report_path": "output/improvement/kalshi_inbox_report.json"
+    }
+  ],
+  "experiment_jobs": [
+    {
+      "domain": "market_ml",
+      "friction_key": "false_positive_drift",
+      "artifact_path": "analysis/market_ml_backtest_eval.json",
+      "environment": "offline_backtest"
+    }
+  ],
+  "output_path": "output/improvement/daily_pipeline_report.json"
+}

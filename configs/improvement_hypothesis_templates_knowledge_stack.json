@@ -1,0 +1,101 @@
+{
+  "description": "Cross-domain hypothesis templates for quant finance, Kalshi weather markets, fitness apps, and market ML.",
+  "hypotheses": [
+    {
+      "domain": "quant_finance",
+      "title": "Stabilize execution slippage under regime shifts",
+      "statement": "Execution slippage rises when volatility regimes change quickly, degrading realized edge.",
+      "proposed_change": "Introduce regime-aware participation caps and venue routing before order placement.",
+      "friction_key": "execution_slippage_regime_drift",
+      "risk_level": "high",
+      "metadata": {
+        "pillar": "quant_finance",
+        "goal": "improve_realized_pnl_quality"
+      }
+    },
+    {
+      "domain": "quant_finance",
+      "title": "Reduce signal decay after macro open",
+      "statement": "Signals decay faster during macro-open windows, causing delayed entries to underperform.",
+      "proposed_change": "Shift inference and execution timing to a shorter decision cadence around macro releases.",
+      "friction_key": "signal_decay_after_macro_open",
+      "risk_level": "medium",
+      "metadata": {
+        "pillar": "quant_finance",
+        "goal": "timing_robustness"
+      }
+    },
+    {
+      "domain": "kalshi_weather",
+      "title": "Tighten forecast timing near settlement",
+      "statement": "Forecast updates close to settlement are not incorporated quickly enough into pricing.",
+      "proposed_change": "Increase update cadence in the final settlement window with bounded spread logic.",
+      "friction_key": "forecast_timing_mismatch_near_settlement",
+      "risk_level": "high",
+      "metadata": {
+        "pillar": "kalshi_weather",
+        "goal": "pricing_responsiveness"
+      }
+    },
+    {
+      "domain": "kalshi_weather",
+      "title": "Right-size weather order sizing after forecast shocks",
+      "statement": "Order size reacts too aggressively to abrupt forecast shifts, increasing downside tails.",
+      "proposed_change": "Use forecast-shock buckets with capped sizing multipliers and loss-budget checks.",
+      "friction_key": "order_sizing_overreacts_to_forecast_updates",
+      "risk_level": "high",
+      "metadata": {
+        "pillar": "kalshi_weather",
+        "goal": "loss_tail_control"
+      }
+    },
+    {
+      "domain": "fitness_apps",
+      "title": "Delay paywall until after first core workout",
+      "statement": "Users churn when the paywall appears before they complete a meaningful workout trial.",
+      "proposed_change": "Gate paywall prompts until users finish one full beginner workout path.",
+      "friction_key": "paywall_before_core_workout_trial",
+      "risk_level": "medium",
+      "metadata": {
+        "pillar": "fitness_apps",
+        "goal": "reduce_trial_dropoff"
+      }
+    },
+    {
+      "domain": "fitness_apps",
+      "title": "Adapt onboarding plans for beginner adherence",
+      "statement": "Rigid onboarding plans overwhelm beginners and reduce week-one adherence.",
+      "proposed_change": "Introduce adaptive onboarding intensity based on first-session completion and feedback.",
+      "friction_key": "onboarding_plan_too_rigid_for_beginner_adherence",
+      "risk_level": "medium",
+      "metadata": {
+        "pillar": "fitness_apps",
+        "goal": "improve_week_one_retention"
+      }
+    },
+    {
+      "domain": "market_ml",
+      "title": "Reduce false-positive drift in high-volatility windows",
+      "statement": "Model false-positive rates drift upward during high-volatility market windows.",
+      "proposed_change": "Add volatility-conditional calibration and stricter confidence gating.",
+      "friction_key": "false_positive_drift_in_high_volatility_windows",
+      "risk_level": "high",
+      "metadata": {
+        "pillar": "market_ml",
+        "goal": "precision_stability"
+      }
+    },
+    {
+      "domain": "market_ml",
+      "title": "Lower inference latency spikes during feature enrichment",
+      "statement": "Feature enrichment occasionally produces latency spikes that threaten execution timing.",
+      "proposed_change": "Move heavy enrichment to async pre-compute and cache hot-path feature sets.",
+      "friction_key": "latency_spikes_during_feature_enrichment",
+      "risk_level": "medium",
+      "metadata": {
+        "pillar": "market_ml",
+        "goal": "latency_budget_protection"
+      }
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+trade_id,market,note,postmortem,severity,closed_at
+kw-101,NYC High Temp 68-69,Forecast refresh missed near-settlement update,Model updated 7 minutes late and spread widened beyond threshold,4,2026-04-18T21:00:00Z
+kw-102,CHI High Temp 54-55,Order sizing overreacted to one forecast shock,Sizing multiplier exceeded plan and increased downside tail,5,2026-04-19T21:00:00Z

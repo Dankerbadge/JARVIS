@@ -1,0 +1,19 @@
+{
+  "environment": "offline_backtest",
+  "notes": "Controlled quant experiment for regime-aware execution policy.",
+  "baseline": {
+    "metrics": {
+      "sharpe_ratio": 1.05,
+      "max_drawdown": 0.11,
+      "turnover": 4.6
+    }
+  },
+  "candidate": {
+    "metrics": {
+      "sharpe_ratio": 1.24,
+      "max_drawdown": 0.1,
+      "turnover": 4.9
+    },
+    "sample_size": 72
+  }
+}

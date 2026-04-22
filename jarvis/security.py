@@ -666,6 +666,49 @@ class SecurityManager:
             "updated_at": row["updated_at"],
         }
 
+    def list_provider_reviews(
+        self,
+        *,
+        provider: str | None = None,
+        repo_slug: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if provider is not None:
+            clauses.append("provider = ?")
+            params.append(str(provider))
+        if repo_slug is not None:
+            clauses.append("repo_slug = ?")
+            params.append(str(repo_slug))
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        resolved_limit = max(1, int(limit))
+        rows = self.conn.execute(
+            f"""
+            SELECT *
+            FROM provider_reviews
+            {where_sql}
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (*params, resolved_limit),
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            out.append(
+                {
+                    "approval_id": row["approval_id"],
+                    "plan_id": row["plan_id"],
+                    "step_id": row["step_id"],
+                    "provider": row["provider"],
+                    "repo_slug": row["repo_slug"],
+                    "review": json.loads(row["review_json"]),
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+            )
+        return out
+
     def store_review_artifact(
         self,
         *,

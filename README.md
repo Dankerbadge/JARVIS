@@ -23,6 +23,251 @@ summary mode, and cursor persistence), use:
 - `M23_BACKFILL_CURSOR_RUNBOOK.md`
 - `configs/backfill_workflow_snippets/README.md` (scheduled automation templates + warning-policy presets)
 
+## M24 Friction -> Hypothesis Cycle
+
+Run friction mining + auto-hypothesis cycle from local feedback feeds:
+
+```bash
+python3 -m jarvis.cli improvement cycle-from-file \
+  --domain fitness_apps \
+  --source app_store_reviews \
+  --input-path ./analysis/fitness_feedback.jsonl \
+  --input-format jsonl \
+  --min-cluster-count 1 \
+  --proposal-limit 5 \
+  --report-path ./output/improvement/fitness_inbox_report.json
+```
+
+Use the scheduling-friendly wrapper script:
+
+```bash
+./scripts/run_improvement_cycle.sh \
+  fitness_apps \
+  app_store_reviews \
+  ./analysis/fitness_feedback.jsonl \
+  --report-path ./output/improvement/fitness_inbox_report.json
+```
+
+Run hypothesis experiments directly from backtest/paper-trade artifact JSON:
+
+```bash
+python3 -m jarvis.cli improvement run-experiment-artifact \
+  --hypothesis-id hyp_your_id_here \
+  --artifact-path ./analysis/market_ml_backtest_eval.json
+```
+
+Pull external/local feedback feeds into normalized JSONL files:
+
+```bash
+python3 -m jarvis.cli improvement pull-feeds \
+  --config-path ./configs/improvement_pipeline_example.json
+```
+
+Run a config-driven daily pipeline (multiple feedback feeds + experiment artifacts):
+
+```bash
+python3 -m jarvis.cli improvement daily-pipeline \
+  --config-path ./configs/improvement_pipeline_example.json
+```
+
+`daily-pipeline` now supports hypothesis auto-resolution for experiment jobs using
+`domain + friction_key` (so you do not need to hardcode `hypothesis_id` in config).
+It can also emit per-experiment debug artifacts (`failed_checks`, `root_cause_hints`,
+and optional reasoning timelines) for controlled-environment iteration.
+It now includes an auto-retest lane: `blocked_guardrail` and `insufficient_data`
+outcomes can be re-queued with recommended cohort-size and guardrail-safety targets,
+plus side-by-side comparison summaries versus previous runs.
+
+Execute queued retest runs from a prior pipeline report:
+
+```bash
+python3 -m jarvis.cli improvement execute-retests \
+  --pipeline-report-path ./output/improvement/daily_pipeline_report.json \
+  --artifact-dir ./output/improvement/retest_artifacts \
+  --output-path ./output/improvement/retest_execution_report.json
+```
+
+Scheduling-friendly wrapper:
+
+```bash
+./scripts/run_improvement_daily_pipeline.sh \
+  ./configs/improvement_pipeline_example.json \
+  --strict
+```
+
+Feed-pull wrapper:
+
+```bash
+./scripts/run_improvement_pull_feeds.sh \
+  ./configs/improvement_pipeline_example.json \
+```
+
+Retest execution wrapper:
+
+```bash
+./scripts/run_improvement_execute_retests.sh \
+  ./output/improvement/daily_pipeline_report.json \
+  --artifact-dir ./output/improvement/retest_artifacts \
+  --strict
+```
+
+Run the full operator chain in one command (`pull-feeds -> daily-pipeline -> execute-retests`)
+and emit a consolidated operator inbox summary:
+
+```bash
+python3 -m jarvis.cli improvement operator-cycle \
+  --config-path ./configs/improvement_pipeline_example.json \
+  --output-dir ./output/improvement/operator_cycle \
+  --strict
+```
+
+Operator-cycle wrapper:
+
+```bash
+./scripts/run_improvement_operator_cycle.sh \
+  ./configs/improvement_pipeline_example.json \
+  --output-dir ./output/improvement/operator_cycle \
+  --strict
+```
+
+### Knowledge-Stack Operator Pack (Quant + Kalshi + Fitness + Market ML)
+
+Seed reusable cross-domain hypotheses:
+
+```bash
+python3 -m jarvis.cli improvement seed-hypotheses \
+  --template-path ./configs/improvement_hypothesis_templates_knowledge_stack.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/seed_report.json
+```
+
+Wrapper:
+
+```bash
+./scripts/run_improvement_seed_hypotheses.sh \
+  ./configs/improvement_hypothesis_templates_knowledge_stack.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/seed_report.json
+```
+
+Run the multi-domain operator cycle with controlled artifacts and debug outputs:
+
+```bash
+python3 -m jarvis.cli improvement operator-cycle \
+  --config-path ./configs/improvement_operator_knowledge_stack.json \
+  --output-dir ./configs/improvement_operator_knowledge_stack/output \
+  --strict
+```
+
+Verify expected-vs-actual verdicts and flag drift:
+
+```bash
+python3 -m jarvis.cli improvement verify-matrix \
+  --matrix-path ./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json \
+  --report-path ./configs/improvement_operator_knowledge_stack/output/daily_pipeline_report.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/matrix_verification_report.json \
+  --strict
+```
+
+Wrapper:
+
+```bash
+./scripts/run_improvement_verify_matrix.sh \
+  ./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json \
+  ./configs/improvement_operator_knowledge_stack/output/daily_pipeline_report.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/matrix_verification_report.json \
+  --strict
+```
+
+Create a high-priority operator inbox alert automatically when drift is detected:
+
+```bash
+python3 -m jarvis.cli improvement verify-matrix-alert \
+  --matrix-path ./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json \
+  --report-path ./configs/improvement_operator_knowledge_stack/output/daily_pipeline_report.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/matrix_drift_alert_report.json \
+  --strict
+```
+
+`verify-matrix-alert` now classifies drift severity as `warn` or `critical` and auto-scales
+alert urgency/confidence from mismatch/missing/invalid counts and guardrail regressions.
+You can still override with `--alert-urgency` and `--alert-confidence` when needed.
+
+`plans evaluate-promotion` and `plans promote-ready` now enforce a `critical` drift gate
+by default and block promotion while unacknowledged critical drift alerts exist.
+Unblock by acknowledging the alert:
+
+```bash
+python3 -m jarvis.cli interrupts acknowledge <interrupt_id> --actor operator
+```
+
+The promotion policy payload now also exposes unblock-ready hints under
+`policy.critical_drift_gate_status` (`blocking_interrupt_ids` +
+`acknowledge_commands`) and per-alert `acknowledge_command` entries.
+For a concise operator view, run:
+
+```bash
+python3 -m jarvis.cli plans gate-status <plan_id> <step_id> \
+  --single-maintainer-override \
+  --allow-no-required-checks \
+  --output text \
+  --repo-path "$JARVIS_REPO_PATH" \
+  --db-path ./.jarvis/jarvis.db
+```
+
+To scan recent review steps and print one consolidated blocker queue:
+
+```bash
+python3 -m jarvis.cli plans gate-status-all \
+  --limit 25 \
+  --only-blocked \
+  --fail-on-blocked \
+  --fail-on-errors \
+  --fail-on-zero-scanned \
+  --fail-on-zero-evaluated \
+  --fail-on-empty-ack-commands \
+  --blocked-exit-code 7 \
+  --error-exit-code 11 \
+  --zero-scanned-exit-code 17 \
+  --zero-evaluated-exit-code 13 \
+  --empty-ack-commands-exit-code 19 \
+  --emit-ci-summary-path ./configs/improvement_operator_knowledge_stack/output/gate_status_all_summary.md \
+  --emit-ci-json-path ./configs/improvement_operator_knowledge_stack/output/gate_status_all_compact.json \
+  --single-maintainer-override \
+  --allow-no-required-checks \
+  --output text \
+  --repo-path "$JARVIS_REPO_PATH" \
+  --db-path ./.jarvis/jarvis.db
+```
+
+When `--emit-ci-summary-path` is omitted and `GITHUB_STEP_SUMMARY` is set (for example in GitHub
+Actions), `gate-status-all` automatically writes the same markdown summary to that step-summary path.
+Use `--emit-ci-json-path` when downstream CI jobs need a compact machine-readable artifact instead of parsing stdout.
+Use `./configs/improvement_operator_knowledge_stack/github-actions-gate-status-compact.yml` as a
+copy-ready workflow template that branches on `blocked_step_count` and `exit_reason` from the compact artifact.
+Live workflow path in this repo:
+`./.github/workflows/improvement-gate-status-compact.yml`.
+Automated reconciler workflow path in this repo:
+`./.github/workflows/reconcile-codeowner-review-gate.yml`.
+
+Override gate behavior only when explicitly needed:
+
+```bash
+python3 -m jarvis.cli plans promote-ready <plan_id> <step_id> --no-enforce-critical-drift-gate
+```
+
+Wrapper:
+
+```bash
+./scripts/run_improvement_verify_matrix_alert.sh \
+  ./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json \
+  ./configs/improvement_operator_knowledge_stack/output/daily_pipeline_report.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/matrix_drift_alert_report.json \
+  --strict
+```
+
+The controlled matrix file lives at:
+
+- `./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json`
+
 ## Frozen Daily Dialogue Stack (M20B -> M21)
 
 The daily stack is frozen to:
@@ -437,6 +682,73 @@ python3 -m jarvis.cli plans evaluate-promotion <plan_id> <step_id> \
   --repo-path "$JARVIS_REPO_PATH" \
   --db-path ./.jarvis/jarvis.db
 ```
+
+Show only critical drift blockers + acknowledge commands:
+
+```bash
+python3 -m jarvis.cli plans gate-status <plan_id> <step_id> \
+  --required-label jarvis \
+  --required-label needs-review \
+  --required-label protected-change \
+  --single-maintainer-override \
+  --override-actor "$USER" \
+  --override-reason "single-maintainer transitional override" \
+  --override-sunset-condition "disable when required checks exist or repo has >1 maintainer" \
+  --output text \
+  --repo-path "$JARVIS_REPO_PATH" \
+  --db-path ./.jarvis/jarvis.db
+```
+
+Show a consolidated blocker queue across recent provider reviews:
+
+```bash
+python3 -m jarvis.cli plans gate-status-all \
+  --limit 25 \
+  --only-blocked \
+  --fail-on-blocked \
+  --fail-on-errors \
+  --fail-on-zero-scanned \
+  --fail-on-zero-evaluated \
+  --fail-on-empty-ack-commands \
+  --blocked-exit-code 7 \
+  --error-exit-code 11 \
+  --zero-scanned-exit-code 17 \
+  --zero-evaluated-exit-code 13 \
+  --empty-ack-commands-exit-code 19 \
+  --emit-ci-summary-path ./configs/improvement_operator_knowledge_stack/output/gate_status_all_summary.md \
+  --emit-ci-json-path ./configs/improvement_operator_knowledge_stack/output/gate_status_all_compact.json \
+  --required-label jarvis \
+  --required-label needs-review \
+  --required-label protected-change \
+  --single-maintainer-override \
+  --override-actor "$USER" \
+  --override-reason "single-maintainer transitional override" \
+  --override-sunset-condition "disable when required checks exist or repo has >1 maintainer" \
+  --output text \
+  --repo-path "$JARVIS_REPO_PATH" \
+  --db-path ./.jarvis/jarvis.db
+```
+
+`--emit-ci-summary-path` overrides `GITHUB_STEP_SUMMARY` when both are available.
+For a ready-to-copy workflow branch pattern, use:
+`./configs/improvement_operator_knowledge_stack/github-actions-gate-status-compact.yml`.
+The active workflow in this repo is:
+`./.github/workflows/improvement-gate-status-compact.yml`.
+The automated reconciler workflow in this repo is:
+`./.github/workflows/reconcile-codeowner-review-gate.yml`.
+
+Single-maintainer safety reconciler (auto-toggle code-owner review gate by collaborator count):
+
+```bash
+./scripts/reconcile_codeowner_review_gate.sh \
+  --repo-slug Dankerbadge/JARVIS \
+  --branch main \
+  --min-collaborators 2 \
+  --apply
+```
+
+The scheduled reconciler workflow uses `JARVIS_ADMIN_GH_TOKEN` (repo-admin token scope) to patch
+branch protection safely in GitHub Actions.
 
 Promote to ready for review only if policy passes:
 

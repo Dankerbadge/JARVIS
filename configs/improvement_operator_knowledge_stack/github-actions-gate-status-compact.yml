@@ -1,0 +1,93 @@
+name: improvement-gate-status-compact
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  gate-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Evaluate critical drift gate queue
+        id: gate_eval
+        continue-on-error: true
+        run: |
+          mkdir -p output/ci
+          python3 -m jarvis.cli plans gate-status-all \
+            --limit 25 \
+            --only-blocked \
+            --fail-on-blocked \
+            --fail-on-errors \
+            --fail-on-zero-scanned \
+            --fail-on-zero-evaluated \
+            --fail-on-empty-ack-commands \
+            --blocked-exit-code 7 \
+            --error-exit-code 11 \
+            --zero-scanned-exit-code 17 \
+            --zero-evaluated-exit-code 13 \
+            --empty-ack-commands-exit-code 19 \
+            --emit-ci-json-path output/ci/gate_status_all_compact.json \
+            --output text
+
+      - name: Extract compact gate outputs
+        id: gate
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          artifact_path = Path("output/ci/gate_status_all_compact.json").resolve()
+          payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+
+          blocked_step_count = int(payload.get("blocked_step_count") or 0)
+          error_count = int(payload.get("error_count") or 0)
+          exit_reason = str(payload.get("exit_reason") or "none").strip() or "none"
+          exit_code = int(payload.get("exit_code") or 0)
+
+          print(f"artifact_path={artifact_path}")
+          print(f"blocked_step_count={blocked_step_count}")
+          print(f"error_count={error_count}")
+          print(f"exit_reason={exit_reason}")
+          print(f"exit_code={exit_code}")
+
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as handle:
+              handle.write(f"artifact_path={artifact_path}\n")
+              handle.write(f"blocked_step_count={blocked_step_count}\n")
+              handle.write(f"error_count={error_count}\n")
+              handle.write(f"exit_reason={exit_reason}\n")
+              handle.write(f"exit_code={exit_code}\n")
+          PY
+
+      - name: Blocked queue branch
+        if: ${{ steps.gate.outputs.blocked_step_count != '0' }}
+        run: |
+          echo "Blocked review steps detected. Check the compact artifact and markdown summary for acknowledge commands."
+
+      - name: Healthy queue branch
+        if: ${{ steps.gate.outputs.blocked_step_count == '0' && steps.gate.outputs.exit_reason == 'none' }}
+        run: |
+          echo "No blocking critical drift alerts across scanned review steps."
+
+      - name: Fail workflow on non-none exit reason
+        if: ${{ steps.gate.outputs.exit_reason != 'none' }}
+        run: |
+          echo "Gate evaluation failed with exit_reason=${{ steps.gate.outputs.exit_reason }} exit_code=${{ steps.gate.outputs.exit_code }}"
+          exit 1

@@ -1,0 +1,22 @@
+{
+  "incidents": [
+    {
+      "event_id": "ml-201",
+      "model": "entry_classifier_v5",
+      "issue": "False positives spiked during high volatility window.",
+      "root_cause": "Calibration drifted when volatility exceeded training regime.",
+      "severity": 4,
+      "created_at": "2026-04-18T13:10:00Z",
+      "tags": ["false_positive", "drift", "volatility"]
+    },
+    {
+      "event_id": "ml-202",
+      "model": "entry_classifier_v5",
+      "issue": "Inference latency p95 rose during feature enrichment.",
+      "root_cause": "Feature join path blocked on cold cache lookups.",
+      "severity": 3,
+      "created_at": "2026-04-19T10:55:00Z",
+      "tags": ["latency", "features", "ops"]
+    }
+  ]
+}

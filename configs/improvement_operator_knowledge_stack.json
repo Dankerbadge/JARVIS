@@ -1,0 +1,164 @@
+{
+  "defaults": {
+    "owner": "operator",
+    "auto_register": true,
+    "min_cluster_count": 1,
+    "proposal_limit": 6,
+    "hypothesis_lookup_limit": 400,
+    "preferred_statuses": [
+      "testing",
+      "queued",
+      "validated",
+      "rejected"
+    ],
+    "compare_experiment_history": true,
+    "comparison_limit": 25,
+    "auto_retest_lane": true,
+    "insufficient_sample_multiplier": 1.5,
+    "guardrail_sample_multiplier": 1.1,
+    "min_sample_increment": 50,
+    "guardrail_safety_factor": 0.9,
+    "collect_experiment_debug": true,
+    "include_decision_timeline": true,
+    "experiment_debug_output_dir": "improvement_operator_knowledge_stack/output/debug_runs",
+    "report_cluster_min_count": 1,
+    "report_cluster_limit": 10,
+    "report_hypothesis_limit": 40,
+    "report_experiment_limit": 80,
+    "report_queue_limit": 30,
+    "allow_missing_inputs": true
+  },
+  "feed_jobs": [
+    {
+      "name": "quant_research_notes_feed",
+      "url": "improvement_operator_knowledge_stack/inputs/quant_research_notes.jsonl",
+      "format": "jsonl",
+      "mapping": {
+        "id": "note_id",
+        "title": "title",
+        "summary": "summary",
+        "review": "postmortem",
+        "severity": "severity",
+        "created_at": "created_at",
+        "symptom_tags": "tags"
+      },
+      "static_fields": {
+        "source_context": "quant_research"
+      },
+      "output_path": "improvement_operator_knowledge_stack/analysis/quant_feedback.jsonl"
+    },
+    {
+      "name": "kalshi_trade_journal_feed",
+      "url": "improvement_operator_knowledge_stack/inputs/kalshi_trade_journal.csv",
+      "format": "csv",
+      "mapping": {
+        "id": "trade_id",
+        "title": "market",
+        "summary": "note",
+        "review": "postmortem",
+        "severity": "severity",
+        "created_at": "closed_at"
+      },
+      "static_fields": {
+        "source_context": "kalshi_trade_journal"
+      },
+      "output_path": "improvement_operator_knowledge_stack/analysis/kalshi_feedback.jsonl"
+    },
+    {
+      "name": "fitness_reviews_feed",
+      "url": "improvement_operator_knowledge_stack/inputs/fitness_reviews.json",
+      "format": "json",
+      "records_path": "reviews",
+      "mapping": {
+        "id": "id",
+        "title": "title",
+        "summary": "text",
+        "review": "text",
+        "rating": "rating",
+        "created_at": "created_at",
+        "platform": "platform",
+        "app_version": "app_version"
+      },
+      "static_fields": {
+        "source_context": "fitness_app_store"
+      },
+      "output_path": "improvement_operator_knowledge_stack/analysis/fitness_feedback.jsonl"
+    },
+    {
+      "name": "market_ml_incident_feed",
+      "url": "improvement_operator_knowledge_stack/inputs/market_ml_incidents.json",
+      "format": "json",
+      "records_path": "incidents",
+      "mapping": {
+        "id": "event_id",
+        "title": "model",
+        "summary": "issue",
+        "review": "root_cause",
+        "severity": "severity",
+        "created_at": "created_at",
+        "symptom_tags": "tags"
+      },
+      "static_fields": {
+        "source_context": "market_ml_ops"
+      },
+      "output_path": "improvement_operator_knowledge_stack/analysis/market_ml_feedback.jsonl"
+    }
+  ],
+  "feedback_jobs": [
+    {
+      "domain": "quant_finance",
+      "source": "research_notes",
+      "input_path": "improvement_operator_knowledge_stack/analysis/quant_feedback.jsonl",
+      "input_format": "jsonl",
+      "report_path": "improvement_operator_knowledge_stack/output/quant_inbox_report.json"
+    },
+    {
+      "domain": "kalshi_weather",
+      "source": "kalshi_trade_journal",
+      "input_path": "improvement_operator_knowledge_stack/analysis/kalshi_feedback.jsonl",
+      "input_format": "jsonl",
+      "report_path": "improvement_operator_knowledge_stack/output/kalshi_inbox_report.json"
+    },
+    {
+      "domain": "fitness_apps",
+      "source": "app_store_reviews",
+      "input_path": "improvement_operator_knowledge_stack/analysis/fitness_feedback.jsonl",
+      "input_format": "jsonl",
+      "report_path": "improvement_operator_knowledge_stack/output/fitness_inbox_report.json"
+    },
+    {
+      "domain": "market_ml",
+      "source": "ml_incident_log",
+      "input_path": "improvement_operator_knowledge_stack/analysis/market_ml_feedback.jsonl",
+      "input_format": "jsonl",
+      "report_path": "improvement_operator_knowledge_stack/output/market_ml_inbox_report.json"
+    }
+  ],
+  "experiment_jobs": [
+    {
+      "domain": "quant_finance",
+      "friction_key": "execution_slippage_regime_drift",
+      "artifact_path": "improvement_operator_knowledge_stack/artifacts/quant_finance_regime_backtest.json",
+      "environment": "controlled_backtest"
+    },
+    {
+      "domain": "kalshi_weather",
+      "friction_key": "forecast_timing_mismatch_near_settlement",
+      "artifact_path": "improvement_operator_knowledge_stack/artifacts/kalshi_weather_execution_backtest.json",
+      "environment": "controlled_backtest"
+    },
+    {
+      "domain": "fitness_apps",
+      "friction_key": "paywall_before_core_workout_trial",
+      "artifact_path": "improvement_operator_knowledge_stack/artifacts/fitness_paywall_experiment.json",
+      "environment": "controlled_rollout"
+    },
+    {
+      "domain": "market_ml",
+      "friction_key": "false_positive_drift_in_high_volatility_windows",
+      "artifact_path": "improvement_operator_knowledge_stack/artifacts/market_ml_false_positive_control.json",
+      "environment": "controlled_backtest"
+    }
+  ],
+  "output_path": "improvement_operator_knowledge_stack/output/daily_pipeline_report.json"
+}

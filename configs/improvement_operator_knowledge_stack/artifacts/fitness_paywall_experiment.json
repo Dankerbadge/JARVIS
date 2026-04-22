@@ -1,0 +1,19 @@
+{
+  "environment": "controlled_rollout",
+  "notes": "Controlled fitness app rollout with delayed paywall exposure.",
+  "baseline": {
+    "metrics": {
+      "retention_d30": 0.28,
+      "crash_rate": 0.012,
+      "unsubscribe_rate": 0.09
+    }
+  },
+  "candidate": {
+    "metrics": {
+      "retention_d30": 0.31,
+      "crash_rate": 0.009,
+      "unsubscribe_rate": 0.07
+    },
+    "sample_size": 420
+  }
+}

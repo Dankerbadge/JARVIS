@@ -1,0 +1,19 @@
+{
+  "environment": "offline_backtest",
+  "notes": "Controlled market-ML calibration test under high-volatility slices.",
+  "baseline": {
+    "metrics": {
+      "precision_at_k": 0.31,
+      "false_positive_rate": 0.18,
+      "inference_latency_ms_p95": 220.0
+    }
+  },
+  "candidate": {
+    "metrics": {
+      "precision_at_k": 0.36,
+      "false_positive_rate": 0.24,
+      "inference_latency_ms_p95": 228.0
+    },
+    "sample_size": 560
+  }
+}

@@ -24,6 +24,15 @@ from .dialogue_state import DialogueStateStore
 from .device_tokens import DeviceTokenStore
 from .execution_service import ApprovalExecutionService
 from .identity_state import IdentityStateStore
+from .improvement import (
+    ExperimentDebugService,
+    ExperimentRunner,
+    FeedbackFileConnector,
+    FrictionMiningStore,
+    FrictionSourceAdapter,
+    HypothesisLabStore,
+    MetricsArtifactAdapter,
+)
 from .interrupts import InterruptStore
 from .learning import (
     LearningActionRanker,
@@ -173,6 +182,17 @@ class JarvisRuntime:
         self.reasoning_store = ReasoningStore(self.db_path)
         self.reasoning_tracer = ReasoningTracer(self.reasoning_store)
         self.reasoning_replayer = ReasoningReplayer(self.reasoning_store, self.plan_repo)
+        self.friction_mining = FrictionMiningStore(self.db_path)
+        self.friction_adapter = FrictionSourceAdapter()
+        self.feedback_file_connector = FeedbackFileConnector()
+        self.metrics_artifact_adapter = MetricsArtifactAdapter()
+        self.hypothesis_lab = HypothesisLabStore(self.db_path)
+        self.experiment_runner = ExperimentRunner()
+        self.experiment_debugger = ExperimentDebugService(
+            lab_store=self.hypothesis_lab,
+            reasoning_store=self.reasoning_store,
+            reasoning_replayer=self.reasoning_replayer,
+        )
         self.suggestion_engine = SuggestionEngine()
         self.project_graph_store = ProjectGraphStore(self.db_path)
         self.project_devloop = ProjectDevLoop(self.project_graph_store)
@@ -9983,6 +10003,1174 @@ class JarvisRuntime:
             limit=limit,
         )
 
+    @staticmethod
+    def _default_success_criteria_for_domain(domain: str) -> dict[str, Any]:
+        normalized = str(domain or "").strip().lower()
+        if normalized in {"quant_finance", "quantitative_finance"}:
+            return {
+                "metric": "sharpe_ratio",
+                "direction": "increase",
+                "min_effect": 0.15,
+                "min_sample_size": 30,
+                "guardrails": [
+                    {"metric": "max_drawdown", "op": "<=", "value": 0.12},
+                    {"metric": "turnover", "op": "<=", "value": 5.0},
+                ],
+            }
+        if normalized in {"kalshi_weather", "weather_betting", "kalshi"}:
+            return {
+                "metric": "brier_skill",
+                "direction": "increase",
+                "min_effect": 0.02,
+                "min_sample_size": 100,
+                "guardrails": [
+                    {"metric": "max_daily_loss", "op": "<=", "value": 0.03},
+                    {"metric": "slippage_bps", "op": "<=", "value": 30.0},
+                ],
+            }
+        if normalized in {"fitness", "fitness_apps"}:
+            return {
+                "metric": "retention_d30",
+                "direction": "increase",
+                "min_effect": 0.02,
+                "min_sample_size": 200,
+                "guardrails": [
+                    {"metric": "crash_rate", "op": "<=", "value": 0.01},
+                    {"metric": "unsubscribe_rate", "op": "<=", "value": 0.08},
+                ],
+            }
+        if normalized in {"market_ml", "market_machine_learning"}:
+            return {
+                "metric": "precision_at_k",
+                "direction": "increase",
+                "min_effect": 0.03,
+                "min_sample_size": 200,
+                "guardrails": [
+                    {"metric": "false_positive_rate", "op": "<=", "value": 0.2},
+                    {"metric": "inference_latency_ms_p95", "op": "<=", "value": 250.0},
+                ],
+            }
+        return {
+            "metric": "utility_score",
+            "direction": "increase",
+            "min_effect": 0.01,
+            "min_sample_size": 50,
+            "guardrails": [],
+        }
+
+    def record_domain_friction(
+        self,
+        *,
+        domain: str,
+        source: str,
+        summary: str,
+        segment: str = "general",
+        severity: int | float | None = 3,
+        frustration_score: int | float | None = None,
+        symptom_tags: list[str] | None = None,
+        evidence: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+        status: str = "open",
+    ) -> dict[str, Any]:
+        signal = self.friction_mining.record_signal(
+            domain=domain,
+            source=source,
+            summary=summary,
+            segment=segment,
+            severity=severity,
+            frustration_score=frustration_score,
+            symptom_tags=symptom_tags,
+            evidence=evidence,
+            metadata=metadata,
+            status=status,
+        )
+        self.memory.append_event(
+            "improvement.friction_recorded",
+            {
+                "friction_id": signal.get("friction_id"),
+                "domain": signal.get("domain"),
+                "source": signal.get("source"),
+                "canonical_key": signal.get("canonical_key"),
+                "severity": signal.get("severity"),
+            },
+        )
+        return signal
+
+    def list_domain_frictions(
+        self,
+        *,
+        domain: str | None = None,
+        source: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.friction_mining.list_signals(
+            domain=domain,
+            source=source,
+            status=status,
+            limit=limit,
+        )
+
+    def summarize_domain_displeasures(
+        self,
+        *,
+        domain: str | None = None,
+        min_count: int = 1,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return self.friction_mining.summarize_common_displeasures(
+            domain=domain,
+            min_count=min_count,
+            limit=limit,
+        )
+
+    def ingest_domain_feedback_batch(
+        self,
+        *,
+        domain: str,
+        source: str,
+        records: list[dict[str, Any]],
+        default_segment: str = "general",
+        default_severity: int | float | None = 3,
+        default_frustration_score: int | float | None = None,
+        status: str = "open",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result = self.friction_adapter.ingest_feedback_batch(
+            store=self.friction_mining,
+            domain=domain,
+            source=source,
+            records=list(records or []),
+            default_segment=default_segment,
+            default_severity=default_severity,
+            default_frustration_score=default_frustration_score,
+            status=status,
+            metadata=metadata,
+        )
+        self.memory.append_event(
+            "improvement.friction_batch_ingested",
+            {
+                "domain": result.get("domain"),
+                "source": result.get("source"),
+                "requested_count": result.get("requested_count"),
+                "ingested_count": result.get("ingested_count"),
+                "skipped_count": result.get("skipped_count"),
+            },
+        )
+        return result
+
+    def ingest_domain_feedback_file(
+        self,
+        *,
+        domain: str,
+        source: str,
+        input_path: str,
+        input_format: str | None = None,
+        default_segment: str = "general",
+        default_severity: int | float | None = 3,
+        default_frustration_score: int | float | None = None,
+        status: str = "open",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        loaded = self.feedback_file_connector.load_records(
+            path=input_path,
+            file_format=input_format,
+        )
+        metadata_patch = dict(metadata or {})
+        metadata_patch["input_path"] = str(loaded.get("input_path") or "")
+        metadata_patch["input_format"] = str(loaded.get("input_format") or "")
+        result = self.ingest_domain_feedback_batch(
+            domain=domain,
+            source=source,
+            records=list(loaded.get("records") or []),
+            default_segment=default_segment,
+            default_severity=default_severity,
+            default_frustration_score=default_frustration_score,
+            status=status,
+            metadata=metadata_patch,
+        )
+        return {
+            **result,
+            "input_path": loaded.get("input_path"),
+            "input_format": loaded.get("input_format"),
+            "loaded_record_count": int(loaded.get("record_count") or 0),
+        }
+
+    def propose_friction_hypotheses(
+        self,
+        *,
+        domain: str | None = None,
+        min_count: int = 2,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        summary = self.friction_mining.summarize_common_displeasures(
+            domain=domain,
+            min_count=max(1, int(min_count)),
+            limit=max(10, int(limit) * 4),
+        )
+        proposals: list[dict[str, Any]] = []
+        for cluster in list(summary.get("clusters") or []):
+            cluster_domain = str(cluster.get("dominant_domain") or domain or "general").strip().lower() or "general"
+            criteria = self._default_success_criteria_for_domain(cluster_domain)
+            canonical_key = str(cluster.get("canonical_key") or "friction").strip() or "friction"
+            proposals.append(
+                {
+                    "domain": cluster_domain,
+                    "title": f"{cluster_domain}: reduce '{canonical_key}' friction",
+                    "statement": (
+                        f"Users repeatedly report '{canonical_key}'. "
+                        "Reducing this friction should improve satisfaction and retention."
+                    ),
+                    "proposed_change": (
+                        "Implement a targeted fix for this friction cluster and validate in a controlled cohort "
+                        "before broad rollout."
+                    ),
+                    "friction_key": canonical_key,
+                    "friction_ids": list(cluster.get("example_signal_ids") or []),
+                    "success_criteria": criteria,
+                    "risk_level": "medium",
+                    "priority_score": float(cluster.get("impact_score") or 0.0),
+                    "evidence": {
+                        "signal_count": int(cluster.get("signal_count") or 0),
+                        "avg_severity": float(cluster.get("avg_severity") or 0.0),
+                        "avg_frustration_score": float(cluster.get("avg_frustration_score") or 0.0),
+                        "example_summary": cluster.get("example_summary"),
+                        "top_tags": list(cluster.get("top_tags") or []),
+                    },
+                }
+            )
+        proposals.sort(
+            key=lambda item: (
+                -float(item.get("priority_score") or 0.0),
+                str(item.get("title") or ""),
+            )
+        )
+        return proposals[: max(1, int(limit))]
+
+    def run_friction_hypothesis_cycle(
+        self,
+        *,
+        domain: str | None = None,
+        min_cluster_count: int = 2,
+        proposal_limit: int = 5,
+        auto_register: bool = True,
+        owner: str = "runtime",
+    ) -> dict[str, Any]:
+        summary = self.summarize_domain_displeasures(
+            domain=domain,
+            min_count=max(1, int(min_cluster_count)),
+            limit=max(10, int(proposal_limit) * 4),
+        )
+        proposals = self.propose_friction_hypotheses(
+            domain=domain,
+            min_count=max(1, int(min_cluster_count)),
+            limit=max(1, int(proposal_limit)),
+        )
+        created: list[dict[str, Any]] = []
+        skipped_existing: list[dict[str, Any]] = []
+        if auto_register and proposals:
+            existing = self.hypothesis_lab.list_hypotheses(
+                domain=domain,
+                status=None,
+                limit=max(200, int(proposal_limit) * 40),
+            )
+            active_keys = {
+                (
+                    str(item.get("domain") or "").strip().lower(),
+                    str(item.get("friction_key") or "").strip().lower(),
+                )
+                for item in existing
+                if str(item.get("status") or "").strip().lower() in {"queued", "testing", "validated"}
+            }
+            for proposal in proposals:
+                dedupe_key = (
+                    str(proposal.get("domain") or "").strip().lower(),
+                    str(proposal.get("friction_key") or "").strip().lower(),
+                )
+                if dedupe_key in active_keys:
+                    skipped_existing.append(
+                        {
+                            "domain": dedupe_key[0],
+                            "friction_key": dedupe_key[1],
+                            "title": proposal.get("title"),
+                            "reason": "active_hypothesis_exists",
+                        }
+                    )
+                    continue
+                hypothesis = self.register_hypothesis(
+                    domain=str(proposal.get("domain") or ""),
+                    title=str(proposal.get("title") or "Untitled hypothesis"),
+                    statement=str(proposal.get("statement") or ""),
+                    proposed_change=str(proposal.get("proposed_change") or ""),
+                    success_criteria=dict(proposal.get("success_criteria") or {}),
+                    friction_key=str(proposal.get("friction_key") or ""),
+                    friction_ids=list(proposal.get("friction_ids") or []),
+                    risk_level=str(proposal.get("risk_level") or "medium"),
+                    owner=str(owner or "runtime"),
+                    metadata={
+                        "auto_registered": True,
+                        "priority_score": float(proposal.get("priority_score") or 0.0),
+                        "evidence": dict(proposal.get("evidence") or {}),
+                    },
+                )
+                created.append(hypothesis)
+                active_keys.add(dedupe_key)
+        self.memory.append_event(
+            "improvement.friction_hypothesis_cycle",
+            {
+                "domain": str(domain).strip().lower() if domain is not None else None,
+                "proposal_count": len(proposals),
+                "created_count": len(created),
+                "skipped_existing_count": len(skipped_existing),
+                "auto_register": bool(auto_register),
+            },
+        )
+        return {
+            "domain": str(domain).strip().lower() if domain is not None else None,
+            "summary": summary,
+            "proposal_count": len(proposals),
+            "proposals": proposals,
+            "created_count": len(created),
+            "created_hypotheses": created,
+            "skipped_existing_count": len(skipped_existing),
+            "skipped_existing": skipped_existing,
+            "auto_register": bool(auto_register),
+        }
+
+    def run_friction_hypothesis_cycle_from_file(
+        self,
+        *,
+        domain: str,
+        source: str,
+        input_path: str,
+        input_format: str | None = None,
+        default_segment: str = "general",
+        default_severity: int | float | None = 3,
+        default_frustration_score: int | float | None = None,
+        status: str = "open",
+        metadata: dict[str, Any] | None = None,
+        min_cluster_count: int = 2,
+        proposal_limit: int = 5,
+        auto_register: bool = True,
+        owner: str = "runtime",
+    ) -> dict[str, Any]:
+        ingest = self.ingest_domain_feedback_file(
+            domain=domain,
+            source=source,
+            input_path=input_path,
+            input_format=input_format,
+            default_segment=default_segment,
+            default_severity=default_severity,
+            default_frustration_score=default_frustration_score,
+            status=status,
+            metadata=metadata,
+        )
+        cycle = self.run_friction_hypothesis_cycle(
+            domain=domain,
+            min_cluster_count=min_cluster_count,
+            proposal_limit=proposal_limit,
+            auto_register=auto_register,
+            owner=owner,
+        )
+        return {
+            "domain": str(domain or "").strip().lower(),
+            "source": str(source or "").strip().lower(),
+            "ingest": ingest,
+            "cycle": cycle,
+        }
+
+    def build_hypothesis_inbox_report(
+        self,
+        *,
+        domain: str | None = None,
+        cluster_min_count: int = 1,
+        cluster_limit: int = 10,
+        hypothesis_limit: int = 30,
+        experiment_limit: int = 50,
+        queue_limit: int = 20,
+    ) -> dict[str, Any]:
+        clusters = self.summarize_domain_displeasures(
+            domain=domain,
+            min_count=max(1, int(cluster_min_count)),
+            limit=max(1, int(cluster_limit)),
+        )
+        hypotheses = self.list_hypotheses(
+            domain=domain,
+            status=None,
+            limit=max(1, int(hypothesis_limit)),
+        )
+        experiments = self.list_hypothesis_experiments(
+            domain=domain,
+            status=None,
+            limit=max(1, int(experiment_limit)),
+        )
+
+        latest_run_by_hypothesis: dict[str, dict[str, Any]] = {}
+        for run in list(experiments or []):
+            if not isinstance(run, dict):
+                continue
+            hypothesis_id = str(run.get("hypothesis_id") or "").strip()
+            if not hypothesis_id:
+                continue
+            existing = latest_run_by_hypothesis.get(hypothesis_id)
+            if existing is None or str(run.get("created_at") or "") > str(existing.get("created_at") or ""):
+                latest_run_by_hypothesis[hypothesis_id] = run
+
+        status_counts: dict[str, int] = {}
+        queue_rows: list[dict[str, Any]] = []
+        status_weight = {
+            "queued": 4.0,
+            "testing": 3.0,
+            "rejected": 2.0,
+            "validated": 1.0,
+        }
+        for hypothesis in list(hypotheses or []):
+            if not isinstance(hypothesis, dict):
+                continue
+            hypothesis_id = str(hypothesis.get("hypothesis_id") or "").strip()
+            if not hypothesis_id:
+                continue
+            status = str(hypothesis.get("status") or "queued").strip().lower() or "queued"
+            status_counts[status] = int(status_counts.get(status, 0)) + 1
+
+            metadata = dict(hypothesis.get("metadata") or {}) if isinstance(hypothesis.get("metadata"), dict) else {}
+            evidence = dict(metadata.get("evidence") or {}) if isinstance(metadata.get("evidence"), dict) else {}
+            priority_score = float(metadata.get("priority_score") or 0.0)
+            signal_count = int(evidence.get("signal_count") or 0)
+            last_run = latest_run_by_hypothesis.get(hypothesis_id)
+            last_verdict = None
+            if isinstance(last_run, dict):
+                evaluation = last_run.get("evaluation") if isinstance(last_run.get("evaluation"), dict) else {}
+                last_verdict = str(evaluation.get("verdict") or "").strip() or None
+
+            queue_score = (
+                float(status_weight.get(status, 0.0))
+                + float(priority_score)
+                + min(2.0, max(0.0, float(signal_count) / 5.0))
+            )
+            queue_rows.append(
+                {
+                    "hypothesis_id": hypothesis_id,
+                    "domain": str(hypothesis.get("domain") or ""),
+                    "title": str(hypothesis.get("title") or ""),
+                    "status": status,
+                    "risk_level": str(hypothesis.get("risk_level") or "medium"),
+                    "friction_key": hypothesis.get("friction_key"),
+                    "priority_score": priority_score,
+                    "signal_count": signal_count,
+                    "last_experiment_verdict": last_verdict,
+                    "last_experiment_at": (last_run or {}).get("created_at") if isinstance(last_run, dict) else None,
+                    "queue_score": round(queue_score, 6),
+                }
+            )
+
+        queue_rows.sort(
+            key=lambda item: (
+                -float(item.get("queue_score") or 0.0),
+                str(item.get("status") or ""),
+                str(item.get("title") or ""),
+            )
+        )
+
+        suggested_actions: list[str] = []
+        queued_count = int(status_counts.get("queued") or 0)
+        testing_count = int(status_counts.get("testing") or 0)
+        rejected_count = int(status_counts.get("rejected") or 0)
+        if queued_count > 0:
+            suggested_actions.append("Run controlled experiments for highest-ranked queued hypotheses.")
+        if testing_count > 0:
+            suggested_actions.append("Expand cohort/sample size for active testing hypotheses before promotion.")
+        if rejected_count > 0:
+            suggested_actions.append("Review rejected hypotheses for root-cause themes and generate revised variants.")
+        if not suggested_actions:
+            suggested_actions.append("Ingest additional feedback to generate the next hypothesis batch.")
+
+        return {
+            "generated_at": utc_now_iso(),
+            "domain": str(domain).strip().lower() if domain is not None else None,
+            "clusters": clusters,
+            "hypothesis_counts": {
+                "total": len(list(hypotheses or [])),
+                "by_status": status_counts,
+            },
+            "recent_experiment_count": len(list(experiments or [])),
+            "ranked_queue_count": len(queue_rows),
+            "ranked_queue": queue_rows[: max(1, int(queue_limit))],
+            "suggested_actions": suggested_actions,
+        }
+
+    def register_hypothesis(
+        self,
+        *,
+        domain: str,
+        title: str,
+        statement: str,
+        proposed_change: str,
+        success_criteria: dict[str, Any] | None = None,
+        friction_key: str | None = None,
+        friction_ids: list[str] | None = None,
+        risk_level: str = "medium",
+        owner: str = "runtime",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        resolved_criteria = dict(success_criteria or self._default_success_criteria_for_domain(domain))
+        hypothesis = self.hypothesis_lab.create_hypothesis(
+            domain=domain,
+            title=title,
+            statement=statement,
+            proposed_change=proposed_change,
+            success_criteria=resolved_criteria,
+            friction_key=friction_key,
+            friction_ids=friction_ids,
+            risk_level=risk_level,
+            owner=owner,
+            status="queued",
+            metadata=metadata,
+        )
+        self.memory.append_event(
+            "improvement.hypothesis_registered",
+            {
+                "hypothesis_id": hypothesis.get("hypothesis_id"),
+                "domain": hypothesis.get("domain"),
+                "title": hypothesis.get("title"),
+                "friction_key": hypothesis.get("friction_key"),
+            },
+        )
+        return hypothesis
+
+    def list_hypotheses(
+        self,
+        *,
+        domain: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.hypothesis_lab.list_hypotheses(
+            domain=domain,
+            status=status,
+            limit=limit,
+        )
+
+    def run_hypothesis_experiment(
+        self,
+        *,
+        hypothesis_id: str,
+        environment: str,
+        baseline_metrics: dict[str, Any],
+        candidate_metrics: dict[str, Any],
+        sample_size: int | None = None,
+        guardrail_metrics: dict[str, Any] | None = None,
+        source_trace_id: str | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        hypothesis = self.hypothesis_lab.get_hypothesis(hypothesis_id)
+        if not isinstance(hypothesis, dict):
+            raise KeyError(f"Hypothesis not found: {hypothesis_id}")
+
+        evaluation = self.experiment_runner.evaluate(
+            hypothesis=hypothesis,
+            baseline_metrics=baseline_metrics,
+            candidate_metrics=candidate_metrics,
+            sample_size=sample_size,
+            guardrail_metrics=guardrail_metrics,
+        )
+        verdict = str(evaluation.get("verdict") or "")
+        status_map = {
+            "promote": "validated",
+            "blocked_guardrail": "rejected",
+            "insufficient_data": "testing",
+            "needs_iteration": "testing",
+            "invalid_measurement": "queued",
+        }
+        next_status = status_map.get(verdict, "testing")
+        updated_hypothesis = self.hypothesis_lab.set_hypothesis_status(
+            hypothesis_id=hypothesis_id,
+            status=next_status,
+            metadata_patch={
+                "last_experiment_verdict": verdict,
+                "last_experiment_at": utc_now_iso(),
+            },
+        )
+        run = self.hypothesis_lab.record_experiment_run(
+            hypothesis_id=hypothesis_id,
+            domain=str(hypothesis.get("domain") or ""),
+            environment=environment,
+            baseline_metrics=baseline_metrics,
+            candidate_metrics=candidate_metrics,
+            evaluation=evaluation,
+            source_trace_id=source_trace_id,
+            sample_size=sample_size,
+            notes=notes,
+            status="completed",
+        )
+        self.memory.append_event(
+            "improvement.experiment_completed",
+            {
+                "run_id": run.get("run_id"),
+                "hypothesis_id": hypothesis_id,
+                "domain": run.get("domain"),
+                "environment": run.get("environment"),
+                "verdict": verdict,
+                "overall_pass": bool(evaluation.get("overall_pass")),
+                "next_hypothesis_status": updated_hypothesis.get("status"),
+            },
+        )
+        return {
+            **run,
+            "evaluation": evaluation,
+            "hypothesis_status": updated_hypothesis.get("status"),
+        }
+
+    def run_hypothesis_experiment_from_artifact(
+        self,
+        *,
+        hypothesis_id: str,
+        artifact_path: str,
+        environment: str | None = None,
+        source_trace_id: str | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        loaded = self.metrics_artifact_adapter.load_experiment_inputs(path=artifact_path)
+        result = self.run_hypothesis_experiment(
+            hypothesis_id=hypothesis_id,
+            environment=str(environment or loaded.get("environment") or "sandbox"),
+            baseline_metrics=dict(loaded.get("baseline_metrics") or {}),
+            candidate_metrics=dict(loaded.get("candidate_metrics") or {}),
+            sample_size=(
+                int(loaded.get("sample_size"))
+                if loaded.get("sample_size") is not None
+                else None
+            ),
+            guardrail_metrics=dict(loaded.get("guardrail_metrics") or {}),
+            source_trace_id=str(source_trace_id or loaded.get("source_trace_id") or "") or None,
+            notes=str(notes or loaded.get("notes") or "") or None,
+        )
+        return {
+            **result,
+            "artifact": {
+                "path": str(loaded.get("input_path") or ""),
+                "metadata": dict(loaded.get("metadata") or {}),
+            },
+        }
+
+    def list_hypothesis_experiments(
+        self,
+        *,
+        hypothesis_id: str | None = None,
+        domain: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.hypothesis_lab.list_experiment_runs(
+            hypothesis_id=hypothesis_id,
+            domain=domain,
+            status=status,
+            limit=limit,
+        )
+
+    def debug_hypothesis_experiment(
+        self,
+        *,
+        run_id: str,
+        include_decision_timeline: bool = True,
+    ) -> dict[str, Any]:
+        return self.experiment_debugger.debug_run(
+            run_id=run_id,
+            include_decision_timeline=include_decision_timeline,
+        )
+
+    @staticmethod
+    def _as_float(value: Any) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _as_int(value: Any) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _metric_delta_rows(
+        *,
+        previous: dict[str, Any] | None,
+        current: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        previous_metrics = dict(previous or {})
+        current_metrics = dict(current or {})
+        keys = sorted(set(previous_metrics.keys()) | set(current_metrics.keys()))
+        rows: list[dict[str, Any]] = []
+        for key in keys:
+            prev_value = JarvisRuntime._as_float(previous_metrics.get(key))
+            curr_value = JarvisRuntime._as_float(current_metrics.get(key))
+            if prev_value is None and curr_value is None:
+                continue
+            rows.append(
+                {
+                    "metric": str(key),
+                    "previous": prev_value,
+                    "current": curr_value,
+                    "delta": (
+                        float(curr_value - prev_value)
+                        if prev_value is not None and curr_value is not None
+                        else None
+                    ),
+                }
+            )
+        return rows
+
+    def compare_hypothesis_runs(
+        self,
+        *,
+        hypothesis_id: str,
+        current_run_id: str,
+        previous_run_id: str | None = None,
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        resolved_hypothesis_id = str(hypothesis_id or "").strip()
+        resolved_current_run_id = str(current_run_id or "").strip()
+        if not resolved_hypothesis_id or not resolved_current_run_id:
+            return {
+                "found": False,
+                "error": "missing_required_fields",
+                "hypothesis_id": resolved_hypothesis_id,
+                "current_run_id": resolved_current_run_id,
+            }
+
+        runs = self.list_hypothesis_experiments(
+            hypothesis_id=resolved_hypothesis_id,
+            limit=max(2, int(limit)),
+        )
+        by_id = {
+            str(item.get("run_id") or ""): item
+            for item in list(runs or [])
+            if isinstance(item, dict) and str(item.get("run_id") or "").strip()
+        }
+        current = by_id.get(resolved_current_run_id)
+        if not isinstance(current, dict):
+            return {
+                "found": False,
+                "error": "current_run_not_found",
+                "hypothesis_id": resolved_hypothesis_id,
+                "current_run_id": resolved_current_run_id,
+            }
+
+        resolved_previous_run_id = str(previous_run_id or "").strip()
+        previous: dict[str, Any] | None = None
+        if resolved_previous_run_id:
+            maybe = by_id.get(resolved_previous_run_id)
+            if isinstance(maybe, dict):
+                previous = maybe
+        else:
+            for item in list(runs or []):
+                if not isinstance(item, dict):
+                    continue
+                run_id = str(item.get("run_id") or "").strip()
+                if not run_id or run_id == resolved_current_run_id:
+                    continue
+                previous = item
+                resolved_previous_run_id = run_id
+                break
+
+        current_eval = dict(current.get("evaluation") or {}) if isinstance(current.get("evaluation"), dict) else {}
+        previous_eval = dict(previous.get("evaluation") or {}) if isinstance(previous, dict) and isinstance(previous.get("evaluation"), dict) else {}
+        current_metric = (
+            dict(current_eval.get("metric_result") or {})
+            if isinstance(current_eval.get("metric_result"), dict)
+            else {}
+        )
+        previous_metric = (
+            dict(previous_eval.get("metric_result") or {})
+            if isinstance(previous_eval.get("metric_result"), dict)
+            else {}
+        )
+        current_sample = (
+            dict(current_eval.get("sample_result") or {})
+            if isinstance(current_eval.get("sample_result"), dict)
+            else {}
+        )
+        previous_sample = (
+            dict(previous_eval.get("sample_result") or {})
+            if isinstance(previous_eval.get("sample_result"), dict)
+            else {}
+        )
+        current_candidate_metrics = (
+            dict(current.get("candidate_metrics") or {})
+            if isinstance(current.get("candidate_metrics"), dict)
+            else {}
+        )
+        previous_candidate_metrics = (
+            dict(previous.get("candidate_metrics") or {})
+            if isinstance(previous, dict) and isinstance(previous.get("candidate_metrics"), dict)
+            else {}
+        )
+
+        current_sample_size = self._as_int(current_sample.get("sample_size"))
+        previous_sample_size = self._as_int(previous_sample.get("sample_size"))
+
+        return {
+            "found": True,
+            "hypothesis_id": resolved_hypothesis_id,
+            "current_run_id": resolved_current_run_id,
+            "previous_run_id": resolved_previous_run_id or None,
+            "has_previous": isinstance(previous, dict),
+            "verdict_transition": {
+                "previous": (
+                    str(previous_eval.get("verdict") or "").strip()
+                    if isinstance(previous, dict)
+                    else None
+                ),
+                "current": str(current_eval.get("verdict") or "").strip() or None,
+            },
+            "metric_transition": {
+                "metric": str(current_metric.get("metric") or previous_metric.get("metric") or "") or None,
+                "previous_signed_effect": self._as_float(previous_metric.get("signed_effect")),
+                "current_signed_effect": self._as_float(current_metric.get("signed_effect")),
+                "signed_effect_delta": (
+                    float(self._as_float(current_metric.get("signed_effect")) - self._as_float(previous_metric.get("signed_effect")))
+                    if self._as_float(current_metric.get("signed_effect")) is not None
+                    and self._as_float(previous_metric.get("signed_effect")) is not None
+                    else None
+                ),
+            },
+            "sample_transition": {
+                "previous": previous_sample_size,
+                "current": current_sample_size,
+                "delta": (
+                    int(current_sample_size - previous_sample_size)
+                    if current_sample_size is not None and previous_sample_size is not None
+                    else None
+                ),
+            },
+            "candidate_metric_deltas": self._metric_delta_rows(
+                previous=previous_candidate_metrics,
+                current=current_candidate_metrics,
+            ),
+        }
+
+    def queue_hypothesis_retest_from_run(
+        self,
+        *,
+        run_id: str,
+        insufficient_sample_multiplier: float = 1.5,
+        guardrail_sample_multiplier: float = 1.1,
+        min_sample_increment: int = 50,
+        guardrail_safety_factor: float = 0.9,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        resolved_run_id = str(run_id or "").strip()
+        run = self.hypothesis_lab.get_experiment_run(resolved_run_id)
+        if not isinstance(run, dict):
+            raise KeyError(f"Experiment run not found: {resolved_run_id}")
+
+        hypothesis_id = str(run.get("hypothesis_id") or "").strip()
+        hypothesis = self.hypothesis_lab.get_hypothesis(hypothesis_id)
+        if not isinstance(hypothesis, dict):
+            raise KeyError(f"Hypothesis not found: {hypothesis_id}")
+
+        evaluation = dict(run.get("evaluation") or {}) if isinstance(run.get("evaluation"), dict) else {}
+        verdict = str(evaluation.get("verdict") or "").strip().lower()
+        if verdict not in {"blocked_guardrail", "insufficient_data"}:
+            return {
+                "queued": False,
+                "reason": "verdict_not_eligible",
+                "run_id": resolved_run_id,
+                "hypothesis_id": hypothesis_id,
+                "verdict": verdict,
+                "hypothesis_status": hypothesis.get("status"),
+            }
+
+        sample_result = (
+            dict(evaluation.get("sample_result") or {})
+            if isinstance(evaluation.get("sample_result"), dict)
+            else {}
+        )
+        current_sample_size = self._as_int(sample_result.get("sample_size") or run.get("sample_size"))
+        min_sample_size = self._as_int(sample_result.get("min_sample_size"))
+
+        sample_multiplier_raw = (
+            insufficient_sample_multiplier
+            if verdict == "insufficient_data"
+            else guardrail_sample_multiplier
+        )
+        sample_multiplier = self._as_float(sample_multiplier_raw)
+        if sample_multiplier is None:
+            sample_multiplier = 1.5 if verdict == "insufficient_data" else 1.1
+        if sample_multiplier <= 0.0:
+            sample_multiplier = 1.0
+        increment = max(0, int(min_sample_increment))
+        base_sample = max(0, int(current_sample_size or 0))
+        floor_sample = max(0, int(min_sample_size or 0))
+        scaled_sample = int(round(max(1, base_sample or floor_sample or 1) * sample_multiplier))
+        recommended_sample_size = max(floor_sample, scaled_sample)
+        if base_sample > 0:
+            recommended_sample_size = max(recommended_sample_size, base_sample + increment)
+        if recommended_sample_size <= 0:
+            recommended_sample_size = None
+
+        failed_guardrails = [
+            item
+            for item in list(evaluation.get("guardrail_results") or [])
+            if isinstance(item, dict) and not bool(item.get("pass"))
+        ]
+        safety_targets: list[dict[str, Any]] = []
+        safety_factor = self._as_float(guardrail_safety_factor)
+        if safety_factor is None or safety_factor <= 0.0:
+            safety_factor = 0.9
+        for item in failed_guardrails:
+            metric_name = str(item.get("metric") or "").strip()
+            op = str(item.get("op") or "<=").strip()
+            threshold = self._as_float(item.get("threshold"))
+            observed = self._as_float(item.get("value"))
+            recommended_target: float | None = None
+            if threshold is not None:
+                if op in {"<", "<="}:
+                    recommended_target = float(threshold * safety_factor)
+                elif op in {">", ">="}:
+                    recommended_target = float(threshold / safety_factor)
+                elif op in {"==", "!="}:
+                    recommended_target = float(threshold)
+            safety_targets.append(
+                {
+                    "metric": metric_name or None,
+                    "op": op,
+                    "threshold": threshold,
+                    "observed": observed,
+                    "recommended_target": (
+                        round(recommended_target, 6)
+                        if recommended_target is not None
+                        else None
+                    ),
+                }
+            )
+
+        current_metadata = dict(hypothesis.get("metadata") or {}) if isinstance(hypothesis.get("metadata"), dict) else {}
+        previous_retest_count = self._as_int(current_metadata.get("retest_count")) or 0
+        plan = {
+            "planned_at": utc_now_iso(),
+            "trigger_run_id": resolved_run_id,
+            "trigger_verdict": verdict,
+            "recommended_sample_size": recommended_sample_size,
+            "safety_targets": safety_targets,
+            "notes": str(notes).strip() if notes is not None else None,
+        }
+        updated_hypothesis = self.hypothesis_lab.set_hypothesis_status(
+            hypothesis_id=hypothesis_id,
+            status="queued",
+            metadata_patch={
+                "retest_count": int(previous_retest_count + 1),
+                "retest_last_run_id": resolved_run_id,
+                "retest_last_verdict": verdict,
+                "retest_lane_state": "queued",
+                "retest_plan": plan,
+            },
+        )
+
+        self.memory.append_event(
+            "improvement.hypothesis_retest_queued",
+            {
+                "run_id": resolved_run_id,
+                "hypothesis_id": hypothesis_id,
+                "verdict": verdict,
+                "recommended_sample_size": recommended_sample_size,
+                "safety_target_count": len(safety_targets),
+            },
+        )
+
+        return {
+            "queued": True,
+            "run_id": resolved_run_id,
+            "hypothesis_id": hypothesis_id,
+            "verdict": verdict,
+            "recommended_sample_size": recommended_sample_size,
+            "safety_targets": safety_targets,
+            "hypothesis_status": updated_hypothesis.get("status"),
+            "retest_plan": plan,
+        }
+
+    def build_hypothesis_retest_artifact(
+        self,
+        *,
+        hypothesis_id: str,
+        trigger_run_id: str | None = None,
+        environment: str | None = None,
+        notes: str | None = None,
+        source_trace_id: str | None = None,
+    ) -> dict[str, Any]:
+        resolved_hypothesis_id = str(hypothesis_id or "").strip()
+        hypothesis = self.hypothesis_lab.get_hypothesis(resolved_hypothesis_id)
+        if not isinstance(hypothesis, dict):
+            raise KeyError(f"Hypothesis not found: {resolved_hypothesis_id}")
+
+        metadata = dict(hypothesis.get("metadata") or {}) if isinstance(hypothesis.get("metadata"), dict) else {}
+        retest_plan = dict(metadata.get("retest_plan") or {}) if isinstance(metadata.get("retest_plan"), dict) else {}
+        resolved_trigger_run_id = (
+            str(trigger_run_id).strip()
+            if trigger_run_id is not None and str(trigger_run_id).strip()
+            else str(retest_plan.get("trigger_run_id") or metadata.get("retest_last_run_id") or "").strip()
+        )
+        if not resolved_trigger_run_id:
+            raise ValueError("missing_retest_trigger_run_id")
+
+        trigger_run = self.hypothesis_lab.get_experiment_run(resolved_trigger_run_id)
+        if not isinstance(trigger_run, dict):
+            raise KeyError(f"Retest trigger run not found: {resolved_trigger_run_id}")
+
+        baseline_metrics = (
+            dict(trigger_run.get("baseline_metrics") or {})
+            if isinstance(trigger_run.get("baseline_metrics"), dict)
+            else {}
+        )
+        candidate_metrics = (
+            dict(trigger_run.get("candidate_metrics") or {})
+            if isinstance(trigger_run.get("candidate_metrics"), dict)
+            else {}
+        )
+        for target in list(retest_plan.get("safety_targets") or []):
+            if not isinstance(target, dict):
+                continue
+            metric = str(target.get("metric") or "").strip()
+            if not metric:
+                continue
+            recommended = self._as_float(target.get("recommended_target"))
+            if recommended is None:
+                continue
+            candidate_metrics[metric] = float(recommended)
+
+        recommended_sample_size = self._as_int(retest_plan.get("recommended_sample_size"))
+        trigger_sample_size = self._as_int(trigger_run.get("sample_size"))
+        resolved_sample_size = (
+            int(recommended_sample_size)
+            if recommended_sample_size is not None
+            else (int(trigger_sample_size) if trigger_sample_size is not None else None)
+        )
+        resolved_environment = (
+            str(environment or trigger_run.get("environment") or "sandbox").strip().lower() or "sandbox"
+        )
+        resolved_source_trace_id = str(source_trace_id or trigger_run.get("source_trace_id") or "").strip() or None
+
+        notes_parts: list[str] = []
+        if notes is not None and str(notes).strip():
+            notes_parts.append(str(notes).strip())
+        plan_notes = str(retest_plan.get("notes") or "").strip()
+        if plan_notes:
+            notes_parts.append(plan_notes)
+        notes_parts.append(f"auto_retest_trigger={resolved_trigger_run_id}")
+        resolved_notes = " | ".join(notes_parts)
+
+        artifact_payload: dict[str, Any] = {
+            "environment": resolved_environment,
+            "baseline": {"metrics": baseline_metrics},
+            "candidate": {"metrics": candidate_metrics},
+            "metadata": {
+                "generated_by": "jarvis.runtime.build_hypothesis_retest_artifact",
+                "hypothesis_id": resolved_hypothesis_id,
+                "trigger_run_id": resolved_trigger_run_id,
+                "retest_plan": retest_plan,
+            },
+            "notes": resolved_notes,
+        }
+        if resolved_sample_size is not None:
+            artifact_payload["candidate"]["sample_size"] = int(resolved_sample_size)
+            artifact_payload["sample_size"] = int(resolved_sample_size)
+        if resolved_source_trace_id is not None:
+            artifact_payload["source_trace_id"] = resolved_source_trace_id
+
+        return {
+            "hypothesis_id": resolved_hypothesis_id,
+            "trigger_run_id": resolved_trigger_run_id,
+            "trigger_run": trigger_run,
+            "retest_plan": retest_plan,
+            "environment": resolved_environment,
+            "baseline_metrics": baseline_metrics,
+            "candidate_metrics": candidate_metrics,
+            "sample_size": resolved_sample_size,
+            "source_trace_id": resolved_source_trace_id,
+            "notes": resolved_notes,
+            "artifact_payload": artifact_payload,
+        }
+
+    def run_hypothesis_retest(
+        self,
+        *,
+        hypothesis_id: str,
+        trigger_run_id: str | None = None,
+        environment: str | None = None,
+        notes: str | None = None,
+        source_trace_id: str | None = None,
+    ) -> dict[str, Any]:
+        prepared = self.build_hypothesis_retest_artifact(
+            hypothesis_id=hypothesis_id,
+            trigger_run_id=trigger_run_id,
+            environment=environment,
+            notes=notes,
+            source_trace_id=source_trace_id,
+        )
+        run = self.run_hypothesis_experiment(
+            hypothesis_id=str(prepared.get("hypothesis_id") or ""),
+            environment=str(prepared.get("environment") or "sandbox"),
+            baseline_metrics=dict(prepared.get("baseline_metrics") or {}),
+            candidate_metrics=dict(prepared.get("candidate_metrics") or {}),
+            sample_size=(
+                int(prepared.get("sample_size"))
+                if prepared.get("sample_size") is not None
+                else None
+            ),
+            guardrail_metrics={},
+            source_trace_id=str(prepared.get("source_trace_id") or "") or None,
+            notes=str(prepared.get("notes") or "") or None,
+        )
+        run_id = str(run.get("run_id") or "").strip()
+        previous_run_id = str(prepared.get("trigger_run_id") or "").strip() or None
+        comparison = self.compare_hypothesis_runs(
+            hypothesis_id=str(prepared.get("hypothesis_id") or ""),
+            current_run_id=run_id,
+            previous_run_id=previous_run_id,
+        )
+        updated_hypothesis = self.hypothesis_lab.set_hypothesis_status(
+            hypothesis_id=str(prepared.get("hypothesis_id") or ""),
+            status=str(run.get("hypothesis_status") or "testing"),
+            metadata_patch={
+                "retest_lane_state": "executed",
+                "retest_last_trigger_run_id": previous_run_id,
+                "retest_last_execution_run_id": run_id,
+                "retest_last_execution_verdict": str(
+                    (run.get("evaluation") or {}).get("verdict")
+                    if isinstance(run.get("evaluation"), dict)
+                    else ""
+                ).strip() or None,
+                "retest_last_execution_at": utc_now_iso(),
+                "retest_last_comparison": comparison,
+            },
+        )
+        self.memory.append_event(
+            "improvement.hypothesis_retest_executed",
+            {
+                "hypothesis_id": prepared.get("hypothesis_id"),
+                "trigger_run_id": previous_run_id,
+                "run_id": run_id,
+                "verdict": (
+                    (run.get("evaluation") or {}).get("verdict")
+                    if isinstance(run.get("evaluation"), dict)
+                    else None
+                ),
+                "status": updated_hypothesis.get("status"),
+            },
+        )
+        return {
+            "hypothesis_id": str(prepared.get("hypothesis_id") or ""),
+            "trigger_run_id": previous_run_id,
+            "run_id": run_id,
+            "result": run,
+            "side_by_side": comparison,
+            "artifact_payload": dict(prepared.get("artifact_payload") or {}),
+            "retest_plan": dict(prepared.get("retest_plan") or {}),
+            "hypothesis_status": updated_hypothesis.get("status"),
+        }
+
     def materialize_learning_examples(
         self,
         *,
@@ -12107,6 +13295,42 @@ class JarvisRuntime:
             return None
         return stored.get("review")
 
+    def list_provider_review_refs(
+        self,
+        *,
+        provider: str | None = None,
+        repo_slug: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        rows = self.security.list_provider_reviews(
+            provider=provider,
+            repo_slug=repo_slug,
+            limit=max(1, int(limit)),
+        )
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            review = dict(row.get("review") or {}) if isinstance(row.get("review"), dict) else {}
+            metadata = dict(review.get("metadata") or {}) if isinstance(review.get("metadata"), dict) else {}
+            out.append(
+                {
+                    "approval_id": str(row.get("approval_id") or ""),
+                    "plan_id": str(row.get("plan_id") or ""),
+                    "step_id": str(row.get("step_id") or ""),
+                    "provider": str(row.get("provider") or ""),
+                    "repo_slug": str(row.get("repo_slug") or ""),
+                    "repo_id": str(metadata.get("repo_id") or review.get("repo_slug") or ""),
+                    "number": str(review.get("number") or ""),
+                    "head_branch": str(review.get("head_branch") or ""),
+                    "state": str(review.get("state") or ""),
+                    "draft": bool(review.get("draft", False)),
+                    "created_at": row.get("created_at"),
+                    "updated_at": row.get("updated_at"),
+                }
+            )
+        return out
+
     def sync_review_feedback(
         self,
         repo_id: str,
@@ -12284,6 +13508,76 @@ class JarvisRuntime:
             ),
         }
 
+    @staticmethod
+    def _parse_matrix_drift_severity_from_reason(reason: Any) -> str | None:
+        text = str(reason or "").strip().lower()
+        if "matrix_drift_detected" not in text:
+            return None
+        match = re.search(r"(?:^|\s)severity=([a-z_]+)", text)
+        if match:
+            return str(match.group(1)).strip().lower() or None
+        return "warn"
+
+    def list_matrix_drift_alert_interrupts(
+        self,
+        *,
+        severity: str | None = None,
+        unresolved_only: bool = False,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        rows = self.interrupt_store.list(status="all", limit=max(1, int(limit)))
+        target_severity = str(severity or "").strip().lower() if severity is not None else ""
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            drift_severity = self._parse_matrix_drift_severity_from_reason(row.get("reason"))
+            if not drift_severity:
+                continue
+            status = str(row.get("status") or "").strip().lower()
+            if unresolved_only and status == "acknowledged":
+                continue
+            if target_severity and drift_severity != target_severity:
+                continue
+            item = dict(row)
+            item["drift_severity"] = drift_severity
+            out.append(item)
+        return out
+
+    @staticmethod
+    def _build_critical_drift_gate_status(
+        *,
+        enabled: bool,
+        unresolved_alerts: list[dict[str, Any]],
+        limit: int,
+        acknowledge_actor: str = "operator",
+    ) -> dict[str, Any]:
+        resolved_enabled = bool(enabled)
+        resolved_limit = max(1, int(limit))
+        actor = str(acknowledge_actor or "operator").strip() or "operator"
+        blocking_rows = [row for row in list(unresolved_alerts or []) if isinstance(row, dict)]
+        blocking_ids = [
+            str(row.get("interrupt_id") or "").strip()
+            for row in blocking_rows
+            if str(row.get("interrupt_id") or "").strip()
+        ]
+        acknowledge_commands = [
+            f"python3 -m jarvis.cli interrupts acknowledge {interrupt_id} --actor {actor}"
+            for interrupt_id in blocking_ids
+        ]
+        mode = "enabled" if resolved_enabled else "disabled"
+        blocked = resolved_enabled and len(blocking_rows) > 0
+        return {
+            "mode": mode,
+            "blocked": bool(blocked),
+            "acknowledge_actor": actor,
+            "blocking_interrupt_count": len(blocking_rows),
+            "blocking_interrupt_ids": blocking_ids,
+            "acknowledge_commands": acknowledge_commands,
+            "blocking_acknowledge_commands": acknowledge_commands,
+            "scan_limit": resolved_limit,
+        }
+
     def evaluate_review_promotion_policy(
         self,
         plan_id: str,
@@ -12295,6 +13589,8 @@ class JarvisRuntime:
         override_actor: str | None = None,
         override_reason: str | None = None,
         override_sunset_condition: str | None = None,
+        enforce_critical_drift_gate: bool = False,
+        critical_drift_gate_limit: int = 100,
     ) -> dict[str, Any]:
         stored = self.security.find_provider_review(plan_id=plan_id, step_id=step_id)
         if not stored:
@@ -12350,6 +13646,14 @@ class JarvisRuntime:
                 if checks_gate
                 else "no_required_checks_configured"
             )
+        unresolved_critical_drift_alerts: list[dict[str, Any]] = []
+        if bool(enforce_critical_drift_gate):
+            unresolved_critical_drift_alerts = self.list_matrix_drift_alert_interrupts(
+                severity="critical",
+                unresolved_only=True,
+                limit=max(1, int(critical_drift_gate_limit)),
+            )
+        critical_drift_gate_passed = len(unresolved_critical_drift_alerts) == 0
 
         reasons: list[str] = []
         if not approval_exists:
@@ -12364,6 +13668,8 @@ class JarvisRuntime:
             reasons.append("labels_not_normalized")
         if not checks_gate:
             reasons.append(checks_reason)
+        if bool(enforce_critical_drift_gate) and not critical_drift_gate_passed:
+            reasons.append("critical_matrix_drift_unacknowledged")
 
         eligible = len(reasons) == 0
         return {
@@ -12389,6 +13695,33 @@ class JarvisRuntime:
                 "checks_gate": checks_gate,
                 "checks_reason": checks_reason,
                 "allow_no_required_checks": allow_no_required_checks,
+                "critical_drift_gate_enabled": bool(enforce_critical_drift_gate),
+                "critical_drift_gate_passed": bool(critical_drift_gate_passed),
+                "critical_drift_alert_count": len(unresolved_critical_drift_alerts),
+                "critical_drift_alerts": [
+                    {
+                        "interrupt_id": interrupt_id,
+                        "status": str(item.get("status") or ""),
+                        "domain": str(item.get("domain") or ""),
+                        "drift_severity": str(item.get("drift_severity") or ""),
+                        "reason": str(item.get("reason") or ""),
+                        "created_at": item.get("created_at"),
+                        "acknowledge_command": (
+                            f"python3 -m jarvis.cli interrupts acknowledge {interrupt_id} --actor operator"
+                            if interrupt_id
+                            else None
+                        ),
+                    }
+                    for item in unresolved_critical_drift_alerts
+                    for interrupt_id in [str(item.get("interrupt_id") or "").strip()]
+                ],
+                "critical_drift_gate_limit": max(1, int(critical_drift_gate_limit)),
+                "critical_drift_gate_status": self._build_critical_drift_gate_status(
+                    enabled=bool(enforce_critical_drift_gate),
+                    unresolved_alerts=unresolved_critical_drift_alerts,
+                    limit=max(1, int(critical_drift_gate_limit)),
+                    acknowledge_actor="operator",
+                ),
             },
             "review": review.to_dict(),
         }
@@ -12404,6 +13737,8 @@ class JarvisRuntime:
         override_actor: str | None = None,
         override_reason: str | None = None,
         override_sunset_condition: str | None = None,
+        enforce_critical_drift_gate: bool = False,
+        critical_drift_gate_limit: int = 100,
     ) -> dict[str, Any]:
         policy = self.evaluate_review_promotion_policy(
             plan_id,
@@ -12414,6 +13749,8 @@ class JarvisRuntime:
             override_actor=override_actor,
             override_reason=override_reason,
             override_sunset_condition=override_sunset_condition,
+            enforce_critical_drift_gate=enforce_critical_drift_gate,
+            critical_drift_gate_limit=critical_drift_gate_limit,
         )
         if not policy["eligible"]:
             return {"promoted": False, "policy": policy}
@@ -12559,6 +13896,8 @@ class JarvisRuntime:
         self.suggestion_feedback.close()
         self.learning_dataset.close()
         self.learning_registry.close()
+        self.friction_mining.close()
+        self.hypothesis_lab.close()
         self.reasoning_store.close()
         self.adaptive_policy.close()
         self.security.close()

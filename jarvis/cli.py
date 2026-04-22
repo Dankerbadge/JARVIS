@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
+import re
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +27,9 @@ from .connectors.personal_context import PersonalContextConnector
 from .connectors.repo import RepoChangeConnector
 from .daemon import EventDaemon
 from .evaluation import compare_backends_on_snapshot
+from .improvement import FeedbackFeedPuller
+from .interrupts import InterruptDecision
+from .models import new_id, utc_now_iso
 from .reactors import ZenithCorrelationReactor, ZenithGitDeltaReactor, ZenithRiskReactor
 from .runtime import JarvisRuntime
 from .security import ActionClass, SecurityManager
@@ -1484,8 +1490,458 @@ def cmd_plans_evaluate_promotion(args: argparse.Namespace) -> None:
             override_actor=args.override_actor,
             override_reason=args.override_reason,
             override_sunset_condition=args.override_sunset_condition,
+            enforce_critical_drift_gate=bool(getattr(args, "enforce_critical_drift_gate", True)),
+            critical_drift_gate_limit=max(1, int(getattr(args, "critical_drift_gate_limit", 100) or 100)),
         )
         print(json.dumps(policy, indent=2))
+    finally:
+        runtime.close()
+
+
+def _build_gate_status_payload(
+    runtime: JarvisRuntime,
+    *,
+    plan_id: str,
+    step_id: str,
+    required_labels: list[str] | None,
+    allow_no_required_checks: bool,
+    single_maintainer_override: bool,
+    override_actor: str | None,
+    override_reason: str | None,
+    override_sunset_condition: str | None,
+    enforce_critical_drift_gate: bool,
+    critical_drift_gate_limit: int,
+) -> dict[str, Any]:
+    policy = runtime.evaluate_review_promotion_policy(
+        plan_id,
+        step_id,
+        required_labels=required_labels,
+        allow_no_required_checks=allow_no_required_checks,
+        single_maintainer_override=single_maintainer_override,
+        override_actor=override_actor,
+        override_reason=override_reason,
+        override_sunset_condition=override_sunset_condition,
+        enforce_critical_drift_gate=enforce_critical_drift_gate,
+        critical_drift_gate_limit=max(1, int(critical_drift_gate_limit)),
+    )
+    policy_block = dict(policy.get("policy") or {})
+    gate_status = dict(policy_block.get("critical_drift_gate_status") or {})
+    blocking_interrupt_ids = [
+        str(item).strip()
+        for item in list(gate_status.get("blocking_interrupt_ids") or [])
+        if str(item).strip()
+    ]
+    acknowledge_commands = [
+        str(item).strip()
+        for item in list(gate_status.get("acknowledge_commands") or gate_status.get("blocking_acknowledge_commands") or [])
+        if str(item).strip()
+    ]
+
+    alert_by_id: dict[str, dict[str, Any]] = {}
+    for row in list(policy_block.get("critical_drift_alerts") or []):
+        if not isinstance(row, dict):
+            continue
+        interrupt_id = str(row.get("interrupt_id") or "").strip()
+        if not interrupt_id:
+            continue
+        alert_by_id[interrupt_id] = {
+            "interrupt_id": interrupt_id,
+            "status": str(row.get("status") or ""),
+            "domain": str(row.get("domain") or ""),
+            "drift_severity": str(row.get("drift_severity") or ""),
+            "reason": str(row.get("reason") or ""),
+            "created_at": row.get("created_at"),
+            "acknowledge_command": row.get("acknowledge_command"),
+        }
+
+    blocking_alerts = [
+        alert_by_id[interrupt_id]
+        for interrupt_id in blocking_interrupt_ids
+        if interrupt_id in alert_by_id
+    ]
+
+    next_action = (
+        "Acknowledge each blocking interrupt and rerun plans promote-ready."
+        if bool(gate_status.get("blocked"))
+        else "No blocking critical drift alerts."
+    )
+    return {
+        "plan_id": str(plan_id),
+        "step_id": str(step_id),
+        "gate_mode": str(gate_status.get("mode") or "disabled"),
+        "blocked": bool(gate_status.get("blocked")),
+        "blocking_interrupt_count": len(blocking_interrupt_ids),
+        "blocking_interrupt_ids": blocking_interrupt_ids,
+        "acknowledge_commands": acknowledge_commands,
+        "blocking_alerts": blocking_alerts,
+        "next_action": next_action,
+        "critical_drift_gate_status": gate_status,
+    }
+
+
+def _render_gate_status_payload_text(payload: dict[str, Any]) -> str:
+    lines = [
+        f"plan_id: {payload['plan_id']}",
+        f"step_id: {payload['step_id']}",
+        f"gate_mode: {payload['gate_mode']}",
+        f"blocked: {'yes' if bool(payload['blocked']) else 'no'}",
+        f"blocking_interrupt_count: {int(payload['blocking_interrupt_count'])}",
+    ]
+    if list(payload.get("blocking_interrupt_ids") or []):
+        lines.append(
+            "blocking_interrupt_ids: "
+            + ", ".join(str(item) for item in list(payload.get("blocking_interrupt_ids") or []))
+        )
+    else:
+        lines.append("blocking_interrupt_ids: none")
+    lines.append("acknowledge_commands:")
+    commands = list(payload.get("acknowledge_commands") or [])
+    if commands:
+        lines.extend(f"- {str(command)}" for command in commands)
+    else:
+        lines.append("- none")
+    lines.append(f"next_action: {payload['next_action']}")
+    return "\n".join(lines)
+
+
+def _render_gate_status_all_ci_summary(payload: dict[str, Any]) -> str:
+    blocked_steps = list(payload.get("blocked_steps") or [])
+    acknowledge_commands = list(payload.get("acknowledge_commands") or [])
+    normalized_ack_commands = [str(command).strip() for command in acknowledge_commands if str(command).strip()]
+    errors = list(payload.get("errors") or [])
+    next_action = str(payload.get("next_action") or "").strip()
+
+    lines: list[str] = [
+        "# plans gate-status-all summary",
+        "",
+        "## Counts",
+        f"- scanned_review_count: {int(payload.get('scanned_review_count') or 0)}",
+        f"- evaluated_step_count: {int(payload.get('evaluated_step_count') or 0)}",
+        f"- visible_step_count: {int(payload.get('visible_step_count') or 0)}",
+        f"- blocked_step_count: {int(payload.get('blocked_step_count') or 0)}",
+        f"- error_count: {int(payload.get('error_count') or 0)}",
+        f"- exit_reason: {str(payload.get('exit_reason') or '')}",
+        f"- exit_code: {int(payload.get('exit_code') or 0)}",
+        "",
+        "## Blocked Steps",
+    ]
+    if blocked_steps:
+        for row in blocked_steps:
+            interrupt_ids = list(row.get("blocking_interrupt_ids") or [])
+            interrupt_text = ", ".join(str(item) for item in interrupt_ids) if interrupt_ids else "none"
+            lines.append(
+                f"- {str(row.get('plan_id') or '')}/{str(row.get('step_id') or '')} (interrupt_ids: {interrupt_text})"
+            )
+    else:
+        lines.append("- none")
+
+    lines.append("")
+    lines.append("## Acknowledge Commands")
+    if normalized_ack_commands:
+        lines.extend(f"- `{command}`" for command in normalized_ack_commands)
+    else:
+        lines.append("- none")
+
+    lines.append("")
+    lines.append("## Errors")
+    if errors:
+        lines.extend(
+            f"- {str(item.get('plan_id') or '')}/{str(item.get('step_id') or '')}: {str(item.get('error') or '')}"
+            for item in errors
+        )
+    else:
+        lines.append("- none")
+
+    lines.append("")
+    lines.append("## Next Action")
+    lines.append(next_action or "none")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_gate_status_all_ci_json_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "scanned_review_count": int(payload.get("scanned_review_count") or 0),
+        "evaluated_step_count": int(payload.get("evaluated_step_count") or 0),
+        "visible_step_count": int(payload.get("visible_step_count") or 0),
+        "blocked_step_count": int(payload.get("blocked_step_count") or 0),
+        "error_count": int(payload.get("error_count") or 0),
+        "exit_reason": str(payload.get("exit_reason") or ""),
+        "exit_code": int(payload.get("exit_code") or 0),
+        "exit_triggered": bool(payload.get("exit_triggered")),
+        "blocked_exit_triggered": bool(payload.get("blocked_exit_triggered")),
+        "error_exit_triggered": bool(payload.get("error_exit_triggered")),
+        "zero_scanned_exit_triggered": bool(payload.get("zero_scanned_exit_triggered")),
+        "zero_evaluated_exit_triggered": bool(payload.get("zero_evaluated_exit_triggered")),
+        "empty_ack_commands_exit_triggered": bool(payload.get("empty_ack_commands_exit_triggered")),
+        "blocked_steps": [
+            {
+                "plan_id": str(item.get("plan_id") or ""),
+                "step_id": str(item.get("step_id") or ""),
+                "blocking_interrupt_ids": list(item.get("blocking_interrupt_ids") or []),
+            }
+            for item in list(payload.get("blocked_steps") or [])
+        ],
+        "acknowledge_commands": list(payload.get("acknowledge_commands") or []),
+        "errors": [
+            {
+                "plan_id": str(item.get("plan_id") or ""),
+                "step_id": str(item.get("step_id") or ""),
+                "error": str(item.get("error") or ""),
+            }
+            for item in list(payload.get("errors") or [])
+        ],
+        "next_action": str(payload.get("next_action") or ""),
+    }
+
+
+def cmd_plans_gate_status(args: argparse.Namespace) -> None:
+    runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+    try:
+        payload = _build_gate_status_payload(
+            runtime,
+            plan_id=str(args.plan_id),
+            step_id=str(args.step_id),
+            required_labels=args.required_label,
+            allow_no_required_checks=bool(args.allow_no_required_checks),
+            single_maintainer_override=bool(args.single_maintainer_override),
+            override_actor=args.override_actor,
+            override_reason=args.override_reason,
+            override_sunset_condition=args.override_sunset_condition,
+            enforce_critical_drift_gate=bool(getattr(args, "enforce_critical_drift_gate", True)),
+            critical_drift_gate_limit=max(1, int(getattr(args, "critical_drift_gate_limit", 100) or 100)),
+        )
+        output_mode = str(getattr(args, "output", "json") or "json").strip().lower()
+        if output_mode == "text":
+            print(_render_gate_status_payload_text(payload))
+            return
+        print(json.dumps(payload, indent=2))
+    finally:
+        runtime.close()
+
+
+def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
+    runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+    try:
+        only_blocked = bool(getattr(args, "only_blocked", False))
+        fail_on_blocked = bool(getattr(args, "fail_on_blocked", False))
+        fail_on_errors = bool(getattr(args, "fail_on_errors", False))
+        fail_on_zero_scanned = bool(getattr(args, "fail_on_zero_scanned", False))
+        fail_on_zero_evaluated = bool(getattr(args, "fail_on_zero_evaluated", False))
+        fail_on_empty_ack_commands = bool(getattr(args, "fail_on_empty_ack_commands", False))
+        blocked_exit_code = max(1, int(getattr(args, "blocked_exit_code", 2) or 2))
+        error_exit_code = max(1, int(getattr(args, "error_exit_code", 3) or 3))
+        zero_scanned_exit_code = max(1, int(getattr(args, "zero_scanned_exit_code", 5) or 5))
+        zero_evaluated_exit_code = max(1, int(getattr(args, "zero_evaluated_exit_code", 4) or 4))
+        empty_ack_commands_exit_code = max(1, int(getattr(args, "empty_ack_commands_exit_code", 6) or 6))
+        emit_ci_summary_path_value = getattr(args, "emit_ci_summary_path", None)
+        emit_ci_json_path = (
+            Path(str(getattr(args, "emit_ci_json_path", ""))).expanduser().resolve()
+            if getattr(args, "emit_ci_json_path", None) is not None
+            else None
+        )
+        ci_summary_path_source = "none"
+        if emit_ci_summary_path_value is not None:
+            emit_ci_summary_path = Path(str(emit_ci_summary_path_value)).expanduser().resolve()
+            ci_summary_path_source = "cli"
+        else:
+            github_step_summary_raw = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary_raw:
+                emit_ci_summary_path = Path(github_step_summary_raw).expanduser().resolve()
+                ci_summary_path_source = "env"
+            else:
+                emit_ci_summary_path = None
+        review_refs = runtime.list_provider_review_refs(
+            provider=(str(args.provider).strip() or None) if getattr(args, "provider", None) is not None else None,
+            repo_slug=(str(args.repo_slug).strip() or None) if getattr(args, "repo_slug", None) is not None else None,
+            limit=max(1, int(getattr(args, "limit", 25) or 25)),
+        )
+        rows: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        for ref in review_refs:
+            plan_id = str((ref or {}).get("plan_id") or "").strip()
+            step_id = str((ref or {}).get("step_id") or "").strip()
+            if not plan_id or not step_id:
+                continue
+            try:
+                row_payload = _build_gate_status_payload(
+                    runtime,
+                    plan_id=plan_id,
+                    step_id=step_id,
+                    required_labels=args.required_label,
+                    allow_no_required_checks=bool(args.allow_no_required_checks),
+                    single_maintainer_override=bool(args.single_maintainer_override),
+                    override_actor=args.override_actor,
+                    override_reason=args.override_reason,
+                    override_sunset_condition=args.override_sunset_condition,
+                    enforce_critical_drift_gate=bool(getattr(args, "enforce_critical_drift_gate", True)),
+                    critical_drift_gate_limit=max(1, int(getattr(args, "critical_drift_gate_limit", 100) or 100)),
+                )
+                row_payload["review_ref"] = {
+                    "provider": str(ref.get("provider") or ""),
+                    "repo_slug": str(ref.get("repo_slug") or ""),
+                    "repo_id": str(ref.get("repo_id") or ""),
+                    "number": str(ref.get("number") or ""),
+                    "head_branch": str(ref.get("head_branch") or ""),
+                    "state": str(ref.get("state") or ""),
+                    "draft": bool(ref.get("draft", False)),
+                    "updated_at": ref.get("updated_at"),
+                }
+                rows.append(row_payload)
+            except Exception as exc:
+                errors.append(
+                    {
+                        "plan_id": plan_id,
+                        "step_id": step_id,
+                        "error": str(exc),
+                    }
+                )
+        blocked_rows = [row for row in rows if bool(row.get("blocked"))]
+        deduped_ack_commands: list[str] = []
+        seen_commands: set[str] = set()
+        for row in blocked_rows:
+            for command in list(row.get("acknowledge_commands") or []):
+                normalized = str(command).strip()
+                if not normalized or normalized in seen_commands:
+                    continue
+                seen_commands.add(normalized)
+                deduped_ack_commands.append(normalized)
+        visible_rows = blocked_rows if only_blocked else rows
+        blocked_exit_triggered = fail_on_blocked and bool(blocked_rows)
+        error_exit_triggered = fail_on_errors and bool(errors)
+        zero_scanned_exit_triggered = fail_on_zero_scanned and len(review_refs) == 0
+        zero_evaluated_exit_triggered = fail_on_zero_evaluated and len(review_refs) > 0 and len(rows) == 0
+        empty_ack_commands_exit_triggered = (
+            fail_on_empty_ack_commands and len(blocked_rows) > 0 and len(deduped_ack_commands) == 0
+        )
+        if error_exit_triggered:
+            exit_code = error_exit_code
+            exit_reason = "errors_present"
+        elif zero_scanned_exit_triggered:
+            exit_code = zero_scanned_exit_code
+            exit_reason = "zero_scanned_reviews"
+        elif zero_evaluated_exit_triggered:
+            exit_code = zero_evaluated_exit_code
+            exit_reason = "zero_evaluated_steps"
+        elif empty_ack_commands_exit_triggered:
+            exit_code = empty_ack_commands_exit_code
+            exit_reason = "empty_ack_commands_missing"
+        elif blocked_exit_triggered:
+            exit_code = blocked_exit_code
+            exit_reason = "blocked_steps_present"
+        else:
+            exit_code = 0
+            exit_reason = "none"
+        next_action = (
+            "Acknowledge blocker queue commands, then rerun plans promote-ready for affected steps."
+            if blocked_rows
+            else "No blocking critical drift alerts across scanned review steps."
+        )
+        payload = {
+            "only_blocked": only_blocked,
+            "fail_on_blocked": fail_on_blocked,
+            "fail_on_errors": fail_on_errors,
+            "fail_on_zero_scanned": fail_on_zero_scanned,
+            "fail_on_zero_evaluated": fail_on_zero_evaluated,
+            "fail_on_empty_ack_commands": fail_on_empty_ack_commands,
+            "blocked_exit_code": int(blocked_exit_code),
+            "error_exit_code": int(error_exit_code),
+            "zero_scanned_exit_code": int(zero_scanned_exit_code),
+            "zero_evaluated_exit_code": int(zero_evaluated_exit_code),
+            "empty_ack_commands_exit_code": int(empty_ack_commands_exit_code),
+            "scanned_review_count": len(review_refs),
+            "evaluated_step_count": len(rows),
+            "visible_step_count": len(visible_rows),
+            "non_blocking_step_count": max(0, len(rows) - len(blocked_rows)),
+            "blocked_step_count": len(blocked_rows),
+            "error_count": len(errors),
+            "blocked_steps": [
+                {
+                    "plan_id": str(item.get("plan_id") or ""),
+                    "step_id": str(item.get("step_id") or ""),
+                    "blocking_interrupt_ids": list(item.get("blocking_interrupt_ids") or []),
+                    "acknowledge_commands": list(item.get("acknowledge_commands") or []),
+                }
+                for item in blocked_rows
+            ],
+            "acknowledge_commands": deduped_ack_commands,
+            "errors": errors,
+            "next_action": next_action,
+            "gate_rows": visible_rows,
+            "exit_code": int(exit_code),
+            "exit_triggered": bool(int(exit_code) != 0),
+            "blocked_exit_triggered": bool(blocked_exit_triggered),
+            "error_exit_triggered": bool(error_exit_triggered),
+            "zero_scanned_exit_triggered": bool(zero_scanned_exit_triggered),
+            "zero_evaluated_exit_triggered": bool(zero_evaluated_exit_triggered),
+            "empty_ack_commands_exit_triggered": bool(empty_ack_commands_exit_triggered),
+            "exit_reason": str(exit_reason),
+        }
+        if emit_ci_summary_path is not None:
+            emit_ci_summary_path.parent.mkdir(parents=True, exist_ok=True)
+            emit_ci_summary_path.write_text(
+                _render_gate_status_all_ci_summary(payload),
+                encoding="utf-8",
+            )
+            payload["ci_summary_path"] = str(emit_ci_summary_path)
+            payload["ci_summary_path_source"] = ci_summary_path_source
+        if emit_ci_json_path is not None:
+            ci_json_payload = _build_gate_status_all_ci_json_payload(payload)
+            emit_ci_json_path.parent.mkdir(parents=True, exist_ok=True)
+            emit_ci_json_path.write_text(json.dumps(ci_json_payload, indent=2), encoding="utf-8")
+            payload["ci_json_path"] = str(emit_ci_json_path)
+        output_mode = str(getattr(args, "output", "json") or "json").strip().lower()
+        if output_mode == "text":
+            lines = [
+                f"only_blocked: {'yes' if only_blocked else 'no'}",
+                f"fail_on_blocked: {'yes' if fail_on_blocked else 'no'}",
+                f"fail_on_errors: {'yes' if fail_on_errors else 'no'}",
+                f"fail_on_zero_scanned: {'yes' if fail_on_zero_scanned else 'no'}",
+                f"fail_on_zero_evaluated: {'yes' if fail_on_zero_evaluated else 'no'}",
+                f"fail_on_empty_ack_commands: {'yes' if fail_on_empty_ack_commands else 'no'}",
+                f"blocked_exit_code: {int(blocked_exit_code)}",
+                f"error_exit_code: {int(error_exit_code)}",
+                f"zero_scanned_exit_code: {int(zero_scanned_exit_code)}",
+                f"zero_evaluated_exit_code: {int(zero_evaluated_exit_code)}",
+                f"empty_ack_commands_exit_code: {int(empty_ack_commands_exit_code)}",
+                f"scanned_review_count: {int(payload['scanned_review_count'])}",
+                f"evaluated_step_count: {int(payload['evaluated_step_count'])}",
+                f"visible_step_count: {int(payload['visible_step_count'])}",
+                f"blocked_step_count: {int(payload['blocked_step_count'])}",
+                f"error_count: {int(payload['error_count'])}",
+            ]
+            lines.append("blocker_queue:")
+            if blocked_rows:
+                for row in blocked_rows:
+                    ids = list(row.get("blocking_interrupt_ids") or [])
+                    ids_text = ", ".join(str(item) for item in ids) if ids else "none"
+                    lines.append(
+                        f"- {str(row.get('plan_id') or '')}/{str(row.get('step_id') or '')} interrupt_ids={ids_text}"
+                    )
+            else:
+                lines.append("- none")
+            lines.append("acknowledge_commands:")
+            if deduped_ack_commands:
+                lines.extend(f"- {command}" for command in deduped_ack_commands)
+            else:
+                lines.append("- none")
+            if errors:
+                lines.append("errors:")
+                lines.extend(
+                    f"- {str(item.get('plan_id') or '')}/{str(item.get('step_id') or '')}: {str(item.get('error') or '')}"
+                    for item in errors
+                )
+            lines.append(f"exit_code: {int(payload['exit_code'])}")
+            lines.append(f"exit_reason: {str(payload['exit_reason'])}")
+            if str(payload.get("ci_summary_path") or "").strip():
+                lines.append(f"ci_summary_path: {str(payload.get('ci_summary_path') or '')}")
+            if str(payload.get("ci_json_path") or "").strip():
+                lines.append(f"ci_json_path: {str(payload.get('ci_json_path') or '')}")
+            lines.append(f"next_action: {next_action}")
+            print("\n".join(lines))
+        else:
+            print(json.dumps(payload, indent=2))
+        if int(exit_code) != 0:
+            raise SystemExit(int(exit_code))
     finally:
         runtime.close()
 
@@ -1502,6 +1958,8 @@ def cmd_plans_promote_ready(args: argparse.Namespace) -> None:
             override_actor=args.override_actor,
             override_reason=args.override_reason,
             override_sunset_condition=args.override_sunset_condition,
+            enforce_critical_drift_gate=bool(getattr(args, "enforce_critical_drift_gate", True)),
+            critical_drift_gate_limit=max(1, int(getattr(args, "critical_drift_gate_limit", 100) or 100)),
         )
         print(json.dumps(result, indent=2))
     finally:
@@ -1624,6 +2082,1913 @@ def cmd_plans_backfill_project_signals(args: argparse.Namespace) -> None:
             raise SystemExit(int(exit_code))
     finally:
         runtime.close()
+
+
+def cmd_improvement_cycle_from_file(args: argparse.Namespace) -> None:
+    runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+    try:
+        run = runtime.run_friction_hypothesis_cycle_from_file(
+            domain=str(args.domain),
+            source=str(args.source),
+            input_path=str(args.input_path),
+            input_format=args.input_format,
+            default_segment=str(args.default_segment or "general"),
+            default_severity=args.default_severity,
+            default_frustration_score=args.default_frustration_score,
+            status=str(args.status or "open"),
+            metadata={"invoked_by": "jarvis.cli.improvement.cycle-from-file"},
+            min_cluster_count=max(1, int(args.min_cluster_count)),
+            proposal_limit=max(1, int(args.proposal_limit)),
+            auto_register=bool(args.auto_register),
+            owner=str(args.owner or "operator"),
+        )
+        report = runtime.build_hypothesis_inbox_report(
+            domain=str(args.domain),
+            cluster_min_count=max(1, int(args.min_cluster_count)),
+            cluster_limit=max(1, int(args.report_cluster_limit)),
+            hypothesis_limit=max(1, int(args.report_hypothesis_limit)),
+            experiment_limit=max(1, int(args.report_experiment_limit)),
+            queue_limit=max(1, int(args.report_queue_limit)),
+        )
+        payload = {
+            "domain": str(args.domain),
+            "source": str(args.source),
+            "auto_register": bool(args.auto_register),
+            "cycle": run,
+            "report": report,
+        }
+        report_path = args.report_path.resolve() if args.report_path is not None else None
+        if report_path is not None:
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            payload["report_path"] = str(report_path)
+
+        _print_json_payload(
+            payload,
+            compact=bool(getattr(args, "json_compact", False)),
+        )
+    finally:
+        runtime.close()
+
+
+def cmd_improvement_run_experiment_artifact(args: argparse.Namespace) -> None:
+    runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+    try:
+        result = runtime.run_hypothesis_experiment_from_artifact(
+            hypothesis_id=str(args.hypothesis_id),
+            artifact_path=str(args.artifact_path),
+            environment=args.environment,
+            source_trace_id=args.source_trace_id,
+            notes=args.notes,
+        )
+        payload = {
+            "hypothesis_id": str(args.hypothesis_id),
+            "result": result,
+        }
+        _print_json_payload(
+            payload,
+            compact=bool(getattr(args, "json_compact", False)),
+        )
+    finally:
+        runtime.close()
+
+
+def cmd_improvement_seed_hypotheses(args: argparse.Namespace) -> None:
+    template_path = args.template_path.resolve()
+    loaded = json.loads(template_path.read_text(encoding="utf-8"))
+    if isinstance(loaded, list):
+        rows = list(loaded)
+    elif isinstance(loaded, dict):
+        rows = list(loaded.get("hypotheses") or loaded.get("items") or [])
+    else:
+        raise ValueError("invalid_hypothesis_template:expected_json_object_or_array")
+
+    runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+    try:
+        created: list[dict[str, Any]] = []
+        existing: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        domain_cache: dict[str, list[dict[str, Any]]] = {}
+        lookup_limit = max(1, int(getattr(args, "lookup_limit", 400) or 400))
+        allow_invalid_rows = bool(getattr(args, "allow_invalid_rows", False))
+        default_owner = str(getattr(args, "owner", "operator") or "operator").strip() or "operator"
+
+        def _domain_hypotheses(domain: str) -> list[dict[str, Any]]:
+            normalized = str(domain or "").strip().lower()
+            if normalized not in domain_cache:
+                domain_cache[normalized] = [
+                    item
+                    for item in runtime.list_hypotheses(
+                        domain=normalized,
+                        status=None,
+                        limit=lookup_limit,
+                    )
+                    if isinstance(item, dict)
+                ]
+            return domain_cache[normalized]
+
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                entry = {"index": index, "error": "template_row_not_object"}
+                if allow_invalid_rows:
+                    skipped.append(entry)
+                else:
+                    errors.append(entry)
+                continue
+
+            domain = str(row.get("domain") or "").strip().lower()
+            title = str(row.get("title") or "").strip()
+            statement = str(row.get("statement") or "").strip()
+            proposed_change = str(row.get("proposed_change") or "").strip()
+            friction_key_raw = row.get("friction_key")
+            friction_key = (
+                str(friction_key_raw).strip()
+                if friction_key_raw is not None and str(friction_key_raw).strip()
+                else None
+            )
+            normalized_friction_key = _normalize_friction_key(friction_key)
+
+            if not domain or not title or not statement or not proposed_change:
+                entry = {
+                    "index": index,
+                    "error": "missing_required_fields",
+                    "domain": domain,
+                    "title": title,
+                }
+                if allow_invalid_rows:
+                    skipped.append(entry)
+                else:
+                    errors.append(entry)
+                continue
+
+            candidates = _domain_hypotheses(domain)
+            matched: dict[str, Any] | None = None
+            if normalized_friction_key:
+                matched = next(
+                    (
+                        item
+                        for item in candidates
+                        if _normalize_friction_key(item.get("friction_key")) == normalized_friction_key
+                    ),
+                    None,
+                )
+            if matched is None:
+                normalized_title = title.lower()
+                matched = next(
+                    (
+                        item
+                        for item in candidates
+                        if str(item.get("title") or "").strip().lower() == normalized_title
+                    ),
+                    None,
+                )
+
+            if isinstance(matched, dict):
+                existing.append(
+                    {
+                        "index": index,
+                        "hypothesis_id": matched.get("hypothesis_id"),
+                        "domain": matched.get("domain"),
+                        "title": matched.get("title"),
+                        "friction_key": matched.get("friction_key"),
+                        "reason": "existing_match",
+                    }
+                )
+                continue
+
+            metadata = dict(row.get("metadata") or {}) if isinstance(row.get("metadata"), dict) else {}
+            metadata["seed_template_path"] = str(template_path)
+            metadata["seed_index"] = int(index)
+            owner = str(row.get("owner") or default_owner).strip() or default_owner
+            risk_level = str(row.get("risk_level") or "medium").strip().lower() or "medium"
+            success_criteria = (
+                dict(row.get("success_criteria") or {})
+                if isinstance(row.get("success_criteria"), dict)
+                else None
+            )
+            friction_ids = (
+                [str(item).strip() for item in list(row.get("friction_ids") or []) if str(item).strip()]
+                if isinstance(row.get("friction_ids"), list)
+                else None
+            )
+
+            hypothesis = runtime.register_hypothesis(
+                domain=domain,
+                title=title,
+                statement=statement,
+                proposed_change=proposed_change,
+                success_criteria=success_criteria,
+                friction_key=friction_key,
+                friction_ids=friction_ids,
+                risk_level=risk_level,
+                owner=owner,
+                metadata=metadata,
+            )
+            created.append(
+                {
+                    "index": index,
+                    "hypothesis_id": hypothesis.get("hypothesis_id"),
+                    "domain": hypothesis.get("domain"),
+                    "title": hypothesis.get("title"),
+                    "friction_key": hypothesis.get("friction_key"),
+                    "risk_level": hypothesis.get("risk_level"),
+                }
+            )
+            candidates.append(dict(hypothesis))
+
+        payload = {
+            "generated_at": utc_now_iso(),
+            "template_path": str(template_path),
+            "requested_count": len(rows),
+            "created_count": len(created),
+            "existing_count": len(existing),
+            "skipped_count": len(skipped),
+            "error_count": len(errors),
+            "created": created,
+            "existing": existing,
+            "skipped": skipped,
+            "errors": errors,
+            "status": "ok" if not errors else "warning",
+        }
+
+        output_path = args.output_path.resolve() if args.output_path is not None else None
+        if output_path is not None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            payload["output_path"] = str(output_path)
+
+        _print_json_payload(
+            payload,
+            compact=bool(getattr(args, "json_compact", False)),
+        )
+        if errors and bool(getattr(args, "strict", False)):
+            raise SystemExit(2)
+    finally:
+        runtime.close()
+
+
+def _resolve_pipeline_path(raw_path: Any, *, config_path: Path) -> Path:
+    path = Path(str(raw_path)).expanduser()
+    if not path.is_absolute():
+        path = (config_path.parent / path).resolve()
+    else:
+        path = path.resolve()
+    return path
+
+
+def _normalize_friction_key(raw_value: Any) -> str:
+    value = str(raw_value or "").strip().lower()
+    if not value:
+        return ""
+    value = re.sub(r"[^a-z0-9]+", "_", value)
+    value = value.strip("_")
+    return value
+
+
+def _coerce_status_preferences(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        values = _parse_csv_items(value)
+    elif isinstance(value, (list, tuple, set)):
+        values = [str(item).strip().lower() for item in value if str(item).strip()]
+    else:
+        values = [str(value).strip().lower()] if str(value).strip() else []
+
+    out: list[str] = []
+    for item in values:
+        normalized = str(item).strip().lower()
+        if normalized and normalized not in out:
+            out.append(normalized)
+    return out
+
+
+def _coerce_bool(value: Any, *, default: bool = False) -> bool:
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return bool(value)
+    if isinstance(value, (int, float)):
+        return bool(value)
+    raw = str(value).strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
+def _coerce_float(value: Any, *, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _coerce_int(value: Any, *, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _resolve_pipeline_hypothesis_id(
+    *,
+    runtime: JarvisRuntime,
+    raw_job: dict[str, Any],
+    defaults: dict[str, Any],
+) -> tuple[str | None, dict[str, Any], str | None]:
+    explicit_hypothesis_id = str(raw_job.get("hypothesis_id") or "").strip()
+    if explicit_hypothesis_id:
+        return (
+            explicit_hypothesis_id,
+            {
+                "strategy": "explicit_hypothesis_id",
+                "hypothesis_id": explicit_hypothesis_id,
+            },
+            None,
+        )
+
+    selector_domain = str(raw_job.get("domain") or defaults.get("domain") or "").strip().lower()
+    selector_friction_key_raw = str(raw_job.get("friction_key") or "").strip()
+    selector_friction_key = _normalize_friction_key(selector_friction_key_raw)
+    selector_title_contains = str(raw_job.get("title_contains") or "").strip().lower()
+    selector_status = str(raw_job.get("hypothesis_status") or "").strip().lower()
+
+    if not selector_domain:
+        return None, {}, "missing_hypothesis_selector_domain"
+    if not selector_friction_key and not selector_title_contains:
+        return None, {}, "missing_hypothesis_selector_fields"
+
+    lookup_limit_raw = raw_job.get("hypothesis_lookup_limit")
+    if lookup_limit_raw is None:
+        lookup_limit_raw = defaults.get("hypothesis_lookup_limit", 200)
+    try:
+        lookup_limit = max(1, int(lookup_limit_raw))
+    except (TypeError, ValueError):
+        lookup_limit = 200
+
+    candidates = runtime.list_hypotheses(
+        domain=selector_domain,
+        status=None,
+        limit=lookup_limit,
+    )
+    filtered = [item for item in candidates if isinstance(item, dict)]
+    if selector_friction_key:
+        filtered = [
+            item
+            for item in filtered
+            if _normalize_friction_key(item.get("friction_key")) == selector_friction_key
+        ]
+    if selector_title_contains:
+        filtered = [
+            item
+            for item in filtered
+            if selector_title_contains in str(item.get("title") or "").strip().lower()
+        ]
+    if selector_status:
+        filtered = [
+            item
+            for item in filtered
+            if str(item.get("status") or "").strip().lower() == selector_status
+        ]
+
+    preferred_statuses = _coerce_status_preferences(
+        raw_job.get("preferred_statuses")
+        if raw_job.get("preferred_statuses") is not None
+        else defaults.get("preferred_statuses")
+    )
+    if preferred_statuses:
+        status_rank = {status: idx for idx, status in enumerate(preferred_statuses)}
+        fallback_rank = len(status_rank) + 1
+        filtered = sorted(
+            filtered,
+            key=lambda item: status_rank.get(str(item.get("status") or "").strip().lower(), fallback_rank),
+        )
+
+    if not filtered:
+        return (
+            None,
+            {
+                "strategy": "selector",
+                "domain": selector_domain,
+                "friction_key": selector_friction_key or None,
+                "title_contains": selector_title_contains or None,
+                "hypothesis_status": selector_status or None,
+                "candidate_count": 0,
+                "preferred_statuses": preferred_statuses,
+            },
+            "hypothesis_selector_no_match",
+        )
+
+    selected = filtered[0]
+    resolved_hypothesis_id = str(selected.get("hypothesis_id") or "").strip()
+    if not resolved_hypothesis_id:
+        return None, {}, "resolved_hypothesis_missing_id"
+    return (
+        resolved_hypothesis_id,
+        {
+            "strategy": "selector",
+            "domain": selector_domain,
+            "friction_key": selector_friction_key or None,
+            "title_contains": selector_title_contains or None,
+            "hypothesis_status": selector_status or None,
+            "candidate_count": len(filtered),
+            "preferred_statuses": preferred_statuses,
+            "selected": {
+                "hypothesis_id": resolved_hypothesis_id,
+                "title": str(selected.get("title") or ""),
+                "status": str(selected.get("status") or ""),
+                "friction_key": selected.get("friction_key"),
+            },
+        },
+        None,
+    )
+
+
+def cmd_improvement_pull_feeds(args: argparse.Namespace) -> None:
+    config_path = args.config_path.resolve()
+    puller = FeedbackFeedPuller()
+
+    feed_names = _parse_csv_items(getattr(args, "feed_names", None))
+    allow_missing = bool(getattr(args, "allow_missing", False))
+    result = puller.pull_from_config(
+        config_path=config_path,
+        feed_names=feed_names or None,
+        allow_missing=True,
+        timeout_seconds=float(getattr(args, "timeout_seconds", 20.0) or 20.0),
+    )
+
+    payload: dict[str, Any] = {
+        "generated_at": utc_now_iso(),
+        **result,
+        "allow_missing": allow_missing,
+    }
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if int(result.get("error_count") or 0) > 0 and (allow_missing is False or bool(getattr(args, "strict", False))):
+        raise SystemExit(2)
+
+
+def cmd_improvement_daily_pipeline(args: argparse.Namespace) -> None:
+    config_path = args.config_path.resolve()
+    loaded = json.loads(config_path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise ValueError("invalid_pipeline_config:expected_json_object")
+
+    defaults = dict(loaded.get("defaults") or {}) if isinstance(loaded.get("defaults"), dict) else {}
+    feed_jobs = list(loaded.get("feed_jobs") or loaded.get("feeds") or [])
+    feedback_jobs = list(loaded.get("feedback_jobs") or [])
+    experiment_jobs = list(loaded.get("experiment_jobs") or [])
+    allow_missing_inputs = bool(
+        args.allow_missing_inputs
+        or bool(defaults.get("allow_missing_inputs"))
+    )
+
+    runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+    try:
+        feed_runs: list[dict[str, Any]] = []
+        feedback_runs: list[dict[str, Any]] = []
+        experiment_runs: list[dict[str, Any]] = []
+        retest_runs: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        feed_puller = FeedbackFeedPuller()
+
+        for index, raw_job in enumerate(feed_jobs):
+            if not isinstance(raw_job, dict):
+                errors.append({"job_type": "feed_pull", "index": index, "error": "job_not_object"})
+                continue
+            enabled = raw_job.get("enabled")
+            if enabled is False:
+                feed_runs.append(
+                    {
+                        "index": index,
+                        "name": str(raw_job.get("name") or f"feed_{index}"),
+                        "status": "skipped_disabled",
+                    }
+                )
+                continue
+
+            try:
+                result = feed_puller.pull_feed(
+                    config_path=config_path,
+                    feed=raw_job,
+                    timeout_seconds=float(raw_job.get("timeout_seconds") or defaults.get("timeout_seconds") or 20.0),
+                )
+                feed_runs.append(
+                    {
+                        "index": index,
+                        "status": "ok",
+                        **dict(result),
+                    }
+                )
+            except Exception as exc:
+                if allow_missing_inputs:
+                    feed_runs.append(
+                        {
+                            "index": index,
+                            "name": str(raw_job.get("name") or f"feed_{index}"),
+                            "status": "skipped_error",
+                            "error": str(exc),
+                        }
+                    )
+                    continue
+                errors.append(
+                    {
+                        "job_type": "feed_pull",
+                        "index": index,
+                        "error": str(exc),
+                        "name": str(raw_job.get("name") or f"feed_{index}"),
+                    }
+                )
+
+        for index, raw_job in enumerate(feedback_jobs):
+            if not isinstance(raw_job, dict):
+                errors.append({"job_type": "feedback", "index": index, "error": "job_not_object"})
+                continue
+            domain = str(raw_job.get("domain") or defaults.get("domain") or "").strip().lower()
+            source = str(raw_job.get("source") or defaults.get("source") or "").strip().lower()
+            input_path_raw = raw_job.get("input_path")
+            if not domain or not source or not input_path_raw:
+                errors.append(
+                    {
+                        "job_type": "feedback",
+                        "index": index,
+                        "error": "missing_required_fields",
+                        "domain": domain,
+                        "source": source,
+                    }
+                )
+                continue
+            input_path = _resolve_pipeline_path(input_path_raw, config_path=config_path)
+            if not input_path.exists():
+                if allow_missing_inputs:
+                    feedback_runs.append(
+                        {
+                            "index": index,
+                            "domain": domain,
+                            "source": source,
+                            "input_path": str(input_path),
+                            "status": "skipped_missing_input",
+                        }
+                    )
+                    continue
+                errors.append(
+                    {
+                        "job_type": "feedback",
+                        "index": index,
+                        "error": "input_path_not_found",
+                        "input_path": str(input_path),
+                    }
+                )
+                continue
+
+            try:
+                run = runtime.run_friction_hypothesis_cycle_from_file(
+                    domain=domain,
+                    source=source,
+                    input_path=str(input_path),
+                    input_format=raw_job.get("input_format"),
+                    default_segment=str(raw_job.get("default_segment") or defaults.get("default_segment") or "general"),
+                    default_severity=raw_job.get("default_severity", defaults.get("default_severity", 3.0)),
+                    default_frustration_score=raw_job.get(
+                        "default_frustration_score",
+                        defaults.get("default_frustration_score"),
+                    ),
+                    status=str(raw_job.get("status") or defaults.get("status") or "open"),
+                    metadata={
+                        "invoked_by": "jarvis.cli.improvement.daily-pipeline",
+                        "job_index": index,
+                    },
+                    min_cluster_count=max(
+                        1,
+                        int(raw_job.get("min_cluster_count") or defaults.get("min_cluster_count") or 2),
+                    ),
+                    proposal_limit=max(1, int(raw_job.get("proposal_limit") or defaults.get("proposal_limit") or 5)),
+                    auto_register=bool(
+                        raw_job.get("auto_register")
+                        if raw_job.get("auto_register") is not None
+                        else defaults.get("auto_register", True)
+                    ),
+                    owner=str(raw_job.get("owner") or defaults.get("owner") or "operator"),
+                )
+                report = runtime.build_hypothesis_inbox_report(
+                    domain=domain,
+                    cluster_min_count=max(
+                        1,
+                        int(raw_job.get("report_cluster_min_count") or defaults.get("report_cluster_min_count") or 1),
+                    ),
+                    cluster_limit=max(
+                        1,
+                        int(raw_job.get("report_cluster_limit") or defaults.get("report_cluster_limit") or 10),
+                    ),
+                    hypothesis_limit=max(
+                        1,
+                        int(raw_job.get("report_hypothesis_limit") or defaults.get("report_hypothesis_limit") or 30),
+                    ),
+                    experiment_limit=max(
+                        1,
+                        int(raw_job.get("report_experiment_limit") or defaults.get("report_experiment_limit") or 50),
+                    ),
+                    queue_limit=max(
+                        1,
+                        int(raw_job.get("report_queue_limit") or defaults.get("report_queue_limit") or 20),
+                    ),
+                )
+                feedback_entry = {
+                    "index": index,
+                    "domain": domain,
+                    "source": source,
+                    "input_path": str(input_path),
+                    "status": "ok",
+                    "cycle": {
+                        "proposal_count": int((run.get("cycle") or {}).get("proposal_count") or 0),
+                        "created_count": int((run.get("cycle") or {}).get("created_count") or 0),
+                        "skipped_existing_count": int((run.get("cycle") or {}).get("skipped_existing_count") or 0),
+                        "ingested_count": int((run.get("ingest") or {}).get("ingested_count") or 0),
+                        "skipped_count": int((run.get("ingest") or {}).get("skipped_count") or 0),
+                    },
+                    "report": report,
+                }
+                report_path_raw = raw_job.get("report_path")
+                if report_path_raw:
+                    report_path = _resolve_pipeline_path(report_path_raw, config_path=config_path)
+                    report_path.parent.mkdir(parents=True, exist_ok=True)
+                    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+                    feedback_entry["report_path"] = str(report_path)
+                feedback_runs.append(feedback_entry)
+            except Exception as exc:
+                errors.append(
+                    {
+                        "job_type": "feedback",
+                        "index": index,
+                        "error": str(exc),
+                        "domain": domain,
+                        "source": source,
+                        "input_path": str(input_path),
+                    }
+                )
+                continue
+
+        for index, raw_job in enumerate(experiment_jobs):
+            if not isinstance(raw_job, dict):
+                errors.append({"job_type": "experiment", "index": index, "error": "job_not_object"})
+                continue
+            hypothesis_id, resolution_details, hypothesis_error = _resolve_pipeline_hypothesis_id(
+                runtime=runtime,
+                raw_job=raw_job,
+                defaults=defaults,
+            )
+            if hypothesis_error:
+                errors.append(
+                    {
+                        "job_type": "experiment",
+                        "index": index,
+                        "error": hypothesis_error,
+                        "resolution": resolution_details,
+                    }
+                )
+                continue
+            artifact_raw = raw_job.get("artifact_path")
+            if not hypothesis_id or not artifact_raw:
+                errors.append(
+                    {
+                        "job_type": "experiment",
+                        "index": index,
+                        "error": "missing_required_fields",
+                        "hypothesis_id": hypothesis_id,
+                    }
+                )
+                continue
+            artifact_path = _resolve_pipeline_path(artifact_raw, config_path=config_path)
+            if not artifact_path.exists():
+                if allow_missing_inputs:
+                    experiment_runs.append(
+                        {
+                            "index": index,
+                            "hypothesis_id": hypothesis_id,
+                            "artifact_path": str(artifact_path),
+                            "status": "skipped_missing_artifact",
+                        }
+                    )
+                    continue
+                errors.append(
+                    {
+                        "job_type": "experiment",
+                        "index": index,
+                        "error": "artifact_path_not_found",
+                        "artifact_path": str(artifact_path),
+                    }
+                )
+                continue
+            try:
+                result = runtime.run_hypothesis_experiment_from_artifact(
+                    hypothesis_id=hypothesis_id,
+                    artifact_path=str(artifact_path),
+                    environment=(
+                        str(raw_job.get("environment")).strip()
+                        if raw_job.get("environment") is not None
+                        else None
+                    ),
+                    source_trace_id=(
+                        str(raw_job.get("source_trace_id")).strip()
+                        if raw_job.get("source_trace_id") is not None
+                        else None
+                    ),
+                    notes=(
+                        str(raw_job.get("notes")).strip()
+                        if raw_job.get("notes") is not None
+                        else None
+                    ),
+                )
+                evaluation = result.get("evaluation") if isinstance(result.get("evaluation"), dict) else {}
+                run_id = str(result.get("run_id") or "").strip()
+                debug_entry: dict[str, Any] = {}
+                compare_entry: dict[str, Any] = {}
+                retest_entry: dict[str, Any] = {}
+                collect_debug = _coerce_bool(
+                    raw_job.get("collect_debug")
+                    if raw_job.get("collect_debug") is not None
+                    else defaults.get("collect_experiment_debug"),
+                    default=False,
+                )
+                include_decision_timeline = _coerce_bool(
+                    raw_job.get("include_decision_timeline")
+                    if raw_job.get("include_decision_timeline") is not None
+                    else defaults.get("include_decision_timeline"),
+                    default=True,
+                )
+                debug_report_path_raw = raw_job.get("debug_report_path")
+                debug_output_dir_raw = (
+                    raw_job.get("debug_output_dir")
+                    if raw_job.get("debug_output_dir") is not None
+                    else defaults.get("experiment_debug_output_dir")
+                )
+                should_emit_debug = bool(collect_debug or debug_report_path_raw or debug_output_dir_raw)
+                if should_emit_debug and run_id:
+                    try:
+                        debug_report = runtime.debug_hypothesis_experiment(
+                            run_id=run_id,
+                            include_decision_timeline=include_decision_timeline,
+                        )
+                        failed_checks = list(debug_report.get("failed_checks") or [])
+                        root_cause_hints = [
+                            str(item).strip()
+                            for item in list(debug_report.get("root_cause_hints") or [])
+                            if str(item).strip()
+                        ]
+                        debug_entry.update(
+                            {
+                                "failed_checks_count": len(failed_checks),
+                                "root_cause_hints": root_cause_hints,
+                                "debug_found": bool(debug_report.get("found")),
+                            }
+                        )
+
+                        debug_report_path: Path | None = None
+                        if debug_report_path_raw:
+                            debug_report_path = _resolve_pipeline_path(debug_report_path_raw, config_path=config_path)
+                        elif debug_output_dir_raw:
+                            debug_output_dir = _resolve_pipeline_path(debug_output_dir_raw, config_path=config_path)
+                            safe_run_id = re.sub(r"[^a-zA-Z0-9_-]+", "_", run_id) or f"experiment_{index}"
+                            debug_report_path = (debug_output_dir / f"{safe_run_id}.json").resolve()
+
+                        if debug_report_path is not None:
+                            debug_report_path.parent.mkdir(parents=True, exist_ok=True)
+                            debug_report_path.write_text(json.dumps(debug_report, indent=2), encoding="utf-8")
+                            debug_entry["debug_report_path"] = str(debug_report_path)
+                    except Exception as debug_exc:
+                        debug_entry["debug_error"] = str(debug_exc)
+                        errors.append(
+                            {
+                                "job_type": "experiment_debug",
+                                "index": index,
+                                "error": str(debug_exc),
+                                "run_id": run_id,
+                            }
+                        )
+
+                compare_history = _coerce_bool(
+                    raw_job.get("compare_history")
+                    if raw_job.get("compare_history") is not None
+                    else defaults.get("compare_experiment_history"),
+                    default=True,
+                )
+                if compare_history and run_id:
+                    try:
+                        compare_entry = runtime.compare_hypothesis_runs(
+                            hypothesis_id=hypothesis_id,
+                            current_run_id=run_id,
+                            previous_run_id=(
+                                str(raw_job.get("previous_run_id")).strip()
+                                if raw_job.get("previous_run_id") is not None
+                                else None
+                            ),
+                            limit=max(
+                                2,
+                                _coerce_int(
+                                    raw_job.get("comparison_limit")
+                                    if raw_job.get("comparison_limit") is not None
+                                    else defaults.get("comparison_limit"),
+                                    default=25,
+                                ),
+                            ),
+                        )
+                    except Exception as compare_exc:
+                        errors.append(
+                            {
+                                "job_type": "experiment_compare",
+                                "index": index,
+                                "error": str(compare_exc),
+                                "run_id": run_id,
+                                "hypothesis_id": hypothesis_id,
+                            }
+                        )
+
+                auto_retest_lane = _coerce_bool(
+                    raw_job.get("auto_retest_lane")
+                    if raw_job.get("auto_retest_lane") is not None
+                    else defaults.get("auto_retest_lane"),
+                    default=False,
+                )
+                verdict = str(evaluation.get("verdict") or "").strip().lower()
+                if auto_retest_lane and run_id and verdict in {"blocked_guardrail", "insufficient_data"}:
+                    try:
+                        retest_entry = runtime.queue_hypothesis_retest_from_run(
+                            run_id=run_id,
+                            insufficient_sample_multiplier=_coerce_float(
+                                raw_job.get("insufficient_sample_multiplier")
+                                if raw_job.get("insufficient_sample_multiplier") is not None
+                                else defaults.get("insufficient_sample_multiplier"),
+                                default=1.5,
+                            ),
+                            guardrail_sample_multiplier=_coerce_float(
+                                raw_job.get("guardrail_sample_multiplier")
+                                if raw_job.get("guardrail_sample_multiplier") is not None
+                                else defaults.get("guardrail_sample_multiplier"),
+                                default=1.1,
+                            ),
+                            min_sample_increment=max(
+                                0,
+                                _coerce_int(
+                                    raw_job.get("min_sample_increment")
+                                    if raw_job.get("min_sample_increment") is not None
+                                    else defaults.get("min_sample_increment"),
+                                    default=50,
+                                ),
+                            ),
+                            guardrail_safety_factor=_coerce_float(
+                                raw_job.get("guardrail_safety_factor")
+                                if raw_job.get("guardrail_safety_factor") is not None
+                                else defaults.get("guardrail_safety_factor"),
+                                default=0.9,
+                            ),
+                            notes=(
+                                str(raw_job.get("retest_notes")).strip()
+                                if raw_job.get("retest_notes") is not None
+                                else None
+                            ),
+                        )
+                        if retest_entry:
+                            retest_runs.append(
+                                {
+                                    "index": index,
+                                    **dict(retest_entry),
+                                }
+                            )
+                    except Exception as retest_exc:
+                        errors.append(
+                            {
+                                "job_type": "experiment_retest",
+                                "index": index,
+                                "error": str(retest_exc),
+                                "run_id": run_id,
+                                "hypothesis_id": hypothesis_id,
+                                "verdict": verdict,
+                            }
+                        )
+
+                experiment_runs.append(
+                    {
+                        "index": index,
+                        "hypothesis_id": hypothesis_id,
+                        "artifact_path": str(artifact_path),
+                        "status": "ok",
+                        "run_id": run_id,
+                        "hypothesis_status": result.get("hypothesis_status"),
+                        "verdict": evaluation.get("verdict"),
+                        "resolution": resolution_details,
+                        "side_by_side": compare_entry or None,
+                        "retest": retest_entry or None,
+                        **debug_entry,
+                    }
+                )
+            except Exception as exc:
+                errors.append(
+                    {
+                        "job_type": "experiment",
+                        "index": index,
+                        "error": str(exc),
+                        "hypothesis_id": hypothesis_id,
+                        "artifact_path": str(artifact_path),
+                        "resolution": resolution_details,
+                    }
+                )
+                continue
+
+        payload = {
+            "generated_at": utc_now_iso(),
+            "config_path": str(config_path),
+            "feed_jobs_count": len(feed_jobs),
+            "feed_runs_count": len(feed_runs),
+            "feedback_jobs_count": len(feedback_jobs),
+            "feedback_runs_count": len(feedback_runs),
+            "experiment_jobs_count": len(experiment_jobs),
+            "experiment_runs_count": len(experiment_runs),
+            "retest_runs_count": len(retest_runs),
+            "error_count": len(errors),
+            "feed_runs": feed_runs,
+            "feedback_runs": feedback_runs,
+            "experiment_runs": experiment_runs,
+            "retest_runs": retest_runs,
+            "errors": errors,
+            "status": "ok" if not errors else "warning",
+        }
+
+        output_path = (
+            args.output_path.resolve()
+            if args.output_path is not None
+            else (
+                _resolve_pipeline_path(loaded.get("output_path"), config_path=config_path)
+                if loaded.get("output_path")
+                else None
+            )
+        )
+        if output_path is not None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            payload["output_path"] = str(output_path)
+
+        _print_json_payload(
+            payload,
+            compact=bool(getattr(args, "json_compact", False)),
+        )
+        if errors and bool(getattr(args, "strict", False)):
+            raise SystemExit(2)
+    finally:
+        runtime.close()
+
+
+def cmd_improvement_execute_retests(args: argparse.Namespace) -> None:
+    pipeline_report_path = args.pipeline_report_path.resolve()
+    loaded = json.loads(pipeline_report_path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise ValueError("invalid_retest_report:expected_json_object")
+
+    raw_retest_runs = list(loaded.get("retest_runs") or [])
+    normalized_jobs: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_retest_runs):
+        if not isinstance(item, dict):
+            continue
+        normalized_jobs.append({"index": index, **dict(item)})
+    if not normalized_jobs:
+        for index, run in enumerate(list(loaded.get("experiment_runs") or [])):
+            if not isinstance(run, dict):
+                continue
+            retest = run.get("retest")
+            if not isinstance(retest, dict):
+                continue
+            if not bool(retest.get("queued")):
+                continue
+            normalized_jobs.append(
+                {
+                    "index": index,
+                    **dict(retest),
+                }
+            )
+
+    max_runs = None
+    if args.max_runs is not None:
+        max_runs = max(0, int(args.max_runs))
+    selected_jobs = normalized_jobs[:max_runs] if max_runs is not None else normalized_jobs
+    allow_missing_jobs = bool(getattr(args, "allow_missing_jobs", False))
+
+    artifact_dir: Path | None = None
+    if args.artifact_dir is not None:
+        raw_artifact_dir = Path(str(args.artifact_dir)).expanduser()
+        if raw_artifact_dir.is_absolute():
+            artifact_dir = raw_artifact_dir.resolve()
+        else:
+            artifact_dir = (pipeline_report_path.parent / raw_artifact_dir).resolve()
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+    try:
+        runs: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        for index, job in enumerate(selected_jobs):
+            hypothesis_id = str(job.get("hypothesis_id") or "").strip()
+            trigger_run_id = str(job.get("run_id") or job.get("trigger_run_id") or "").strip()
+            if not hypothesis_id:
+                row = {
+                    "index": index,
+                    "error": "missing_hypothesis_id",
+                    "job": job,
+                }
+                if allow_missing_jobs:
+                    runs.append(
+                        {
+                            "index": index,
+                            "status": "skipped_missing_hypothesis_id",
+                            "job": job,
+                        }
+                    )
+                    continue
+                errors.append(row)
+                continue
+            if not trigger_run_id and not allow_missing_jobs:
+                errors.append(
+                    {
+                        "index": index,
+                        "error": "missing_trigger_run_id",
+                        "hypothesis_id": hypothesis_id,
+                        "job": job,
+                    }
+                )
+                continue
+
+            notes_prefix = str(args.notes_prefix or "").strip()
+            notes = (
+                f"{notes_prefix} | pipeline_report={pipeline_report_path.name} | job_index={index}"
+                if notes_prefix
+                else f"pipeline_report={pipeline_report_path.name} | job_index={index}"
+            )
+            try:
+                execution = runtime.run_hypothesis_retest(
+                    hypothesis_id=hypothesis_id,
+                    trigger_run_id=(trigger_run_id or None),
+                    environment=(
+                        str(args.environment).strip()
+                        if getattr(args, "environment", None) is not None
+                        else None
+                    ),
+                    notes=notes,
+                )
+                artifact_payload = (
+                    dict(execution.get("artifact_payload") or {})
+                    if isinstance(execution.get("artifact_payload"), dict)
+                    else {}
+                )
+                artifact_path: Path | None = None
+                if artifact_dir is not None:
+                    safe_hypothesis = re.sub(r"[^a-zA-Z0-9_-]+", "_", hypothesis_id) or "hypothesis"
+                    safe_trigger = re.sub(r"[^a-zA-Z0-9_-]+", "_", (trigger_run_id or "latest")) or "latest"
+                    artifact_path = (artifact_dir / f"{safe_hypothesis}_{safe_trigger}_retest_artifact.json").resolve()
+                    artifact_path.write_text(json.dumps(artifact_payload, indent=2), encoding="utf-8")
+
+                result = execution.get("result") if isinstance(execution.get("result"), dict) else {}
+                evaluation = result.get("evaluation") if isinstance(result.get("evaluation"), dict) else {}
+                runs.append(
+                    {
+                        "index": index,
+                        "status": "ok",
+                        "hypothesis_id": hypothesis_id,
+                        "trigger_run_id": execution.get("trigger_run_id") or trigger_run_id or None,
+                        "run_id": execution.get("run_id"),
+                        "hypothesis_status": execution.get("hypothesis_status") or result.get("hypothesis_status"),
+                        "verdict": evaluation.get("verdict"),
+                        "side_by_side": execution.get("side_by_side"),
+                        "retest_plan": execution.get("retest_plan"),
+                        "artifact_path": str(artifact_path) if artifact_path is not None else None,
+                    }
+                )
+            except Exception as exc:
+                errors.append(
+                    {
+                        "index": index,
+                        "error": str(exc),
+                        "hypothesis_id": hypothesis_id,
+                        "trigger_run_id": trigger_run_id or None,
+                    }
+                )
+
+        payload = {
+            "generated_at": utc_now_iso(),
+            "pipeline_report_path": str(pipeline_report_path),
+            "source_retest_runs_count": len(normalized_jobs),
+            "selected_jobs_count": len(selected_jobs),
+            "executed_count": len(runs),
+            "error_count": len(errors),
+            "runs": runs,
+            "errors": errors,
+            "status": "ok" if not errors else "warning",
+        }
+        output_path: Path | None = None
+        if args.output_path is not None:
+            raw_output = Path(str(args.output_path)).expanduser()
+            if raw_output.is_absolute():
+                output_path = raw_output.resolve()
+            else:
+                output_path = (pipeline_report_path.parent / raw_output).resolve()
+        if output_path is not None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            payload["output_path"] = str(output_path)
+
+        _print_json_payload(
+            payload,
+            compact=bool(getattr(args, "json_compact", False)),
+        )
+        if errors and bool(getattr(args, "strict", False)):
+            raise SystemExit(2)
+    finally:
+        runtime.close()
+
+
+def _invoke_cli_json_command(
+    handler: Any,
+    *,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    out = io.StringIO()
+    with redirect_stdout(out):
+        handler(args)
+    raw = out.getvalue().strip()
+    if not raw:
+        return {}
+    loaded = json.loads(raw)
+    if not isinstance(loaded, dict):
+        return {"payload": loaded}
+    return loaded
+
+
+def _resolve_path_near(base: Path, raw_path: Path | str | None, *, default_name: str) -> Path:
+    if raw_path is None:
+        return (base / default_name).resolve()
+    candidate = Path(str(raw_path)).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    return (base / candidate).resolve()
+
+
+def _count_verdict(rows: list[dict[str, Any]], verdict: str) -> int:
+    target = str(verdict or "").strip().lower()
+    return sum(
+        1
+        for row in list(rows or [])
+        if isinstance(row, dict) and str(row.get("verdict") or "").strip().lower() == target
+    )
+
+
+def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
+    config_path = args.config_path.resolve()
+    default_output_dir = (config_path.parent / "output" / "improvement" / "operator_cycle").resolve()
+    output_dir = _resolve_path_near(
+        default_output_dir.parent,
+        args.output_dir,
+        default_name=default_output_dir.name,
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    pull_report_path = _resolve_path_near(output_dir, None, default_name="pull_feeds_report.json")
+    daily_report_path = _resolve_path_near(output_dir, None, default_name="daily_pipeline_report.json")
+    retest_report_path = _resolve_path_near(output_dir, None, default_name="retest_execution_report.json")
+    inbox_summary_path = _resolve_path_near(
+        output_dir,
+        args.inbox_summary_path,
+        default_name="operator_inbox_summary.json",
+    )
+    retest_artifact_dir = _resolve_path_near(
+        output_dir,
+        args.retest_artifact_dir,
+        default_name="retest_artifacts",
+    )
+
+    stage_errors: list[dict[str, Any]] = []
+
+    pull_payload: dict[str, Any]
+    try:
+        pull_args = argparse.Namespace(
+            config_path=config_path,
+            feed_names=args.feed_names,
+            allow_missing=bool(args.allow_missing_feeds),
+            strict=False,
+            timeout_seconds=float(args.feed_timeout_seconds),
+            output_path=pull_report_path,
+            json_compact=False,
+        )
+        pull_payload = _invoke_cli_json_command(
+            cmd_improvement_pull_feeds,
+            args=pull_args,
+        )
+    except Exception as exc:
+        pull_payload = {
+            "status": "error",
+            "error": str(exc),
+            "output_path": str(pull_report_path),
+        }
+        stage_errors.append({"stage": "pull_feeds", "error": str(exc)})
+
+    daily_payload: dict[str, Any]
+    try:
+        daily_args = argparse.Namespace(
+            config_path=config_path,
+            allow_missing_inputs=bool(args.allow_missing_inputs),
+            strict=False,
+            output_path=daily_report_path,
+            json_compact=False,
+            repo_path=args.repo_path,
+            db_path=args.db_path,
+        )
+        daily_payload = _invoke_cli_json_command(
+            cmd_improvement_daily_pipeline,
+            args=daily_args,
+        )
+    except Exception as exc:
+        daily_payload = {
+            "status": "error",
+            "error": str(exc),
+            "output_path": str(daily_report_path),
+        }
+        stage_errors.append({"stage": "daily_pipeline", "error": str(exc)})
+
+    retest_payload: dict[str, Any]
+    should_run_retests = daily_report_path.exists()
+    if should_run_retests:
+        try:
+            retest_args = argparse.Namespace(
+                pipeline_report_path=daily_report_path,
+                max_runs=args.retest_max_runs,
+                artifact_dir=retest_artifact_dir,
+                environment=args.retest_environment,
+                notes_prefix=str(args.retest_notes_prefix or "operator_cycle_retest"),
+                allow_missing_jobs=bool(args.allow_missing_retests),
+                strict=False,
+                output_path=retest_report_path,
+                json_compact=False,
+                repo_path=args.repo_path,
+                db_path=args.db_path,
+            )
+            retest_payload = _invoke_cli_json_command(
+                cmd_improvement_execute_retests,
+                args=retest_args,
+            )
+        except Exception as exc:
+            retest_payload = {
+                "status": "error",
+                "error": str(exc),
+                "output_path": str(retest_report_path),
+            }
+            stage_errors.append({"stage": "execute_retests", "error": str(exc)})
+    else:
+        retest_payload = {
+            "status": "skipped_missing_daily_report",
+            "output_path": str(retest_report_path),
+        }
+
+    daily_experiment_runs = [
+        row
+        for row in list(daily_payload.get("experiment_runs") or [])
+        if isinstance(row, dict)
+    ]
+    retest_runs = [
+        row
+        for row in list(retest_payload.get("runs") or [])
+        if isinstance(row, dict)
+    ]
+    blockers: list[dict[str, Any]] = []
+    for row in daily_experiment_runs:
+        verdict = str(row.get("verdict") or "").strip().lower()
+        if verdict in {"blocked_guardrail", "insufficient_data", "needs_iteration", "invalid_measurement"}:
+            blockers.append(
+                {
+                    "stage": "daily_pipeline",
+                    "hypothesis_id": row.get("hypothesis_id"),
+                    "run_id": row.get("run_id"),
+                    "verdict": verdict,
+                    "root_cause_hints": list(row.get("root_cause_hints") or []),
+                }
+            )
+    retest_deltas: list[dict[str, Any]] = []
+    for row in retest_runs:
+        side_by_side = dict(row.get("side_by_side") or {}) if isinstance(row.get("side_by_side"), dict) else {}
+        transition = (
+            dict(side_by_side.get("verdict_transition") or {})
+            if isinstance(side_by_side.get("verdict_transition"), dict)
+            else {}
+        )
+        previous_verdict = str(transition.get("previous") or "").strip().lower() or None
+        current_verdict = str(transition.get("current") or row.get("verdict") or "").strip().lower() or None
+        retest_deltas.append(
+            {
+                "hypothesis_id": row.get("hypothesis_id"),
+                "trigger_run_id": row.get("trigger_run_id"),
+                "run_id": row.get("run_id"),
+                "previous_verdict": previous_verdict,
+                "current_verdict": current_verdict,
+                "metric_transition": side_by_side.get("metric_transition"),
+                "sample_transition": side_by_side.get("sample_transition"),
+            }
+        )
+        if current_verdict in {"blocked_guardrail", "insufficient_data", "needs_iteration", "invalid_measurement"}:
+            blockers.append(
+                {
+                    "stage": "execute_retests",
+                    "hypothesis_id": row.get("hypothesis_id"),
+                    "run_id": row.get("run_id"),
+                    "verdict": current_verdict,
+                    "root_cause_hints": [],
+                }
+            )
+
+    promotions: list[dict[str, Any]] = []
+    for row in daily_experiment_runs:
+        if str(row.get("verdict") or "").strip().lower() == "promote":
+            promotions.append(
+                {
+                    "stage": "daily_pipeline",
+                    "hypothesis_id": row.get("hypothesis_id"),
+                    "run_id": row.get("run_id"),
+                }
+            )
+    for row in retest_runs:
+        if str(row.get("verdict") or "").strip().lower() == "promote":
+            promotions.append(
+                {
+                    "stage": "execute_retests",
+                    "hypothesis_id": row.get("hypothesis_id"),
+                    "run_id": row.get("run_id"),
+                }
+            )
+
+    retest_transition_counts: dict[str, int] = {}
+    for row in retest_deltas:
+        previous = str(row.get("previous_verdict") or "unknown")
+        current = str(row.get("current_verdict") or "unknown")
+        key = f"{previous}->{current}"
+        retest_transition_counts[key] = int(retest_transition_counts.get(key) or 0) + 1
+
+    metrics = {
+        "daily_promotions": _count_verdict(daily_experiment_runs, "promote"),
+        "daily_blocked_guardrail": _count_verdict(daily_experiment_runs, "blocked_guardrail"),
+        "daily_insufficient_data": _count_verdict(daily_experiment_runs, "insufficient_data"),
+        "daily_needs_iteration": _count_verdict(daily_experiment_runs, "needs_iteration"),
+        "retest_promotions": _count_verdict(retest_runs, "promote"),
+        "retest_blocked_guardrail": _count_verdict(retest_runs, "blocked_guardrail"),
+        "retest_insufficient_data": _count_verdict(retest_runs, "insufficient_data"),
+        "retest_needs_iteration": _count_verdict(retest_runs, "needs_iteration"),
+        "blocker_count": len(blockers),
+        "promotion_count": len(promotions),
+        "retest_delta_count": len(retest_deltas),
+    }
+    suggested_actions: list[str] = []
+    if int(metrics["daily_blocked_guardrail"] or 0) > 0 or int(metrics["retest_blocked_guardrail"] or 0) > 0:
+        suggested_actions.append("Prioritize guardrail failures and adjust candidate risk controls before scale-up.")
+    if int(metrics["daily_insufficient_data"] or 0) > 0 or int(metrics["retest_insufficient_data"] or 0) > 0:
+        suggested_actions.append("Increase sample sizes for unresolved hypotheses in controlled cohorts.")
+    if int(metrics["retest_promotions"] or 0) > 0:
+        suggested_actions.append("Promote retest winners to the next validation stage and monitor live guardrails.")
+    if not suggested_actions:
+        suggested_actions.append("No urgent blockers detected; continue ingesting feedback and validating new hypotheses.")
+
+    stage_statuses = {
+        "pull_feeds": str(pull_payload.get("status") or ""),
+        "daily_pipeline": str(daily_payload.get("status") or ""),
+        "execute_retests": str(retest_payload.get("status") or ""),
+    }
+    stage_error_count = int(pull_payload.get("error_count") or 0) + int(daily_payload.get("error_count") or 0) + int(
+        retest_payload.get("error_count") or 0
+    )
+    overall_status = "ok"
+    if stage_errors or stage_error_count > 0 or any(status == "error" for status in stage_statuses.values()):
+        overall_status = "warning"
+
+    inbox_summary = {
+        "generated_at": utc_now_iso(),
+        "config_path": str(config_path),
+        "output_dir": str(output_dir),
+        "stage_statuses": stage_statuses,
+        "metrics": metrics,
+        "promotions": promotions,
+        "blockers": blockers,
+        "retest_deltas": retest_deltas,
+        "retest_transition_counts": retest_transition_counts,
+        "suggested_actions": suggested_actions,
+    }
+    inbox_summary_path.parent.mkdir(parents=True, exist_ok=True)
+    inbox_summary_path.write_text(json.dumps(inbox_summary, indent=2), encoding="utf-8")
+
+    payload = {
+        "generated_at": utc_now_iso(),
+        "status": overall_status,
+        "config_path": str(config_path),
+        "output_dir": str(output_dir),
+        "pull_report_path": str(pull_report_path),
+        "daily_report_path": str(daily_report_path),
+        "retest_report_path": str(retest_report_path),
+        "inbox_summary_path": str(inbox_summary_path),
+        "stage_statuses": stage_statuses,
+        "stage_error_count": stage_error_count,
+        "stage_errors": stage_errors,
+        "summary": inbox_summary,
+    }
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if overall_status != "ok" and bool(getattr(args, "strict", False)):
+        raise SystemExit(2)
+
+
+def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) -> dict[str, Any]:
+    matrix_loaded = json.loads(matrix_path.read_text(encoding="utf-8"))
+    if not isinstance(matrix_loaded, dict):
+        raise ValueError("invalid_matrix_file:expected_json_object")
+    scenarios = [row for row in list(matrix_loaded.get("scenarios") or []) if isinstance(row, dict)]
+
+    report_loaded = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(report_loaded, dict):
+        raise ValueError("invalid_report_file:expected_json_object")
+
+    resolved_daily_report_path = report_path
+    if isinstance(report_loaded.get("experiment_runs"), list):
+        daily_report = report_loaded
+    else:
+        daily_report_path_raw = report_loaded.get("daily_report_path")
+        if daily_report_path_raw is None:
+            raise ValueError("invalid_report_file:missing_experiment_runs_or_daily_report_path")
+        daily_report_path = Path(str(daily_report_path_raw)).expanduser()
+        if not daily_report_path.is_absolute():
+            daily_report_path = (report_path.parent / daily_report_path).resolve()
+        else:
+            daily_report_path = daily_report_path.resolve()
+        if not daily_report_path.exists():
+            raise FileNotFoundError(str(daily_report_path))
+        resolved_daily_report_path = daily_report_path
+        daily_report = json.loads(daily_report_path.read_text(encoding="utf-8"))
+        if not isinstance(daily_report, dict):
+            raise ValueError("invalid_daily_report:expected_json_object")
+
+    experiment_runs = [
+        row
+        for row in list(daily_report.get("experiment_runs") or [])
+        if isinstance(row, dict)
+    ]
+
+    run_rows: list[dict[str, Any]] = []
+    for index, run in enumerate(experiment_runs):
+        resolution = dict(run.get("resolution") or {}) if isinstance(run.get("resolution"), dict) else {}
+        selected = dict(run.get("selected_hypothesis") or {}) if isinstance(run.get("selected_hypothesis"), dict) else {}
+        if not selected and isinstance(resolution.get("selected"), dict):
+            selected = dict(resolution.get("selected") or {})
+        resolved_domain = str(run.get("domain") or resolution.get("domain") or selected.get("domain") or "").strip().lower() or None
+        resolved_friction_key = _normalize_friction_key(
+            run.get("friction_key")
+            if run.get("friction_key") is not None
+            else (resolution.get("friction_key") if resolution.get("friction_key") is not None else selected.get("friction_key"))
+        )
+        artifact_raw = run.get("artifact_path")
+        resolved_artifact_path: str | None = None
+        if artifact_raw is not None and str(artifact_raw).strip():
+            artifact_path = Path(str(artifact_raw)).expanduser()
+            if not artifact_path.is_absolute():
+                artifact_path = (resolved_daily_report_path.parent / artifact_path).resolve()
+            else:
+                artifact_path = artifact_path.resolve()
+            resolved_artifact_path = str(artifact_path)
+
+        run_rows.append(
+            {
+                "index": index,
+                "run_id": run.get("run_id"),
+                "hypothesis_id": run.get("hypothesis_id"),
+                "verdict": str(run.get("verdict") or "").strip().lower() or None,
+                "domain": resolved_domain,
+                "friction_key": resolved_friction_key or None,
+                "artifact_path": resolved_artifact_path,
+            }
+        )
+
+    comparisons: list[dict[str, Any]] = []
+    matched_count = 0
+    mismatch_count = 0
+    missing_count = 0
+    invalid_count = 0
+
+    for index, scenario in enumerate(scenarios):
+        scenario_domain = str(scenario.get("domain") or "").strip().lower()
+        scenario_friction_key = _normalize_friction_key(scenario.get("friction_key"))
+        expected_verdict = str(scenario.get("expected_verdict") or "").strip().lower()
+        artifact_raw = scenario.get("artifact_path")
+        scenario_artifact_path: str | None = None
+        if artifact_raw is not None and str(artifact_raw).strip():
+            path = Path(str(artifact_raw)).expanduser()
+            if not path.is_absolute():
+                path = (matrix_path.parent / path).resolve()
+            else:
+                path = path.resolve()
+            scenario_artifact_path = str(path)
+
+        scenario_id = (
+            str(scenario.get("scenario_id") or "").strip()
+            or str(scenario.get("id") or "").strip()
+            or f"scenario_{index}"
+        )
+
+        if not expected_verdict:
+            comparisons.append(
+                {
+                    "index": index,
+                    "scenario_id": scenario_id,
+                    "status": "invalid_scenario",
+                    "error": "missing_expected_verdict",
+                    "domain": scenario_domain or None,
+                    "friction_key": scenario_friction_key or None,
+                    "artifact_path": scenario_artifact_path,
+                }
+            )
+            invalid_count += 1
+            continue
+
+        if not scenario_domain and not scenario_friction_key and not scenario_artifact_path:
+            comparisons.append(
+                {
+                    "index": index,
+                    "scenario_id": scenario_id,
+                    "status": "invalid_scenario",
+                    "error": "missing_match_fields",
+                    "expected_verdict": expected_verdict,
+                    "domain": None,
+                    "friction_key": None,
+                    "artifact_path": None,
+                }
+            )
+            invalid_count += 1
+            continue
+
+        matches = list(run_rows)
+        if scenario_artifact_path is not None:
+            matches = [item for item in matches if str(item.get("artifact_path") or "") == scenario_artifact_path]
+        if scenario_domain:
+            matches = [item for item in matches if str(item.get("domain") or "") == scenario_domain]
+        if scenario_friction_key:
+            matches = [item for item in matches if _normalize_friction_key(item.get("friction_key")) == scenario_friction_key]
+
+        selected_run = matches[-1] if matches else None
+        if not isinstance(selected_run, dict):
+            comparisons.append(
+                {
+                    "index": index,
+                    "scenario_id": scenario_id,
+                    "status": "missing_run",
+                    "expected_verdict": expected_verdict,
+                    "domain": scenario_domain or None,
+                    "friction_key": scenario_friction_key or None,
+                    "artifact_path": scenario_artifact_path,
+                    "match_candidate_count": 0,
+                }
+            )
+            missing_count += 1
+            continue
+
+        actual_verdict = str(selected_run.get("verdict") or "").strip().lower()
+        comparison_status = "matched" if actual_verdict == expected_verdict else "mismatch"
+        if comparison_status == "matched":
+            matched_count += 1
+        else:
+            mismatch_count += 1
+
+        comparisons.append(
+            {
+                "index": index,
+                "scenario_id": scenario_id,
+                "status": comparison_status,
+                "expected_verdict": expected_verdict,
+                "actual_verdict": actual_verdict or None,
+                "run_id": selected_run.get("run_id"),
+                "hypothesis_id": selected_run.get("hypothesis_id"),
+                "domain": selected_run.get("domain") or scenario_domain or None,
+                "friction_key": selected_run.get("friction_key") or scenario_friction_key or None,
+                "artifact_path": selected_run.get("artifact_path") or scenario_artifact_path,
+                "match_candidate_count": len(matches),
+            }
+        )
+
+    total_scenarios = len(scenarios)
+    verification_status = "ok"
+    if mismatch_count > 0 or missing_count > 0 or invalid_count > 0:
+        verification_status = "warning"
+
+    summary = {
+        "total_scenarios": total_scenarios,
+        "matched_count": matched_count,
+        "mismatch_count": mismatch_count,
+        "missing_count": missing_count,
+        "invalid_count": invalid_count,
+        "match_rate": round((matched_count / total_scenarios), 4) if total_scenarios > 0 else 0.0,
+    }
+
+    return {
+        "generated_at": utc_now_iso(),
+        "status": verification_status,
+        "matrix_path": str(matrix_path),
+        "report_path": str(report_path),
+        "daily_report_path": str(resolved_daily_report_path),
+        "run_count": len(run_rows),
+        "summary": summary,
+        "comparisons": comparisons,
+    }
+
+
+def _classify_matrix_drift_severity(payload: dict[str, Any]) -> dict[str, Any]:
+    summary = dict(payload.get("summary") or {})
+    rows = [row for row in list(payload.get("comparisons") or []) if isinstance(row, dict)]
+    mismatches = [row for row in rows if str(row.get("status") or "") == "mismatch"]
+    missing = [row for row in rows if str(row.get("status") or "") == "missing_run"]
+    invalid = [row for row in rows if str(row.get("status") or "") == "invalid_scenario"]
+    guardrail_mismatches = [
+        row
+        for row in mismatches
+        if str(row.get("actual_verdict") or "").strip().lower() == "blocked_guardrail"
+    ]
+
+    mismatch_count = int(summary.get("mismatch_count") or len(mismatches))
+    missing_count = int(summary.get("missing_count") or len(missing))
+    invalid_count = int(summary.get("invalid_count") or len(invalid))
+    guardrail_mismatch_count = len(guardrail_mismatches)
+    total_issues = mismatch_count + missing_count + invalid_count
+
+    if total_issues <= 0:
+        return {
+            "severity": "none",
+            "score": 0,
+            "total_issues": 0,
+            "mismatch_count": mismatch_count,
+            "missing_count": missing_count,
+            "invalid_count": invalid_count,
+            "guardrail_mismatch_count": guardrail_mismatch_count,
+            "recommended_urgency": None,
+            "recommended_confidence": None,
+            "reasons": ["no_drift_detected"],
+            "guardrail_scenarios": [],
+        }
+
+    score = 0
+    reasons: list[str] = []
+    if mismatch_count >= 1:
+        score += 2
+        reasons.append("has_mismatch")
+    if mismatch_count >= 2:
+        score += 1
+        reasons.append("multiple_mismatches")
+    if missing_count >= 1:
+        score += 2
+        reasons.append("has_missing_run")
+    if missing_count >= 2:
+        score += 1
+        reasons.append("multiple_missing_runs")
+    if invalid_count >= 1:
+        score += 1
+        reasons.append("has_invalid_scenarios")
+    if guardrail_mismatch_count >= 1:
+        score += 3
+        reasons.append("guardrail_regression_detected")
+    if guardrail_mismatch_count >= 2:
+        score += 1
+        reasons.append("multiple_guardrail_regressions")
+    if total_issues >= 4:
+        score += 1
+        reasons.append("high_total_drift_issue_volume")
+
+    severity = "critical" if score >= 5 else "warn"
+    recommended_urgency = 0.98 if severity == "critical" else 0.9
+    recommended_confidence = 0.95 if severity == "critical" else 0.86
+    guardrail_scenarios = [
+        str(row.get("scenario_id") or f"scenario_{index}")
+        for index, row in enumerate(guardrail_mismatches)
+    ]
+    return {
+        "severity": severity,
+        "score": int(score),
+        "total_issues": int(total_issues),
+        "mismatch_count": mismatch_count,
+        "missing_count": missing_count,
+        "invalid_count": invalid_count,
+        "guardrail_mismatch_count": guardrail_mismatch_count,
+        "recommended_urgency": float(recommended_urgency),
+        "recommended_confidence": float(recommended_confidence),
+        "reasons": reasons,
+        "guardrail_scenarios": guardrail_scenarios,
+    }
+
+
+def _build_matrix_drift_mitigations(
+    payload: dict[str, Any],
+    *,
+    max_items: int = 3,
+) -> list[str]:
+    rows = [row for row in list(payload.get("comparisons") or []) if isinstance(row, dict)]
+    mismatches = [row for row in rows if str(row.get("status") or "") == "mismatch"]
+    missing = [row for row in rows if str(row.get("status") or "") == "missing_run"]
+    invalid = [row for row in rows if str(row.get("status") or "") == "invalid_scenario"]
+    severity_profile = _classify_matrix_drift_severity(payload)
+    severity = str(severity_profile.get("severity") or "")
+
+    actions: list[str] = []
+    if severity == "critical":
+        actions.append("Escalate immediately: freeze affected promotions until matrix drift is resolved.")
+    if mismatches:
+        domains = sorted(
+            {
+                str(row.get("domain") or "").strip().lower()
+                for row in mismatches
+                if str(row.get("domain") or "").strip()
+            }
+        )
+        if domains:
+            actions.append(
+                f"Review hypothesis criteria and guardrails for mismatch domains: {', '.join(domains[:max(1, int(max_items))])}."
+            )
+        else:
+            actions.append("Review mismatched scenarios and tighten experiment guardrails before promotion.")
+    if missing:
+        actions.append("Run missing controlled experiments before advancing operator-cycle promotions.")
+    if invalid:
+        actions.append("Fix invalid matrix scenarios (missing match fields or expected verdicts) to restore drift coverage.")
+    if not actions:
+        actions.append("No matrix drift detected; continue controlled validation cadence.")
+    return actions
+
+
+def cmd_improvement_verify_matrix(args: argparse.Namespace) -> None:
+    matrix_path = args.matrix_path.resolve()
+    report_path = args.report_path.resolve()
+    payload = _build_matrix_verification_payload(matrix_path=matrix_path, report_path=report_path)
+    severity_profile = _classify_matrix_drift_severity(payload)
+    payload["drift_severity"] = str(severity_profile.get("severity") or "none")
+    payload["severity_profile"] = severity_profile
+
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if str(payload.get("status") or "") != "ok" and bool(getattr(args, "strict", False)):
+        raise SystemExit(2)
+
+
+def cmd_improvement_verify_matrix_alert(args: argparse.Namespace) -> None:
+    matrix_path = args.matrix_path.resolve()
+    report_path = args.report_path.resolve()
+    verification_payload = _build_matrix_verification_payload(matrix_path=matrix_path, report_path=report_path)
+    verification_status = str(verification_payload.get("status") or "")
+    severity_profile = _classify_matrix_drift_severity(verification_payload)
+    drift_severity = str(severity_profile.get("severity") or "none")
+    verification_payload["drift_severity"] = drift_severity
+    verification_payload["severity_profile"] = severity_profile
+    top_items = max(1, int(getattr(args, "alert_max_items", 3) or 3))
+    mitigation_actions = _build_matrix_drift_mitigations(verification_payload, max_items=top_items)
+
+    alert_payload: dict[str, Any] | None = None
+    alert_created = False
+
+    if verification_status != "ok":
+        summary = dict(verification_payload.get("summary") or {})
+        comparisons = [row for row in list(verification_payload.get("comparisons") or []) if isinstance(row, dict)]
+        mismatch_rows = [row for row in comparisons if str(row.get("status") or "") == "mismatch"][:top_items]
+        missing_rows = [row for row in comparisons if str(row.get("status") or "") == "missing_run"][:top_items]
+        invalid_rows = [row for row in comparisons if str(row.get("status") or "") == "invalid_scenario"][:top_items]
+
+        scenario_refs = [
+            str(row.get("scenario_id") or f"scenario_{idx}")
+            for idx, row in enumerate([*mismatch_rows, *missing_rows, *invalid_rows])
+        ]
+        compact_refs = ",".join(scenario_refs[:top_items]) if scenario_refs else "none"
+        reason = (
+            "matrix_drift_detected"
+            + f" severity={drift_severity}"
+            + f" mismatches={int(summary.get('mismatch_count') or 0)}"
+            + f" missing={int(summary.get('missing_count') or 0)}"
+            + f" invalid={int(summary.get('invalid_count') or 0)}"
+            + f" guardrail_mismatches={int(severity_profile.get('guardrail_mismatch_count') or 0)}"
+            + f" top={compact_refs}"
+        )
+        why_now = "controlled matrix verification reported drift requiring operator review."
+        why_not_later = "deferring drift triage risks propagating regressions into production decisions."
+        alert_domain = str(getattr(args, "alert_domain", "markets") or "markets").strip().lower() or "markets"
+        recommended_urgency = _coerce_float(severity_profile.get("recommended_urgency"), default=0.9)
+        recommended_confidence = _coerce_float(severity_profile.get("recommended_confidence"), default=0.86)
+        raw_urgency = getattr(args, "alert_urgency", None)
+        raw_confidence = getattr(args, "alert_confidence", None)
+        alert_urgency = max(
+            0.0,
+            min(
+                1.0,
+                (
+                    _coerce_float(raw_urgency, default=recommended_urgency)
+                    if raw_urgency is not None
+                    else recommended_urgency
+                ),
+            ),
+        )
+        alert_confidence = max(
+            0.0,
+            min(
+                1.0,
+                (
+                    _coerce_float(raw_confidence, default=recommended_confidence)
+                    if raw_confidence is not None
+                    else recommended_confidence
+                ),
+            ),
+        )
+
+        runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+        try:
+            decision = InterruptDecision(
+                interrupt_id=new_id("int"),
+                candidate_id=new_id("cand"),
+                domain=alert_domain,
+                reason=reason,
+                urgency_score=alert_urgency,
+                confidence=alert_confidence,
+                suppression_window_hit=False,
+                delivered=True,
+                why_now=why_now,
+                why_not_later=why_not_later,
+                status="delivered",
+            )
+            runtime.interrupt_store.store(decision)
+            interrupt = runtime.interrupt_store.get(decision.interrupt_id) or decision.to_dict()
+            runtime.memory.append_event(
+                "improvement.matrix_drift_alert_created",
+                {
+                    "interrupt_id": interrupt.get("interrupt_id"),
+                    "domain": alert_domain,
+                    "matrix_path": str(matrix_path),
+                    "report_path": str(report_path),
+                    "summary": summary,
+                    "drift_severity": drift_severity,
+                    "severity_profile": severity_profile,
+                    "top_scenarios": scenario_refs[:top_items],
+                    "mitigation_actions": mitigation_actions,
+                },
+            )
+            alert_payload = {
+                "interrupt_id": interrupt.get("interrupt_id"),
+                "domain": interrupt.get("domain"),
+                "status": interrupt.get("status"),
+                "drift_severity": drift_severity,
+                "urgency_score": interrupt.get("urgency_score"),
+                "confidence": interrupt.get("confidence"),
+                "reason": interrupt.get("reason"),
+                "why_now": interrupt.get("why_now"),
+                "why_not_later": interrupt.get("why_not_later"),
+                "top_scenarios": scenario_refs[:top_items],
+            }
+            alert_created = True
+        finally:
+            runtime.close()
+
+    payload = {
+        "generated_at": utc_now_iso(),
+        "status": verification_status,
+        "matrix_path": str(matrix_path),
+        "report_path": str(report_path),
+        "drift_severity": drift_severity,
+        "severity_profile": severity_profile,
+        "alert_created": alert_created,
+        "alert": alert_payload,
+        "mitigation_actions": mitigation_actions,
+        "verification": verification_payload,
+    }
+
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if verification_status != "ok" and bool(getattr(args, "strict", False)):
+        raise SystemExit(2)
 
 
 def cmd_thoughts_recent(args: argparse.Namespace) -> None:
@@ -2668,8 +5033,170 @@ def main() -> None:
     plans_eval_promotion.add_argument("--override-actor", type=str, default=None)
     plans_eval_promotion.add_argument("--override-reason", type=str, default=None)
     plans_eval_promotion.add_argument("--override-sunset-condition", type=str, default=None)
+    plans_eval_promotion.add_argument(
+        "--enforce-critical-drift-gate",
+        dest="enforce_critical_drift_gate",
+        action="store_true",
+    )
+    plans_eval_promotion.add_argument(
+        "--no-enforce-critical-drift-gate",
+        dest="enforce_critical_drift_gate",
+        action="store_false",
+    )
+    plans_eval_promotion.add_argument("--critical-drift-gate-limit", type=int, default=100)
     plans_eval_promotion.add_argument("--repo-path", type=Path, default=_default_repo_path())
     plans_eval_promotion.add_argument("--db-path", type=Path, default=_default_db_path())
+    plans_eval_promotion.set_defaults(enforce_critical_drift_gate=True)
+
+    plans_gate_status = plans_sub.add_parser(
+        "gate-status",
+        help="Show critical drift gate blockers + acknowledge commands for this provider review",
+    )
+    plans_gate_status.add_argument("plan_id", type=str)
+    plans_gate_status.add_argument("step_id", type=str)
+    plans_gate_status.add_argument("--required-label", action="append", default=None)
+    plans_gate_status.add_argument("--allow-no-required-checks", action="store_true")
+    plans_gate_status.add_argument("--single-maintainer-override", action="store_true")
+    plans_gate_status.add_argument("--override-actor", type=str, default=None)
+    plans_gate_status.add_argument("--override-reason", type=str, default=None)
+    plans_gate_status.add_argument("--override-sunset-condition", type=str, default=None)
+    plans_gate_status.add_argument(
+        "--enforce-critical-drift-gate",
+        dest="enforce_critical_drift_gate",
+        action="store_true",
+    )
+    plans_gate_status.add_argument(
+        "--no-enforce-critical-drift-gate",
+        dest="enforce_critical_drift_gate",
+        action="store_false",
+    )
+    plans_gate_status.add_argument("--critical-drift-gate-limit", type=int, default=100)
+    plans_gate_status.add_argument(
+        "--output",
+        type=str,
+        choices=("json", "text"),
+        default="json",
+        help="Output format (json default, text for concise operator triage)",
+    )
+    plans_gate_status.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    plans_gate_status.add_argument("--db-path", type=Path, default=_default_db_path())
+    plans_gate_status.set_defaults(enforce_critical_drift_gate=True)
+
+    plans_gate_status_all = plans_sub.add_parser(
+        "gate-status-all",
+        help="Scan recent provider reviews and show consolidated critical drift gate blockers",
+    )
+    plans_gate_status_all.add_argument("--limit", type=int, default=25)
+    plans_gate_status_all.add_argument("--provider", type=str, default=None)
+    plans_gate_status_all.add_argument("--repo-slug", type=str, default=None)
+    plans_gate_status_all.add_argument("--required-label", action="append", default=None)
+    plans_gate_status_all.add_argument("--allow-no-required-checks", action="store_true")
+    plans_gate_status_all.add_argument("--single-maintainer-override", action="store_true")
+    plans_gate_status_all.add_argument("--override-actor", type=str, default=None)
+    plans_gate_status_all.add_argument("--override-reason", type=str, default=None)
+    plans_gate_status_all.add_argument("--override-sunset-condition", type=str, default=None)
+    plans_gate_status_all.add_argument(
+        "--enforce-critical-drift-gate",
+        dest="enforce_critical_drift_gate",
+        action="store_true",
+    )
+    plans_gate_status_all.add_argument(
+        "--no-enforce-critical-drift-gate",
+        dest="enforce_critical_drift_gate",
+        action="store_false",
+    )
+    plans_gate_status_all.add_argument("--critical-drift-gate-limit", type=int, default=100)
+    plans_gate_status_all.add_argument(
+        "--output",
+        type=str,
+        choices=("json", "text"),
+        default="json",
+        help="Output format (json default, text for consolidated operator triage)",
+    )
+    plans_gate_status_all.add_argument(
+        "--only-blocked",
+        action="store_true",
+        help="Show only blocked gate rows in gate_rows output (still scans all reviews)",
+    )
+    plans_gate_status_all.add_argument(
+        "--fail-on-blocked",
+        action="store_true",
+        help="Exit non-zero when blocked steps are present (for CI/automation gating)",
+    )
+    plans_gate_status_all.add_argument(
+        "--fail-on-errors",
+        action="store_true",
+        help="Exit non-zero when gate evaluation errors are present (takes precedence over blocked exit)",
+    )
+    plans_gate_status_all.add_argument(
+        "--fail-on-zero-scanned",
+        action="store_true",
+        help="Exit non-zero when the scan returns zero review rows (takes precedence over blocked exit)",
+    )
+    plans_gate_status_all.add_argument(
+        "--fail-on-zero-evaluated",
+        action="store_true",
+        help="Exit non-zero when no review steps were evaluable (takes precedence over blocked exit)",
+    )
+    plans_gate_status_all.add_argument(
+        "--fail-on-empty-ack-commands",
+        action="store_true",
+        help="Exit non-zero when blocked steps exist but no actionable acknowledge commands are available",
+    )
+    plans_gate_status_all.add_argument(
+        "--blocked-exit-code",
+        type=int,
+        default=2,
+        help="Exit code to use with --fail-on-blocked when blockers are present (min 1)",
+    )
+    plans_gate_status_all.add_argument(
+        "--error-exit-code",
+        type=int,
+        default=3,
+        help="Exit code to use with --fail-on-errors when evaluation errors are present (min 1)",
+    )
+    plans_gate_status_all.add_argument(
+        "--zero-scanned-exit-code",
+        type=int,
+        default=5,
+        help="Exit code to use with --fail-on-zero-scanned when scan returns no review rows (min 1)",
+    )
+    plans_gate_status_all.add_argument(
+        "--zero-evaluated-exit-code",
+        type=int,
+        default=4,
+        help="Exit code to use with --fail-on-zero-evaluated when no steps are evaluable (min 1)",
+    )
+    plans_gate_status_all.add_argument(
+        "--empty-ack-commands-exit-code",
+        type=int,
+        default=6,
+        help=(
+            "Exit code to use with --fail-on-empty-ack-commands when blocked "
+            "steps exist without acknowledge commands (min 1)"
+        ),
+    )
+    plans_gate_status_all.add_argument(
+        "--emit-ci-summary-path",
+        type=Path,
+        default=None,
+        help=(
+            "Optional markdown artifact path for CI systems. Overrides $GITHUB_STEP_SUMMARY when set "
+            "and writes a concise gate-status-all summary with blockers, acknowledge commands, and exit reason"
+        ),
+    )
+    plans_gate_status_all.add_argument(
+        "--emit-ci-json-path",
+        type=Path,
+        default=None,
+        help=(
+            "Optional compact JSON artifact path for CI systems with counts, exit reason/code, "
+            "blocked step IDs, acknowledge commands, and errors"
+        ),
+    )
+    plans_gate_status_all.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    plans_gate_status_all.add_argument("--db-path", type=Path, default=_default_db_path())
+    plans_gate_status_all.set_defaults(enforce_critical_drift_gate=True)
 
     plans_promote_ready = plans_sub.add_parser(
         "promote-ready",
@@ -2683,8 +5210,20 @@ def main() -> None:
     plans_promote_ready.add_argument("--override-actor", type=str, default=None)
     plans_promote_ready.add_argument("--override-reason", type=str, default=None)
     plans_promote_ready.add_argument("--override-sunset-condition", type=str, default=None)
+    plans_promote_ready.add_argument(
+        "--enforce-critical-drift-gate",
+        dest="enforce_critical_drift_gate",
+        action="store_true",
+    )
+    plans_promote_ready.add_argument(
+        "--no-enforce-critical-drift-gate",
+        dest="enforce_critical_drift_gate",
+        action="store_false",
+    )
+    plans_promote_ready.add_argument("--critical-drift-gate-limit", type=int, default=100)
     plans_promote_ready.add_argument("--repo-path", type=Path, default=_default_repo_path())
     plans_promote_ready.add_argument("--db-path", type=Path, default=_default_db_path())
+    plans_promote_ready.set_defaults(enforce_critical_drift_gate=True)
 
     plans_project_backfill = plans_sub.add_parser(
         "backfill-project-signals",
@@ -2863,6 +5402,251 @@ def main() -> None:
         include_raw_ingestions=None,
     )
 
+    improvement = sub.add_parser("improvement", help="Friction mining + hypothesis lab workflows")
+    improvement_sub = improvement.add_subparsers(dest="improvement_cmd", required=True)
+    improvement_cycle = improvement_sub.add_parser(
+        "cycle-from-file",
+        help="Ingest feedback file and run friction-to-hypothesis cycle with ranked inbox report",
+    )
+    improvement_cycle.add_argument("--domain", type=str, required=True)
+    improvement_cycle.add_argument("--source", type=str, required=True)
+    improvement_cycle.add_argument("--input-path", type=Path, required=True)
+    improvement_cycle.add_argument(
+        "--input-format",
+        type=str,
+        default=None,
+        choices=("json", "jsonl", "ndjson", "csv"),
+        help="Override auto-detected file format from extension",
+    )
+    improvement_cycle.add_argument("--default-segment", type=str, default="general")
+    improvement_cycle.add_argument("--default-severity", type=float, default=3.0)
+    improvement_cycle.add_argument("--default-frustration-score", type=float, default=None)
+    improvement_cycle.add_argument("--status", type=str, default="open")
+    improvement_cycle.add_argument("--min-cluster-count", type=int, default=2)
+    improvement_cycle.add_argument("--proposal-limit", type=int, default=5)
+    improvement_cycle.add_argument("--owner", type=str, default="operator")
+    improvement_cycle.add_argument(
+        "--auto-register",
+        dest="auto_register",
+        action="store_true",
+        help="Auto-register deduped hypotheses from cycle proposals (default)",
+    )
+    improvement_cycle.add_argument(
+        "--no-auto-register",
+        dest="auto_register",
+        action="store_false",
+        help="Only propose hypotheses; do not persist new registry entries",
+    )
+    improvement_cycle.add_argument("--report-cluster-limit", type=int, default=10)
+    improvement_cycle.add_argument("--report-hypothesis-limit", type=int, default=30)
+    improvement_cycle.add_argument("--report-experiment-limit", type=int, default=50)
+    improvement_cycle.add_argument("--report-queue-limit", type=int, default=20)
+    improvement_cycle.add_argument(
+        "--report-path",
+        type=Path,
+        default=None,
+        help="Optional path to write the ranked inbox report JSON",
+    )
+    improvement_cycle.add_argument("--json-compact", action="store_true")
+    improvement_cycle.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_cycle.add_argument("--db-path", type=Path, default=_default_db_path())
+    improvement_cycle.set_defaults(auto_register=True)
+
+    improvement_experiment = improvement_sub.add_parser(
+        "run-experiment-artifact",
+        help="Run one hypothesis experiment directly from a backtest/paper-trade artifact JSON",
+    )
+    improvement_experiment.add_argument("--hypothesis-id", type=str, required=True)
+    improvement_experiment.add_argument("--artifact-path", type=Path, required=True)
+    improvement_experiment.add_argument("--environment", type=str, default=None)
+    improvement_experiment.add_argument("--source-trace-id", type=str, default=None)
+    improvement_experiment.add_argument("--notes", type=str, default=None)
+    improvement_experiment.add_argument("--json-compact", action="store_true")
+    improvement_experiment.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_experiment.add_argument("--db-path", type=Path, default=_default_db_path())
+
+    improvement_seed = improvement_sub.add_parser(
+        "seed-hypotheses",
+        help="Seed reusable hypothesis templates into the registry for cross-domain operator workflows",
+    )
+    improvement_seed.add_argument("--template-path", type=Path, required=True)
+    improvement_seed.add_argument("--owner", type=str, default="operator")
+    improvement_seed.add_argument("--lookup-limit", type=int, default=400)
+    improvement_seed.add_argument(
+        "--allow-invalid-rows",
+        action="store_true",
+        help="Skip malformed template rows instead of treating them as command errors",
+    )
+    improvement_seed.add_argument("--strict", action="store_true")
+    improvement_seed.add_argument("--output-path", type=Path, default=None)
+    improvement_seed.add_argument("--json-compact", action="store_true")
+    improvement_seed.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_seed.add_argument("--db-path", type=Path, default=_default_db_path())
+
+    improvement_pull = improvement_sub.add_parser(
+        "pull-feeds",
+        help="Fetch configured external/local feedback feeds and materialize JSONL input files",
+    )
+    improvement_pull.add_argument("--config-path", type=Path, required=True)
+    improvement_pull.add_argument(
+        "--feed-names",
+        type=str,
+        default=None,
+        help="Optional CSV of feed names to run (default runs all feeds in config)",
+    )
+    improvement_pull.add_argument(
+        "--allow-missing",
+        action="store_true",
+        help="Do not fail the command on feed pull errors",
+    )
+    improvement_pull.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero when feed pull errors are present",
+    )
+    improvement_pull.add_argument("--timeout-seconds", type=float, default=20.0)
+    improvement_pull.add_argument("--output-path", type=Path, default=None)
+    improvement_pull.add_argument("--json-compact", action="store_true")
+
+    improvement_pipeline = improvement_sub.add_parser(
+        "daily-pipeline",
+        help="Run config-driven feedback cycles + artifact experiments for daily operations",
+    )
+    improvement_pipeline.add_argument("--config-path", type=Path, required=True)
+    improvement_pipeline.add_argument(
+        "--allow-missing-inputs",
+        action="store_true",
+        help="Skip missing feedback/artifact files instead of treating them as pipeline errors",
+    )
+    improvement_pipeline.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero when pipeline errors are present",
+    )
+    improvement_pipeline.add_argument("--output-path", type=Path, default=None)
+    improvement_pipeline.add_argument("--json-compact", action="store_true")
+    improvement_pipeline.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_pipeline.add_argument("--db-path", type=Path, default=_default_db_path())
+
+    improvement_retests = improvement_sub.add_parser(
+        "execute-retests",
+        help="Execute queued retest runs from a daily pipeline report and emit side-by-side comparisons",
+    )
+    improvement_retests.add_argument("--pipeline-report-path", type=Path, required=True)
+    improvement_retests.add_argument("--max-runs", type=int, default=None)
+    improvement_retests.add_argument("--artifact-dir", type=Path, default=None)
+    improvement_retests.add_argument("--environment", type=str, default=None)
+    improvement_retests.add_argument("--notes-prefix", type=str, default="auto_retest")
+    improvement_retests.add_argument(
+        "--allow-missing-jobs",
+        action="store_true",
+        help="Skip malformed/missing retest rows instead of reporting as errors",
+    )
+    improvement_retests.add_argument("--strict", action="store_true")
+    improvement_retests.add_argument("--output-path", type=Path, default=None)
+    improvement_retests.add_argument("--json-compact", action="store_true")
+    improvement_retests.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_retests.add_argument("--db-path", type=Path, default=_default_db_path())
+
+    improvement_operator_cycle = improvement_sub.add_parser(
+        "operator-cycle",
+        help="Run pull->daily->retest pipeline and emit a single operator inbox summary report",
+    )
+    improvement_operator_cycle.add_argument("--config-path", type=Path, required=True)
+    improvement_operator_cycle.add_argument("--output-dir", type=Path, default=None)
+    improvement_operator_cycle.add_argument("--inbox-summary-path", type=Path, default=None)
+    improvement_operator_cycle.add_argument("--feed-names", type=str, default=None)
+    improvement_operator_cycle.add_argument("--feed-timeout-seconds", type=float, default=20.0)
+    improvement_operator_cycle.add_argument(
+        "--allow-missing-feeds",
+        dest="allow_missing_feeds",
+        action="store_true",
+    )
+    improvement_operator_cycle.add_argument(
+        "--no-allow-missing-feeds",
+        dest="allow_missing_feeds",
+        action="store_false",
+    )
+    improvement_operator_cycle.add_argument(
+        "--allow-missing-inputs",
+        dest="allow_missing_inputs",
+        action="store_true",
+    )
+    improvement_operator_cycle.add_argument(
+        "--no-allow-missing-inputs",
+        dest="allow_missing_inputs",
+        action="store_false",
+    )
+    improvement_operator_cycle.add_argument(
+        "--allow-missing-retests",
+        dest="allow_missing_retests",
+        action="store_true",
+    )
+    improvement_operator_cycle.add_argument(
+        "--no-allow-missing-retests",
+        dest="allow_missing_retests",
+        action="store_false",
+    )
+    improvement_operator_cycle.add_argument("--retest-max-runs", type=int, default=None)
+    improvement_operator_cycle.add_argument("--retest-artifact-dir", type=Path, default=None)
+    improvement_operator_cycle.add_argument("--retest-environment", type=str, default=None)
+    improvement_operator_cycle.add_argument("--retest-notes-prefix", type=str, default="operator_cycle_retest")
+    improvement_operator_cycle.add_argument("--strict", action="store_true")
+    improvement_operator_cycle.add_argument("--json-compact", action="store_true")
+    improvement_operator_cycle.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_operator_cycle.add_argument("--db-path", type=Path, default=_default_db_path())
+    improvement_operator_cycle.set_defaults(
+        allow_missing_feeds=True,
+        allow_missing_inputs=True,
+        allow_missing_retests=True,
+    )
+
+    improvement_verify_matrix = improvement_sub.add_parser(
+        "verify-matrix",
+        help="Compare controlled experiment matrix expectations against actual pipeline verdicts",
+    )
+    improvement_verify_matrix.add_argument("--matrix-path", type=Path, required=True)
+    improvement_verify_matrix.add_argument(
+        "--report-path",
+        type=Path,
+        required=True,
+        help="Path to daily-pipeline report or operator-cycle report",
+    )
+    improvement_verify_matrix.add_argument("--output-path", type=Path, default=None)
+    improvement_verify_matrix.add_argument("--strict", action="store_true")
+    improvement_verify_matrix.add_argument("--json-compact", action="store_true")
+
+    improvement_verify_matrix_alert = improvement_sub.add_parser(
+        "verify-matrix-alert",
+        help="Run matrix verification and create a high-priority delivered interrupt when drift is detected",
+    )
+    improvement_verify_matrix_alert.add_argument("--matrix-path", type=Path, required=True)
+    improvement_verify_matrix_alert.add_argument(
+        "--report-path",
+        type=Path,
+        required=True,
+        help="Path to daily-pipeline report or operator-cycle report",
+    )
+    improvement_verify_matrix_alert.add_argument("--alert-domain", type=str, default="markets")
+    improvement_verify_matrix_alert.add_argument(
+        "--alert-urgency",
+        type=float,
+        default=None,
+        help="Optional override (0-1). Defaults to severity-based automatic value.",
+    )
+    improvement_verify_matrix_alert.add_argument(
+        "--alert-confidence",
+        type=float,
+        default=None,
+        help="Optional override (0-1). Defaults to severity-based automatic value.",
+    )
+    improvement_verify_matrix_alert.add_argument("--alert-max-items", type=int, default=3)
+    improvement_verify_matrix_alert.add_argument("--output-path", type=Path, default=None)
+    improvement_verify_matrix_alert.add_argument("--strict", action="store_true")
+    improvement_verify_matrix_alert.add_argument("--json-compact", action="store_true")
+    improvement_verify_matrix_alert.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_verify_matrix_alert.add_argument("--db-path", type=Path, default=_default_db_path())
+
     args = parser.parse_args()
 
     if args.cmd == "demo":
@@ -3022,11 +5806,44 @@ def main() -> None:
     if args.cmd == "plans" and args.plans_cmd == "evaluate-promotion":
         cmd_plans_evaluate_promotion(args)
         return
+    if args.cmd == "plans" and args.plans_cmd == "gate-status":
+        cmd_plans_gate_status(args)
+        return
+    if args.cmd == "plans" and args.plans_cmd == "gate-status-all":
+        cmd_plans_gate_status_all(args)
+        return
     if args.cmd == "plans" and args.plans_cmd == "promote-ready":
         cmd_plans_promote_ready(args)
         return
     if args.cmd == "plans" and args.plans_cmd == "backfill-project-signals":
         cmd_plans_backfill_project_signals(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "cycle-from-file":
+        cmd_improvement_cycle_from_file(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "run-experiment-artifact":
+        cmd_improvement_run_experiment_artifact(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "seed-hypotheses":
+        cmd_improvement_seed_hypotheses(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "pull-feeds":
+        cmd_improvement_pull_feeds(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "daily-pipeline":
+        cmd_improvement_daily_pipeline(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "execute-retests":
+        cmd_improvement_execute_retests(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "operator-cycle":
+        cmd_improvement_operator_cycle(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "verify-matrix":
+        cmd_improvement_verify_matrix(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "verify-matrix-alert":
+        cmd_improvement_verify_matrix_alert(args)
         return
 
     raise ValueError("Unsupported command")

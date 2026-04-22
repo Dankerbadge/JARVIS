@@ -1,0 +1,19 @@
+{
+  "environment": "offline_backtest",
+  "notes": "Controlled Kalshi weather execution experiment focused on near-settlement updates.",
+  "baseline": {
+    "metrics": {
+      "brier_skill": 0.11,
+      "max_daily_loss": 0.024,
+      "slippage_bps": 24.0
+    }
+  },
+  "candidate": {
+    "metrics": {
+      "brier_skill": 0.14,
+      "max_daily_loss": 0.029,
+      "slippage_bps": 36.0
+    },
+    "sample_size": 240
+  }
+}

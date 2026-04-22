@@ -1,0 +1,29 @@
+{
+  "description": "Controlled environment matrix for validating seeded cross-domain hypotheses.",
+  "scenarios": [
+    {
+      "domain": "quant_finance",
+      "friction_key": "execution_slippage_regime_drift",
+      "artifact_path": "../artifacts/quant_finance_regime_backtest.json",
+      "expected_verdict": "promote"
+    },
+    {
+      "domain": "kalshi_weather",
+      "friction_key": "forecast_timing_mismatch_near_settlement",
+      "artifact_path": "../artifacts/kalshi_weather_execution_backtest.json",
+      "expected_verdict": "blocked_guardrail"
+    },
+    {
+      "domain": "fitness_apps",
+      "friction_key": "paywall_before_core_workout_trial",
+      "artifact_path": "../artifacts/fitness_paywall_experiment.json",
+      "expected_verdict": "promote"
+    },
+    {
+      "domain": "market_ml",
+      "friction_key": "false_positive_drift_in_high_volatility_windows",
+      "artifact_path": "../artifacts/market_ml_false_positive_control.json",
+      "expected_verdict": "blocked_guardrail"
+    }
+  ]
+}
