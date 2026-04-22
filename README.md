@@ -71,7 +71,7 @@ python3 -m jarvis.cli improvement pull-feeds \
 ```
 
 This config uses source presets (`apple_app_store_reviews_csv`, `google_play_reviews_csv`)
-and `write_mode=append` so both stores land in one combined JSONL stream at
+and `write_mode=append_dedupe` so recurring exports stay idempotent while both stores land in one combined JSONL stream at
 `./analysis/fitness_market_feedback.jsonl` for shared displeasure mining.
 
 Run a config-driven daily pipeline (multiple feedback feeds + experiment artifacts):

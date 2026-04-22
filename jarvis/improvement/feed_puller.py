@@ -313,6 +313,82 @@ class FeedbackFeedPuller:
             for row in records:
                 handle.write(json.dumps(dict(row), sort_keys=True) + "\n")
 
+    @staticmethod
+    def _coerce_dedupe_keys(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_parts = re.split(r"[,;\n\t]+", value)
+            return [part.strip() for part in raw_parts if part.strip()]
+        if isinstance(value, (list, tuple, set)):
+            out: list[str] = []
+            for item in value:
+                part = str(item or "").strip()
+                if part:
+                    out.append(part)
+            return out
+        part = str(value or "").strip()
+        return [part] if part else []
+
+    @staticmethod
+    def _normalize_dedupe_value(value: Any) -> str:
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, sort_keys=True, ensure_ascii=True)
+        return str(value).strip()
+
+    @classmethod
+    def _dedupe_key_for_row(cls, row: dict[str, Any], *, dedupe_keys: list[str]) -> tuple[str, ...] | None:
+        if not dedupe_keys:
+            return None
+        values: list[str] = []
+        for key in dedupe_keys:
+            value = _resolve_path_value(row, key)
+            if value is None:
+                return None
+            normalized = cls._normalize_dedupe_value(value)
+            if not normalized:
+                return None
+            values.append(normalized)
+        return tuple(values)
+
+    def _merge_records_with_existing_dedupe(
+        self,
+        *,
+        output_path: Path,
+        incoming_rows: list[dict[str, Any]],
+        dedupe_keys: list[str],
+    ) -> tuple[list[dict[str, Any]], int, int, int]:
+        existing_rows: list[dict[str, Any]] = []
+        if output_path.exists():
+            existing_rows = self._records_from_jsonl(output_path.read_text(encoding="utf-8"))
+
+        merged_rows: list[dict[str, Any]] = [dict(item) for item in existing_rows]
+        key_to_index: dict[tuple[str, ...], int] = {}
+        missing_key_count = 0
+        dedupe_replaced_count = 0
+
+        for index, row in enumerate(merged_rows):
+            dedupe_key = self._dedupe_key_for_row(row, dedupe_keys=dedupe_keys)
+            if dedupe_key is None:
+                continue
+            key_to_index[dedupe_key] = index
+
+        for row in incoming_rows:
+            normalized_row = dict(row)
+            dedupe_key = self._dedupe_key_for_row(normalized_row, dedupe_keys=dedupe_keys)
+            if dedupe_key is None:
+                missing_key_count += 1
+                merged_rows.append(normalized_row)
+                continue
+            if dedupe_key in key_to_index:
+                dedupe_replaced_count += 1
+                merged_rows[key_to_index[dedupe_key]] = normalized_row
+                continue
+            key_to_index[dedupe_key] = len(merged_rows)
+            merged_rows.append(normalized_row)
+
+        return merged_rows, len(existing_rows), dedupe_replaced_count, missing_key_count
+
     def pull_feed(
         self,
         *,
@@ -394,14 +470,43 @@ class FeedbackFeedPuller:
             output_path = output_path.resolve()
 
         write_mode = str(feed.get("write_mode") or feed.get("output_mode") or "overwrite").strip().lower()
-        if write_mode not in {"overwrite", "append"}:
+        if write_mode not in {"overwrite", "append", "append_dedupe"}:
             raise ValueError(f"unsupported_write_mode:{write_mode}:{name}")
 
-        self._write_jsonl(
-            records=mapped,
-            output_path=output_path,
-            append=(write_mode == "append"),
-        )
+        written_rows = list(mapped)
+        existing_rows_count = 0
+        dedupe_replaced_count = 0
+        dedupe_missing_key_count = 0
+        dedupe_keys: list[str] = []
+        if write_mode == "append_dedupe":
+            dedupe_keys = self._coerce_dedupe_keys(feed.get("dedupe_keys"))
+            if not dedupe_keys:
+                if source_preset in self._SUPPORTED_SOURCE_PRESETS:
+                    dedupe_keys = ["platform", "id"]
+                else:
+                    dedupe_keys = ["id"]
+            (
+                written_rows,
+                existing_rows_count,
+                dedupe_replaced_count,
+                dedupe_missing_key_count,
+            ) = self._merge_records_with_existing_dedupe(
+                output_path=output_path,
+                incoming_rows=mapped,
+                dedupe_keys=dedupe_keys,
+            )
+            self._write_jsonl(
+                records=written_rows,
+                output_path=output_path,
+                append=False,
+            )
+        else:
+            self._write_jsonl(
+                records=mapped,
+                output_path=output_path,
+                append=(write_mode == "append"),
+            )
+
         return {
             "name": name,
             "source_url": source_url,
@@ -411,6 +516,11 @@ class FeedbackFeedPuller:
             "write_mode": write_mode,
             "record_count": len(records),
             "written_count": len(mapped),
+            "final_output_row_count": len(written_rows),
+            "existing_rows_count": existing_rows_count,
+            "dedupe_keys": list(dedupe_keys),
+            "dedupe_replaced_count": dedupe_replaced_count,
+            "dedupe_missing_key_count": dedupe_missing_key_count,
             "output_path": str(output_path),
         }
 

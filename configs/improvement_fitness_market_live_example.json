@@ -28,7 +28,11 @@
       "url": "../analysis/raw/fitness/google_play_reviews.csv",
       "format": "csv",
       "source_preset": "google_play_reviews_csv",
-      "write_mode": "append",
+      "write_mode": "append_dedupe",
+      "dedupe_keys": [
+        "platform",
+        "id"
+      ],
       "static_fields": {
         "source_context": "google_play_export"
       },

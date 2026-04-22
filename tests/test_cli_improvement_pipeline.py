@@ -166,7 +166,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                                 "url": "inputs/google_reviews.csv",
                                 "format": "csv",
                                 "source_preset": "google_play_reviews_csv",
-                                "write_mode": "append",
+                                "write_mode": "append_dedupe",
                                 "static_fields": {
                                     "source_context": "google_play_export",
                                 },
@@ -200,7 +200,9 @@ class CliImprovementPipelineTests(unittest.TestCase):
             runs = list(payload.get("runs") or [])
             self.assertEqual(len(runs), 2)
             self.assertEqual(str((runs[0] or {}).get("write_mode") or ""), "overwrite")
-            self.assertEqual(str((runs[1] or {}).get("write_mode") or ""), "append")
+            self.assertEqual(str((runs[1] or {}).get("write_mode") or ""), "append_dedupe")
+            self.assertEqual(int((runs[1] or {}).get("final_output_row_count") or 0), 2)
+            self.assertEqual(int((runs[1] or {}).get("dedupe_replaced_count") or 0), 0)
 
             output_path = Path(str((runs[0] or {}).get("output_path") or ""))
             self.assertTrue(output_path.exists())
@@ -217,6 +219,80 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(android_row.get("summary") or ""), "Paywall appeared before first full workout")
             self.assertEqual(str(ios_row.get("rating") or ""), "2")
             self.assertEqual(str(android_row.get("rating") or ""), "1")
+
+    def test_pull_feeds_append_dedupe_is_idempotent_across_repeated_exports(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            inputs_dir = root / "inputs"
+            inputs_dir.mkdir(parents=True, exist_ok=True)
+
+            apple_csv = inputs_dir / "apple_reviews.csv"
+            apple_csv.write_text(
+                "\n".join(
+                    [
+                        "Review ID,Title,Review,Rating,Submission Date,App Version,Storefront",
+                        "ios-r1,Onboarding too hard,Day one workload felt too aggressive,2,2026-04-12T12:00:00Z,3.4.1,US",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "fitness_market_idempotent.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "feeds": [
+                            {
+                                "name": "apple_store_reviews",
+                                "url": "inputs/apple_reviews.csv",
+                                "format": "csv",
+                                "source_preset": "apple_app_store_reviews_csv",
+                                "write_mode": "append_dedupe",
+                                "dedupe_keys": ["platform", "id"],
+                                "output_path": "analysis/fitness_market_feedback.jsonl",
+                            }
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                config_path=config_path,
+                feed_names=None,
+                allow_missing=False,
+                strict=False,
+                timeout_seconds=20.0,
+                output_path=None,
+                json_compact=False,
+            )
+            first_out = io.StringIO()
+            with redirect_stdout(first_out):
+                cmd_improvement_pull_feeds(args)
+            first_payload = json.loads(first_out.getvalue())
+
+            second_out = io.StringIO()
+            with redirect_stdout(second_out):
+                cmd_improvement_pull_feeds(args)
+            second_payload = json.loads(second_out.getvalue())
+
+            self.assertEqual(str(first_payload.get("status") or ""), "ok")
+            self.assertEqual(str(second_payload.get("status") or ""), "ok")
+            first_run = dict((first_payload.get("runs") or [{}])[0] or {})
+            second_run = dict((second_payload.get("runs") or [{}])[0] or {})
+            self.assertEqual(str(first_run.get("write_mode") or ""), "append_dedupe")
+            self.assertEqual(str(second_run.get("write_mode") or ""), "append_dedupe")
+            self.assertEqual(int(first_run.get("dedupe_replaced_count") or 0), 0)
+            self.assertEqual(int(second_run.get("dedupe_replaced_count") or 0), 1)
+            self.assertEqual(int(second_run.get("final_output_row_count") or 0), 1)
+
+            output_path = Path(str(second_run.get("output_path") or ""))
+            self.assertTrue(output_path.exists())
+            rows = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(str((rows[0] or {}).get("platform") or ""), "ios")
+            self.assertEqual(str((rows[0] or {}).get("id") or ""), "ios-r1")
 
     def test_run_experiment_artifact_command(self) -> None:
         with tempfile.TemporaryDirectory() as td:
