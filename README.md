@@ -276,6 +276,11 @@ For config-driven thresholding (no extra CLI flags), add these under `defaults`:
 
 ```json
 {
+  "seed_entry_source": "leaderboard",
+  "seed_entry_source_by_domain": {
+    "fitness_apps": "shared_market_displeasures"
+  },
+  "seed_fallback_entry_source": "leaderboard",
   "seed_min_cross_app_count": 1,
   "seed_min_cross_app_count_by_domain": {
     "fitness_apps": 2
@@ -288,8 +293,9 @@ For config-driven thresholding (no extra CLI flags), add these under `defaults`:
 }
 ```
 
-Resolution order is the same for both knobs:
-CLI override (`--seed-min-cross-app-count` / `--seed-min-signal-count-current`),
+Resolution order is the same for lane + threshold knobs:
+CLI override (`--seed-entry-source`, `--seed-fallback-entry-source`,
+`--seed-min-cross-app-count`, `--seed-min-signal-count-current`),
 then `*_by_domain`, then global default.
 
 If you already generated a seed report, you can still draft directly from that report:

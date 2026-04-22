@@ -25,6 +25,11 @@
       "fitness_apps": 2,
       "market_ml": 1
     },
+    "seed_entry_source": "leaderboard",
+    "seed_entry_source_by_domain": {
+      "fitness_apps": "shared_market_displeasures"
+    },
+    "seed_fallback_entry_source": "leaderboard",
     "seed_min_signal_count_current": 2,
     "seed_min_signal_count_current_by_domain": {
       "quant_finance": 2,

@@ -4961,6 +4961,93 @@ def _resolve_seed_min_cross_app_count(
     return 0, "builtin_default"
 
 
+_ALLOWED_SEED_ENTRY_SOURCES = {
+    "leaderboard",
+    "shared_market_displeasures",
+    "white_space_candidates",
+}
+
+
+def _normalize_seed_entry_source_value(raw_value: Any, *, allow_none: bool) -> str | None:
+    value = str(raw_value or "").strip().lower()
+    if not value:
+        return None
+    if value == "entries":
+        value = "leaderboard"
+    if allow_none and value in {"none", "off", "null"}:
+        return None
+    if value in _ALLOWED_SEED_ENTRY_SOURCES:
+        return value
+    return None
+
+
+def _resolve_seed_entry_source(
+    *,
+    domain: str,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[str, str]:
+    cli_raw = str(cli_value or "").strip()
+    if cli_raw:
+        cli_normalized = _normalize_seed_entry_source_value(cli_raw, allow_none=False)
+        if cli_normalized is not None:
+            return cli_normalized, "cli_override"
+        return "leaderboard", "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain)
+    by_domain_raw = defaults.get("seed_entry_source_by_domain")
+    if isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            resolved = _normalize_seed_entry_source_value(raw_value, allow_none=False)
+            if resolved is not None:
+                return resolved, "config_by_domain"
+            break
+
+    global_default_raw = defaults.get("seed_entry_source")
+    resolved_global = _normalize_seed_entry_source_value(global_default_raw, allow_none=False)
+    if resolved_global is not None:
+        return resolved_global, "config_global"
+
+    return "leaderboard", "builtin_default"
+
+
+def _resolve_seed_fallback_entry_source(
+    *,
+    domain: str,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[str | None, str]:
+    cli_raw = str(cli_value or "").strip()
+    if cli_raw:
+        cli_normalized = _normalize_seed_entry_source_value(cli_raw, allow_none=True)
+        if cli_normalized is not None or cli_raw.lower() in {"none", "off", "null"}:
+            return cli_normalized, "cli_override"
+        return "leaderboard", "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain)
+    by_domain_raw = defaults.get("seed_fallback_entry_source_by_domain")
+    if isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            resolved = _normalize_seed_entry_source_value(raw_value, allow_none=True)
+            if resolved is not None or str(raw_value or "").strip().lower() in {"none", "off", "null"}:
+                return resolved, "config_by_domain"
+            break
+
+    global_default_raw = defaults.get("seed_fallback_entry_source")
+    if global_default_raw is not None:
+        resolved_global = _normalize_seed_entry_source_value(global_default_raw, allow_none=True)
+        if resolved_global is not None or str(global_default_raw or "").strip().lower() in {"none", "off", "null"}:
+            return resolved_global, "config_global"
+
+    return "leaderboard", "builtin_default"
+
+
 def _infer_feedback_seed_context_from_config(*, config_path: Path, domain: str) -> dict[str, Any] | None:
     try:
         loaded = json.loads(config_path.read_text(encoding="utf-8"))
@@ -5107,6 +5194,16 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
     if seed_requested:
         for domain_index, seed_domain in enumerate(seed_domains):
             domain_slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", seed_domain) or f"domain_{domain_index + 1}"
+            resolved_entry_source, entry_source_setting_source = _resolve_seed_entry_source(
+                domain=seed_domain,
+                cli_value=getattr(args, "seed_entry_source", None),
+                defaults=operator_cycle_defaults,
+            )
+            resolved_fallback_entry_source, fallback_entry_source_setting_source = _resolve_seed_fallback_entry_source(
+                domain=seed_domain,
+                cli_value=getattr(args, "seed_fallback_entry_source", None),
+                defaults=operator_cycle_defaults,
+            )
             resolved_min_cross_app_count, min_cross_app_count_source = _resolve_seed_min_cross_app_count(
                 domain=seed_domain,
                 cli_value=getattr(args, "seed_min_cross_app_count", None),
@@ -5241,10 +5338,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         limit=max(1, int(getattr(args, "seed_limit", 8) or 8)),
                         min_impact_score=float(getattr(args, "seed_min_impact_score", 0.0) or 0.0),
                         min_impact_delta=float(getattr(args, "seed_min_impact_delta", 0.0) or 0.0),
-                        entry_source=str(getattr(args, "seed_entry_source", "leaderboard") or "leaderboard"),
-                        fallback_entry_source=str(
-                            getattr(args, "seed_fallback_entry_source", "leaderboard") or "leaderboard"
-                        ),
+                        entry_source=str(resolved_entry_source),
+                        fallback_entry_source=resolved_fallback_entry_source,
                         min_cross_app_count=max(0, int(resolved_min_cross_app_count)),
                         min_signal_count_current=int(resolved_min_signal_count_current),
                         owner=str(getattr(args, "seed_owner", "operator") or "operator").strip() or "operator",
@@ -5276,6 +5371,14 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "input_format": domain_input_format,
                     "leaderboard_report_path": str(domain_leaderboard_report_path),
                     "seed_report_path": str(domain_seed_report_path),
+                    "seed_entry_source": str(resolved_entry_source),
+                    "seed_entry_source_source": str(entry_source_setting_source),
+                    "seed_fallback_entry_source": (
+                        str(resolved_fallback_entry_source)
+                        if resolved_fallback_entry_source is not None
+                        else "none"
+                    ),
+                    "seed_fallback_entry_source_source": str(fallback_entry_source_setting_source),
                     "seed_leaderboard_min_cross_app_count": int(resolved_min_cross_app_count_for_leaderboard),
                     "seed_min_cross_app_count": int(resolved_min_cross_app_count),
                     "seed_min_cross_app_count_source": str(min_cross_app_count_source),
@@ -5330,6 +5433,18 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         "domain": row.get("domain"),
                         "status": str((row.get("seed_from_leaderboard") or {}).get("status") or ""),
                         "source": row.get("hypothesis_source"),
+                        "entry_source": str(
+                            (row.get("seed_from_leaderboard") or {}).get("requested_entry_source")
+                            or row.get("seed_entry_source")
+                            or "leaderboard"
+                        ),
+                        "entry_source_source": str(row.get("seed_entry_source_source") or ""),
+                        "fallback_entry_source": str(
+                            (row.get("seed_from_leaderboard") or {}).get("fallback_entry_source")
+                            or row.get("seed_fallback_entry_source")
+                            or "none"
+                        ),
+                        "fallback_entry_source_source": str(row.get("seed_fallback_entry_source_source") or ""),
                         "min_cross_app_count": int(
                             (row.get("seed_from_leaderboard") or {}).get("min_cross_app_count")
                             or row.get("seed_min_cross_app_count")
@@ -8615,14 +8730,16 @@ def main() -> None:
     improvement_operator_cycle.add_argument(
         "--seed-entry-source",
         type=str,
-        default="leaderboard",
+        default=None,
         choices=("leaderboard", "shared_market_displeasures", "white_space_candidates"),
+        help="Optional seed entry source override (when omitted, resolves from config defaults per domain)",
     )
     improvement_operator_cycle.add_argument(
         "--seed-fallback-entry-source",
         type=str,
-        default="leaderboard",
+        default=None,
         choices=("leaderboard", "shared_market_displeasures", "white_space_candidates", "none"),
+        help="Optional seed fallback source override (when omitted, resolves from config defaults per domain)",
     )
     improvement_operator_cycle.add_argument("--seed-owner", type=str, default="operator")
     improvement_operator_cycle.add_argument("--seed-lookup-limit", type=int, default=400)
