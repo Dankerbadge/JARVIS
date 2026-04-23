@@ -272,6 +272,40 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("kalshi_trade_journal", content)
         self.assertIn("--min-cross-app-count", content)
 
+    def test_quant_leaderboard_wrapper_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        script_path = repo_root / "scripts" / "run_improvement_quant_leaderboard.sh"
+        self.assertTrue(script_path.exists())
+        content = script_path.read_text(encoding="utf-8")
+        self.assertIn("improvement fitness-leaderboard", content)
+        self.assertIn("JARVIS_IMPROVEMENT_QUANT_LEADERBOARD_OUTPUT_PATH", content)
+        self.assertIn("JARVIS_IMPROVEMENT_QUANT_LEADERBOARD_LOOKBACK_DAYS", content)
+        self.assertIn("JARVIS_IMPROVEMENT_QUANT_LEADERBOARD_DOMAIN", content)
+        self.assertIn("JARVIS_IMPROVEMENT_QUANT_LEADERBOARD_SOURCE", content)
+        self.assertIn("--domain)", content)
+        self.assertIn("--source)", content)
+        self.assertIn("--min-cross-app-count)", content)
+        self.assertIn("quant_finance", content)
+        self.assertIn("research_notes", content)
+        self.assertIn("--min-cross-app-count", content)
+
+    def test_market_ml_leaderboard_wrapper_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        script_path = repo_root / "scripts" / "run_improvement_market_ml_leaderboard.sh"
+        self.assertTrue(script_path.exists())
+        content = script_path.read_text(encoding="utf-8")
+        self.assertIn("improvement fitness-leaderboard", content)
+        self.assertIn("JARVIS_IMPROVEMENT_MARKET_ML_LEADERBOARD_OUTPUT_PATH", content)
+        self.assertIn("JARVIS_IMPROVEMENT_MARKET_ML_LEADERBOARD_LOOKBACK_DAYS", content)
+        self.assertIn("JARVIS_IMPROVEMENT_MARKET_ML_LEADERBOARD_DOMAIN", content)
+        self.assertIn("JARVIS_IMPROVEMENT_MARKET_ML_LEADERBOARD_SOURCE", content)
+        self.assertIn("--domain)", content)
+        self.assertIn("--source)", content)
+        self.assertIn("--min-cross-app-count)", content)
+        self.assertIn("market_ml", content)
+        self.assertIn("ml_incident_log", content)
+        self.assertIn("--min-cross-app-count", content)
+
     def test_active_knowledge_bootstrap_route_workflow_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         workflow_path = (

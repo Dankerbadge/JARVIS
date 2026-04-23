@@ -35,6 +35,46 @@ Wrapper:
   --output-path ./configs/improvement_operator_knowledge_stack/output/kalshi_weather_leaderboard.json
 ```
 
+## 1c) Run quant finance leaderboard (standalone)
+
+```bash
+python3 -m jarvis.cli improvement fitness-leaderboard \
+  --input-path ./configs/improvement_operator_knowledge_stack/analysis/quant_feedback.jsonl \
+  --domain quant_finance \
+  --source research_notes \
+  --lookback-days 10 \
+  --min-cross-app-count 1 \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/quant_finance_leaderboard.json
+```
+
+Wrapper:
+
+```bash
+./scripts/run_improvement_quant_leaderboard.sh \
+  ./configs/improvement_operator_knowledge_stack/analysis/quant_feedback.jsonl \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/quant_finance_leaderboard.json
+```
+
+## 1d) Run market-ML leaderboard (standalone)
+
+```bash
+python3 -m jarvis.cli improvement fitness-leaderboard \
+  --input-path ./configs/improvement_operator_knowledge_stack/analysis/market_ml_feedback.jsonl \
+  --domain market_ml \
+  --source ml_incident_log \
+  --lookback-days 10 \
+  --min-cross-app-count 1 \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/market_ml_leaderboard.json
+```
+
+Wrapper:
+
+```bash
+./scripts/run_improvement_market_ml_leaderboard.sh \
+  ./configs/improvement_operator_knowledge_stack/analysis/market_ml_feedback.jsonl \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/market_ml_leaderboard.json
+```
+
 ## 2) Run full operator cycle
 
 ```bash
