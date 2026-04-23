@@ -1285,9 +1285,11 @@ Mutating reconcile artifacts now include provenance fields from that source
 drift-check run: `source_workflow_run_id`, `source_workflow_run_conclusion`,
 `source_workflow_name`, `source_workflow_event`, and
 `source_workflow_run_url`.
-Drift-check and audit workflows now fail explicitly when
-`JARVIS_ADMIN_GH_TOKEN` is missing, so missing-admin-token regressions are
-visible immediately.
+All reconcile workflows (drift-check, audit, and mutating reconcile) now fail
+explicitly when `JARVIS_ADMIN_GH_TOKEN` is missing, so missing-admin-token
+regressions are visible immediately.
+They also use `concurrency` with `cancel-in-progress: true` and
+`timeout-minutes: 15` to reduce queue/backlog stalls.
 
 Promote to ready for review only if policy passes:
 

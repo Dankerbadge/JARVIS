@@ -5,9 +5,14 @@ on:
   schedule:
     - cron: "20 14 * * 1-5"
 
+concurrency:
+  group: reconcile-codeowner-review-gate-audit-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   reconcile-audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     env:
