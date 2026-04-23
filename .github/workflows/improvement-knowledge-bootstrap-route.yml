@@ -41,6 +41,8 @@ jobs:
             --verify-matrix-enable \
             --verify-matrix-path ./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json \
             --verify-matrix-alert-enable \
+            --knowledge-brief-enable \
+            --knowledge-delta-alert-enable \
             --knowledge-route-enable \
             --knowledge-route-output-path output/ci/knowledge_bootstrap_route.json
 

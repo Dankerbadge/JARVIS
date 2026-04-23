@@ -106,6 +106,30 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("--required-label protected-change", content)
         self.assertIn("--emit-ci-json-path", content)
 
+    def test_knowledge_bootstrap_route_workflow_template_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        workflow_path = (
+            repo_root
+            / "configs"
+            / "improvement_operator_knowledge_stack"
+            / "github-actions-knowledge-bootstrap-route.yml"
+        )
+        self.assertTrue(workflow_path.exists())
+        content = workflow_path.read_text(encoding="utf-8")
+        self.assertIn("schedule:", content)
+        self.assertIn("run_improvement_operator_cycle.sh", content)
+        self.assertIn("knowledge_bootstrap_route.json", content)
+        self.assertIn("steps.route.outputs.route", content)
+        self.assertIn("route_blocking", content)
+        self.assertIn("steps.route.outputs.route_blocking", content)
+        self.assertIn("steps.route.outputs.route_blocking == '1'", content)
+        self.assertIn("id: route_initial", content)
+        self.assertIn("Bootstrap follow-up rerun", content)
+        self.assertIn("knowledge_bootstrap_route_post_bootstrap.json", content)
+        self.assertIn("artifact_source", content)
+        self.assertIn("--knowledge-brief-enable", content)
+        self.assertIn("--knowledge-delta-alert-enable", content)
+
     def test_codeowner_review_gate_reconciler_script_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         script_path = repo_root / "scripts" / "reconcile_codeowner_review_gate.sh"
@@ -115,6 +139,40 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("--apply", content)
         self.assertIn("protection/required_pull_request_reviews", content)
         self.assertIn("require_code_owner_reviews", content)
+
+    def test_knowledge_bootstrap_route_wrapper_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        script_path = repo_root / "scripts" / "run_improvement_knowledge_bootstrap_route.sh"
+        self.assertTrue(script_path.exists())
+        content = script_path.read_text(encoding="utf-8")
+        self.assertIn("improvement knowledge-bootstrap-route", content)
+        self.assertIn("--report-path", content)
+        self.assertIn("--output-path", content)
+
+    def test_active_knowledge_bootstrap_route_workflow_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        workflow_path = (
+            repo_root
+            / ".github"
+            / "workflows"
+            / "improvement-knowledge-bootstrap-route.yml"
+        )
+        self.assertTrue(workflow_path.exists())
+        content = workflow_path.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", content)
+        self.assertIn("schedule:", content)
+        self.assertIn("run_improvement_operator_cycle.sh", content)
+        self.assertIn("knowledge_bootstrap_route.json", content)
+        self.assertIn("steps.route.outputs.route", content)
+        self.assertIn("route_blocking", content)
+        self.assertIn("steps.route.outputs.route_blocking", content)
+        self.assertIn("steps.route.outputs.route_blocking == '1'", content)
+        self.assertIn("id: route_initial", content)
+        self.assertIn("Bootstrap follow-up rerun", content)
+        self.assertIn("knowledge_bootstrap_route_post_bootstrap.json", content)
+        self.assertIn("artifact_source", content)
+        self.assertIn("--knowledge-brief-enable", content)
+        self.assertIn("--knowledge-delta-alert-enable", content)
 
     def test_active_reconcile_codeowner_workflow_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
