@@ -1,0 +1,224 @@
+name: improvement-knowledge-bootstrap-route
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "25 13 * * 1-5"
+
+jobs:
+  knowledge-route:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Run operator cycle + knowledge route
+        run: |
+          mkdir -p output/ci
+          ./scripts/run_improvement_operator_cycle.sh \
+            ./configs/improvement_operator_knowledge_stack.json \
+            --output-dir output/ci/operator_cycle \
+            --seed-enable \
+            --seed-domains quant_finance,kalshi_weather,fitness_apps,market_ml \
+            --draft-enable \
+            --benchmark-enable \
+            --verify-matrix-enable \
+            --verify-matrix-path ./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json \
+            --verify-matrix-alert-enable \
+            --knowledge-brief-enable \
+            --knowledge-delta-alert-enable \
+            --knowledge-route-enable \
+            --knowledge-route-output-path output/ci/knowledge_bootstrap_route.json
+
+      - name: Extract initial knowledge route outputs
+        id: route_initial
+        run: |
+          set -euo pipefail
+
+          ROUTE_ARTIFACT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route.json"
+          ROUTE_OUTPUT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route_initial_outputs.json"
+
+          python3 -m jarvis.cli improvement knowledge-bootstrap-route-outputs \
+            --artifact-path "${ROUTE_ARTIFACT_PATH}" \
+            --artifact-source initial \
+            --output-path "${ROUTE_OUTPUT_PATH}" \
+            --emit-github-output \
+            --summary-heading "Knowledge Bootstrap Route" \
+            --json-compact > /dev/null
+
+      - name: Bootstrap follow-up rerun
+        if: ${{ steps.route_initial.outputs.route == 'bootstrap' && steps.route_initial.outputs.next_action_command != 'none' }}
+        run: |
+          set -euo pipefail
+
+          ROUTE_ARTIFACT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route.json"
+          OPERATOR_REPORT_PATH="$(pwd)/output/ci/operator_cycle/operator_cycle_report.json"
+          POST_ROUTE_ARTIFACT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route_post_bootstrap.json"
+          FOLLOWUP_RERUN_OUTPUT_PATH="$(pwd)/output/ci/knowledge_bootstrap_followup_rerun.json"
+
+          python3 -m jarvis.cli improvement knowledge-bootstrap-followup-rerun \
+            --route-artifact-path "${ROUTE_ARTIFACT_PATH}" \
+            --operator-report-path "${OPERATOR_REPORT_PATH}" \
+            --post-route-artifact-path "${POST_ROUTE_ARTIFACT_PATH}" \
+            --output-path "${FOLLOWUP_RERUN_OUTPUT_PATH}" \
+            --emit-github-output \
+            --summary-heading "Bootstrap Follow-Up" \
+            --json-compact > /dev/null
+
+      - name: Extract effective knowledge route outputs
+        id: route
+        run: |
+          set -euo pipefail
+
+          POST_ROUTE_ARTIFACT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route_post_bootstrap.json"
+          INITIAL_ROUTE_ARTIFACT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route.json"
+          if [[ -f "${POST_ROUTE_ARTIFACT_PATH}" ]]; then
+            ROUTE_ARTIFACT_PATH="${POST_ROUTE_ARTIFACT_PATH}"
+            ROUTE_ARTIFACT_SOURCE="post_bootstrap"
+          elif [[ -f "${INITIAL_ROUTE_ARTIFACT_PATH}" ]]; then
+            ROUTE_ARTIFACT_PATH="${INITIAL_ROUTE_ARTIFACT_PATH}"
+            ROUTE_ARTIFACT_SOURCE="initial"
+          else
+            ROUTE_ARTIFACT_PATH="${INITIAL_ROUTE_ARTIFACT_PATH}"
+            ROUTE_ARTIFACT_SOURCE="missing"
+          fi
+
+          ROUTE_OUTPUT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route_effective_outputs.json"
+          python3 -m jarvis.cli improvement knowledge-bootstrap-route-outputs \
+            --artifact-path "${ROUTE_ARTIFACT_PATH}" \
+            --artifact-source "${ROUTE_ARTIFACT_SOURCE}" \
+            --output-path "${ROUTE_OUTPUT_PATH}" \
+            --emit-github-output \
+            --summary-heading "Knowledge Bootstrap Route (Effective)" \
+            --summary-include-artifact-source \
+            --json-compact > /dev/null
+
+      - name: Warning route branch
+        if: ${{ steps.route.outputs.status == 'warning' }}
+        run: |
+          echo "Knowledge bootstrap routing is unresolved (status=${{ steps.route.outputs.status }}, phase=${{ steps.route.outputs.phase }}, route=${{ steps.route.outputs.route }}). Review route artifact before promoting automated actions."
+
+      - name: Bootstrap route branch
+        if: ${{ steps.route.outputs.route == 'bootstrap' }}
+        run: |
+          echo "Bootstrap route detected. Collect another knowledge snapshot before expecting delta comparisons."
+
+      - name: Run-cycle route branch
+        if: ${{ steps.route.outputs.route == 'run_cycle' }}
+        run: |
+          echo "Knowledge bootstrap is ready. Continue regular operator-cycle cadence."
+
+      - name: No-op route branch
+        if: ${{ steps.route.outputs.route == 'noop' }}
+        run: |
+          echo "Knowledge delta stage not requested or unresolved for this run."
+
+      - name: Verify matrix coverage compact gate
+        id: verify_matrix_compact
+        run: |
+          set -euo pipefail
+
+          REPORT_PATH="$(pwd)/output/ci/operator_cycle/operator_cycle_report.json"
+          COMPACT_PATH="$(pwd)/output/ci/operator_cycle/verify_matrix_compact.json"
+          COMPACT_MARKDOWN_PATH="$(pwd)/output/ci/operator_cycle/verify_matrix_compact.md"
+
+          python3 -m jarvis.cli improvement verify-matrix-compact \
+            --report-path "${REPORT_PATH}" \
+            --output-path "${COMPACT_PATH}" \
+            --markdown-path "${COMPACT_MARKDOWN_PATH}" \
+            --emit-github-output \
+            --summary-heading "Verify Matrix Compact Coverage" \
+            --summary-include-markdown \
+            --json-compact > /dev/null
+
+      - name: Open verify matrix coverage interrupt alert
+        if: ${{ steps.verify_matrix_compact.outputs.missing_domain_count != '0' }}
+        id: verify_matrix_coverage_alert
+        env:
+          VERIFY_MATRIX_COMPACT_PATH: ${{ steps.verify_matrix_compact.outputs.verify_matrix_compact_path }}
+          VERIFY_MATRIX_COMPACT_STATUS: ${{ steps.verify_matrix_compact.outputs.verify_matrix_compact_status }}
+          MISSING_DOMAIN_COUNT: ${{ steps.verify_matrix_compact.outputs.missing_domain_count }}
+          MISSING_DOMAINS_CSV: ${{ steps.verify_matrix_compact.outputs.missing_domains_csv }}
+          FIRST_MISSING_DOMAIN: ${{ steps.verify_matrix_compact.outputs.verify_matrix_first_missing_domain }}
+          VERIFY_MATRIX_RECHECK_COMMAND: ${{ steps.verify_matrix_compact.outputs.verify_matrix_recheck_command }}
+          VERIFY_MATRIX_FIRST_UNLOCK_READY_COMMAND: ${{ steps.verify_matrix_compact.outputs.verify_matrix_first_unlock_ready_command }}
+        run: |
+          set -euo pipefail
+
+          COMPACT_PATH="${VERIFY_MATRIX_COMPACT_PATH:-$(pwd)/output/ci/operator_cycle/verify_matrix_compact.json}"
+          ALERT_PATH="$(pwd)/output/ci/operator_cycle/verify_matrix_coverage_alert.json"
+          DB_PATH="$(pwd)/output/ci/operator_cycle/jarvis.db"
+
+          # Runtime emits memory event: improvement.verify_matrix_coverage_alert_created
+          python3 -m jarvis.cli improvement verify-matrix-coverage-alert \
+            --compact-path "${COMPACT_PATH}" \
+            --output-path "${ALERT_PATH}" \
+            --missing-domain-count "${MISSING_DOMAIN_COUNT}" \
+            --missing-domains-csv "${MISSING_DOMAINS_CSV}" \
+            --first-missing-domain "${FIRST_MISSING_DOMAIN}" \
+            --compact-status "${VERIFY_MATRIX_COMPACT_STATUS}" \
+            --recheck-command "${VERIFY_MATRIX_RECHECK_COMMAND}" \
+            --first-unlock-ready-command "${VERIFY_MATRIX_FIRST_UNLOCK_READY_COMMAND}" \
+            --repo-path "$(pwd)" \
+            --db-path "${DB_PATH}" \
+            --emit-github-output \
+            --summary-heading "Verify Matrix Coverage Interrupt Alert" \
+            --json-compact > /dev/null
+
+      - name: Fail on verify matrix coverage gaps
+        if: ${{ steps.verify_matrix_compact.outputs.missing_domain_count != '0' }}
+        run: |
+          echo "Verify matrix coverage is missing required domains (count=${{ steps.verify_matrix_compact.outputs.missing_domain_count }}, first=${{ steps.verify_matrix_compact.outputs.verify_matrix_first_missing_domain }}, domains=${{ steps.verify_matrix_compact.outputs.missing_domains_csv }}, interrupt_id=${{ steps.verify_matrix_coverage_alert.outputs.verify_matrix_coverage_interrupt_id }}, first_repair=${{ steps.verify_matrix_coverage_alert.outputs.verify_matrix_coverage_first_repair_command }})."
+          exit 1
+
+      - name: Guardrail gate
+        run: |
+          set -euo pipefail
+
+          REPORT_PATH="$(pwd)/output/ci/operator_cycle/operator_cycle_report.json"
+          GATE_PATH="$(pwd)/output/ci/operator_cycle/verify_matrix_guardrail_gate.json"
+
+          python3 -m jarvis.cli improvement verify-matrix-guardrail-gate \
+            --report-path "${REPORT_PATH}" \
+            --output-path "${GATE_PATH}" \
+            --emit-github-output \
+            --summary-heading "Operator Guardrail Gate" \
+            --strict \
+            --json-compact > /dev/null
+
+      - name: Collect debug trace artifacts
+        if: always()
+        run: |
+          mkdir -p output/ci
+          if [[ -d configs/improvement_operator_knowledge_stack/output/debug_runs ]]; then
+            cp -R configs/improvement_operator_knowledge_stack/output/debug_runs output/ci/debug_runs
+          fi
+          if [[ -d analysis/improvement/knowledge_snapshots ]]; then
+            cp -R analysis/improvement/knowledge_snapshots output/ci/knowledge_snapshots
+          fi
+
+      - name: Upload route artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: knowledge-bootstrap-route
+          path: output/ci/
+
+      - name: Fail workflow on warning status
+        if: ${{ steps.route.outputs.route_blocking == '1' }}
+        run: |
+          echo "Knowledge route is blocking (status=${{ steps.route.outputs.status }}, phase=${{ steps.route.outputs.phase }}, route=${{ steps.route.outputs.route }})."
+          exit 1

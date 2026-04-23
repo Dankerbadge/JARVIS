@@ -1,0 +1,179 @@
+name: improvement-domain-smoke-nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "40 3 * * 1-5"
+
+jobs:
+  domain-smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        domain:
+          - quant_finance
+          - kalshi_weather
+          - fitness_apps
+          - market_ml
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Run domain smoke loop
+        run: |
+          mkdir -p "output/ci/domain_smoke/${{ matrix.domain }}"
+          ./scripts/run_improvement_domain_smoke.sh \
+            ./configs/improvement_operator_knowledge_stack.json \
+            "${{ matrix.domain }}" \
+            --output-dir "output/ci/domain_smoke/${{ matrix.domain }}" \
+            --allow-missing
+
+      - name: Extract domain smoke outputs
+        id: smoke
+        env:
+          MATRIX_DOMAIN: ${{ matrix.domain }}
+        run: |
+          python3 -m jarvis.cli improvement domain-smoke-outputs \
+            --domain "${MATRIX_DOMAIN}" \
+            --artifact-root output/ci/domain_smoke \
+            --emit-github-output \
+            --summary-heading "Domain Smoke"
+
+      - name: Warning smoke branch
+        if: ${{ steps.smoke.outputs.smoke_blocking == '1' }}
+        run: |
+          echo "Domain smoke run requires attention (domain=${{ steps.smoke.outputs.domain }}, status=${{ steps.smoke.outputs.status }}, reason=${{ steps.smoke.outputs.reason }})."
+
+      - name: Healthy smoke branch
+        if: ${{ steps.smoke.outputs.smoke_blocking == '0' }}
+        run: |
+          echo "Domain smoke run healthy (domain=${{ steps.smoke.outputs.domain }}, status=${{ steps.smoke.outputs.status }})."
+
+      - name: Open domain smoke interrupt alert
+        if: ${{ steps.smoke.outputs.smoke_blocking == '1' }}
+        id: smoke_alert
+        env:
+          MATRIX_DOMAIN: ${{ matrix.domain }}
+          SMOKE_STATUS: ${{ steps.smoke.outputs.status }}
+          SMOKE_REASON: ${{ steps.smoke.outputs.reason }}
+          SUMMARY_PATH: ${{ steps.smoke.outputs.summary_path }}
+          PULL_REPORT_PATH: ${{ steps.smoke.outputs.pull_report_path }}
+          LEADERBOARD_REPORT_PATH: ${{ steps.smoke.outputs.leaderboard_report_path }}
+          SEED_REPORT_PATH: ${{ steps.smoke.outputs.seed_report_path }}
+        run: |
+          python3 -m jarvis.cli improvement domain-smoke-runtime-alert \
+            --domain "${MATRIX_DOMAIN}" \
+            --smoke-status "${SMOKE_STATUS}" \
+            --smoke-reason "${SMOKE_REASON}" \
+            --summary-path "${SUMMARY_PATH}" \
+            --pull-report-path "${PULL_REPORT_PATH}" \
+            --leaderboard-report-path "${LEADERBOARD_REPORT_PATH}" \
+            --seed-report-path "${SEED_REPORT_PATH}" \
+            --emit-github-output \
+            --summary-heading "Domain Smoke Interrupt Alert"
+
+      - name: Collect debug trace artifacts
+        if: always()
+        run: |
+          domain_dir="output/ci/domain_smoke/${{ matrix.domain }}"
+          mkdir -p "${domain_dir}"
+          if [[ -d configs/improvement_operator_knowledge_stack/output/debug_runs ]]; then
+            cp -R configs/improvement_operator_knowledge_stack/output/debug_runs "${domain_dir}/debug_runs"
+          fi
+          if [[ -d analysis/improvement/knowledge_snapshots ]]; then
+            cp -R analysis/improvement/knowledge_snapshots "${domain_dir}/knowledge_snapshots"
+          fi
+
+      - name: Upload domain smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: domain-smoke-${{ matrix.domain }}
+          path: output/ci/domain_smoke/${{ matrix.domain }}/
+
+      - name: Fail workflow on warning status
+        if: ${{ steps.smoke.outputs.smoke_blocking == '1' }}
+        run: |
+          echo "Domain smoke blocking status detected (domain=${{ steps.smoke.outputs.domain }}, reason=${{ steps.smoke.outputs.reason }}, interrupt_id=${{ steps.smoke_alert.outputs.interrupt_id }}, rerun=${{ steps.smoke_alert.outputs.rerun_command }})."
+          exit 1
+
+  domain-smoke-aggregate:
+    if: always()
+    needs:
+      - domain-smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Download domain smoke artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: domain-smoke-*
+          path: output/ci/domain_smoke_artifacts
+
+      - name: Build cross-domain smoke summary
+        id: aggregate
+        run: |
+          python3 -m jarvis.cli improvement domain-smoke-cross-domain-compact \
+            --artifacts-root output/ci/domain_smoke_artifacts \
+            --output-path output/ci/domain_smoke/domain_smoke_cross_domain_summary.json \
+            --markdown-path output/ci/domain_smoke/domain_smoke_cross_domain_summary.md \
+            --emit-github-output \
+            --summary-heading "Domain Smoke Cross-Domain Summary"
+
+      - name: Open cross-domain smoke interrupt alert
+        if: ${{ steps.aggregate.outputs.cross_domain_status == 'warning' && steps.aggregate.outputs.warning_count != '0' }}
+        id: cross_domain_alert
+        env:
+          SUMMARY_PATH: ${{ steps.aggregate.outputs.summary_path }}
+          WARNING_COUNT: ${{ steps.aggregate.outputs.warning_count }}
+          BLOCKING_COUNT: ${{ steps.aggregate.outputs.blocking_count }}
+          TOP_DOMAIN: ${{ steps.aggregate.outputs.top_domain }}
+          TOP_RISK_SCORE: ${{ steps.aggregate.outputs.top_risk_score }}
+        run: |
+          python3 -m jarvis.cli improvement domain-smoke-cross-domain-runtime-alert \
+            --summary-path "${SUMMARY_PATH}" \
+            --warning-count "${WARNING_COUNT}" \
+            --blocking-count "${BLOCKING_COUNT}" \
+            --top-domain "${TOP_DOMAIN}" \
+            --top-risk-score "${TOP_RISK_SCORE}" \
+            --emit-github-output \
+            --summary-heading "Domain Smoke Cross-Domain Interrupt Alert"
+
+      - name: Upload cross-domain smoke summary artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: domain-smoke-cross-domain-summary
+          path: |
+            output/ci/domain_smoke/domain_smoke_cross_domain_summary.json
+            output/ci/domain_smoke/domain_smoke_cross_domain_summary.md
+            output/ci/domain_smoke/domain_smoke_cross_domain_alert.json

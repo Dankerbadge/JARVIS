@@ -12,7 +12,11 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from jarvis.cli import cmd_plans_gate_status, cmd_plans_gate_status_all
+from jarvis.cli import (
+    _build_gate_status_all_ci_json_payload,
+    cmd_plans_gate_status,
+    cmd_plans_gate_status_all,
+)
 from jarvis.models import utc_now_iso
 from jarvis.interrupts import InterruptDecision
 from jarvis.providers.base import ProviderReviewArtifact, ReviewFeedbackSnapshot, ReviewStatusSnapshot
@@ -192,6 +196,36 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
         _git(str(repo), "remote", "add", "origin", str(remote))
         _git(str(repo), "push", "-u", "origin", "main")
         return repo, remote
+
+    def test_gate_status_all_ci_json_payload_normalizes_first_unlock_ready_command(self) -> None:
+        payload = _build_gate_status_all_ci_json_payload(
+            {
+                "only_blocked": False,
+                "only_unlock_ready": False,
+                "scanned_review_count": 0,
+                "evaluated_step_count": 0,
+                "visible_step_count": 0,
+                "blocked_step_count": 0,
+                "unlock_ready_step_count": 0,
+                "error_count": 0,
+                "exit_reason": "none",
+                "exit_code": 0,
+                "exit_triggered": False,
+                "blocked_exit_triggered": False,
+                "error_exit_triggered": False,
+                "zero_scanned_exit_triggered": False,
+                "zero_evaluated_exit_triggered": False,
+                "zero_unlock_ready_exit_triggered": False,
+                "empty_ack_commands_exit_triggered": False,
+                "blocked_steps": [],
+                "unlock_ready_steps": [],
+                "unlock_ready_commands": [],
+                "acknowledge_commands": [],
+                "errors": [],
+                "next_action": "",
+            }
+        )
+        self.assertEqual(str(payload.get("first_unlock_ready_command") or ""), "none")
 
     def test_promotion_policy_blocks_without_required_checks_override(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -596,6 +630,7 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                     cmd_plans_gate_status(args)
                 payload = json.loads(captured.getvalue())
                 self.assertTrue(bool(payload.get("blocked")))
+                self.assertFalse(bool(payload.get("unlock_ready")))
                 self.assertEqual(
                     list(payload.get("blocking_interrupt_ids") or []),
                     ["int_gate_status_critical_1"],
@@ -620,6 +655,7 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                     cmd_plans_gate_status(args)
                 text_payload = captured_text.getvalue()
                 self.assertIn("blocked: yes", text_payload)
+                self.assertIn("unlock_ready: no", text_payload)
                 self.assertIn("blocking_interrupt_ids: int_gate_status_critical_1", text_payload)
                 self.assertIn(
                     "python3 -m jarvis.cli interrupts acknowledge int_gate_status_critical_1 --actor operator",
@@ -640,21 +676,37 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                     critical_drift_gate_limit=100,
                     output="json",
                     only_blocked=False,
+                    only_unlock_ready=False,
                     fail_on_blocked=False,
                     fail_on_errors=False,
                     fail_on_zero_scanned=False,
                     fail_on_zero_evaluated=False,
+                    fail_on_zero_unlock_ready=False,
                     fail_on_empty_ack_commands=False,
                     blocked_exit_code=2,
                     error_exit_code=3,
                     zero_scanned_exit_code=5,
                     zero_evaluated_exit_code=4,
+                    zero_unlock_ready_exit_code=8,
                     empty_ack_commands_exit_code=6,
                     emit_ci_summary_path=None,
                     emit_ci_json_path=None,
                     repo_path=repo,
                     db_path=root / "jarvis.db",
                 )
+
+                def assert_unlock_ready_contract(runtime_payload: dict) -> None:
+                    self.assertIn("unlock_ready_commands", runtime_payload)
+                    self.assertIn("first_unlock_ready_command", runtime_payload)
+                    unlock_ready_commands = list(runtime_payload.get("unlock_ready_commands") or [])
+                    first_unlock_ready_command = str(runtime_payload.get("first_unlock_ready_command") or "")
+                    self.assertIsInstance(unlock_ready_commands, list)
+                    self.assertTrue(isinstance(first_unlock_ready_command, str))
+                    if unlock_ready_commands:
+                        self.assertEqual(first_unlock_ready_command, str(unlock_ready_commands[0]))
+                    else:
+                        self.assertEqual(first_unlock_ready_command, "none")
+
                 captured_all = io.StringIO()
                 # Keep baseline expectations deterministic across local runs and GitHub Actions,
                 # where GITHUB_STEP_SUMMARY may be set automatically.
@@ -662,16 +714,22 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                     with redirect_stdout(captured_all):
                         cmd_plans_gate_status_all(args_all)
                 payload_all = json.loads(captured_all.getvalue())
+                assert_unlock_ready_contract(payload_all)
                 self.assertFalse(bool(payload_all.get("only_blocked")))
+                self.assertFalse(bool(payload_all.get("only_unlock_ready")))
                 self.assertFalse(bool(payload_all.get("fail_on_blocked")))
                 self.assertFalse(bool(payload_all.get("fail_on_errors")))
                 self.assertFalse(bool(payload_all.get("fail_on_zero_scanned")))
                 self.assertFalse(bool(payload_all.get("fail_on_zero_evaluated")))
+                self.assertFalse(bool(payload_all.get("fail_on_zero_unlock_ready")))
                 self.assertFalse(bool(payload_all.get("fail_on_empty_ack_commands")))
                 self.assertGreaterEqual(int(payload_all.get("scanned_review_count") or 0), 1)
                 self.assertGreaterEqual(int(payload_all.get("evaluated_step_count") or 0), 1)
                 self.assertGreaterEqual(int(payload_all.get("visible_step_count") or 0), 1)
                 self.assertGreaterEqual(int(payload_all.get("blocked_step_count") or 0), 1)
+                self.assertEqual(int(payload_all.get("unlock_ready_step_count") or 0), 0)
+                self.assertEqual(list(payload_all.get("unlock_ready_commands") or []), [])
+                self.assertEqual(str(payload_all.get("first_unlock_ready_command") or ""), "none")
                 self.assertEqual(int(payload_all.get("error_count") or 0), 0)
                 blocked_steps = list(payload_all.get("blocked_steps") or [])
                 self.assertGreaterEqual(len(blocked_steps), 1)
@@ -697,11 +755,13 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                 self.assertEqual(int(payload_all.get("error_exit_code") or 0), 3)
                 self.assertEqual(int(payload_all.get("zero_scanned_exit_code") or 0), 5)
                 self.assertEqual(int(payload_all.get("zero_evaluated_exit_code") or 0), 4)
+                self.assertEqual(int(payload_all.get("zero_unlock_ready_exit_code") or 0), 8)
                 self.assertEqual(int(payload_all.get("empty_ack_commands_exit_code") or 0), 6)
                 self.assertFalse(bool(payload_all.get("blocked_exit_triggered")))
                 self.assertFalse(bool(payload_all.get("error_exit_triggered")))
                 self.assertFalse(bool(payload_all.get("zero_scanned_exit_triggered")))
                 self.assertFalse(bool(payload_all.get("zero_evaluated_exit_triggered")))
+                self.assertFalse(bool(payload_all.get("zero_unlock_ready_exit_triggered")))
                 self.assertFalse(bool(payload_all.get("empty_ack_commands_exit_triggered")))
                 self.assertFalse(bool(payload_all.get("ci_summary_path")))
                 self.assertFalse(bool(payload_all.get("ci_json_path")))
@@ -722,6 +782,8 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                 ci_summary_text = ci_summary_path.read_text(encoding="utf-8")
                 self.assertIn("# plans gate-status-all summary", ci_summary_text)
                 self.assertIn("- blocked_step_count: 1", ci_summary_text)
+                self.assertIn("- unlock_ready_step_count: 0", ci_summary_text)
+                self.assertIn("- first_unlock_ready_command: none", ci_summary_text)
                 self.assertIn("int_gate_status_critical_1", ci_summary_text)
                 self.assertIn(
                     "`python3 -m jarvis.cli interrupts acknowledge int_gate_status_critical_1 --actor operator`",
@@ -742,7 +804,11 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                 )
                 self.assertTrue(ci_json_path.exists())
                 ci_json_payload = json.loads(ci_json_path.read_text(encoding="utf-8"))
+                assert_unlock_ready_contract(ci_json_payload)
                 self.assertEqual(int(ci_json_payload.get("blocked_step_count") or 0), 1)
+                self.assertEqual(int(ci_json_payload.get("unlock_ready_step_count") or 0), 0)
+                self.assertEqual(list(ci_json_payload.get("unlock_ready_commands") or []), [])
+                self.assertEqual(str(ci_json_payload.get("first_unlock_ready_command") or ""), "none")
                 self.assertEqual(int(ci_json_payload.get("error_count") or 0), 0)
                 self.assertEqual(str(ci_json_payload.get("exit_reason") or ""), "none")
                 self.assertEqual(int(ci_json_payload.get("exit_code") or 0), 0)
@@ -757,6 +823,60 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                     ["int_gate_status_critical_1"],
                 )
                 self.assertNotIn("gate_rows", ci_json_payload)
+
+                ci_json_output_path = root / "gate_status_all_compact_outputs.json"
+                github_output_path = root / "gate_status_all_github_output.txt"
+                github_step_summary_path = root / "gate_status_all_github_summary.md"
+                args_all_emit_outputs = argparse.Namespace(**vars(args_all))
+                args_all_emit_outputs.emit_ci_json_path = ci_json_output_path
+                args_all_emit_outputs.emit_github_output = True
+                args_all_emit_outputs.summary_heading = "Gate Status Compact"
+                captured_all_emit_outputs = io.StringIO()
+                with patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_OUTPUT": str(github_output_path),
+                        "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                    },
+                    clear=False,
+                ):
+                    with redirect_stdout(captured_all_emit_outputs):
+                        cmd_plans_gate_status_all(args_all_emit_outputs)
+                payload_all_emit_outputs = json.loads(captured_all_emit_outputs.getvalue())
+                self.assertEqual(
+                    str(payload_all_emit_outputs.get("ci_json_path") or ""),
+                    str(ci_json_output_path.resolve()),
+                )
+                self.assertTrue(github_output_path.exists())
+                output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+                self.assertIn(f"artifact_path={ci_json_output_path.resolve()}", output_lines)
+                self.assertIn("blocked_step_count=1", output_lines)
+                self.assertIn("unlock_ready_step_count=0", output_lines)
+                self.assertIn("first_unlock_ready_command=none", output_lines)
+                self.assertIn("acknowledge_command_count=1", output_lines)
+                self.assertIn(
+                    "first_acknowledge_command=python3 -m jarvis.cli interrupts acknowledge "
+                    "int_gate_status_critical_1 --actor operator",
+                    output_lines,
+                )
+                self.assertIn("error_count=0", output_lines)
+                self.assertIn("exit_reason=none", output_lines)
+                self.assertIn("exit_code=0", output_lines)
+                self.assertTrue(github_step_summary_path.exists())
+                step_summary_text = github_step_summary_path.read_text(encoding="utf-8")
+                self.assertIn("## Gate Status Compact", step_summary_text)
+                self.assertIn("- blocked_step_count: `1`", step_summary_text)
+                self.assertIn("- unlock_ready_step_count: `0`", step_summary_text)
+                self.assertIn("- first_unlock_ready_command: `none`", step_summary_text)
+                self.assertIn("- acknowledge_command_count: `1`", step_summary_text)
+                self.assertIn(
+                    "- first_acknowledge_command: `python3 -m jarvis.cli interrupts acknowledge "
+                    "int_gate_status_critical_1 --actor operator`",
+                    step_summary_text,
+                )
+                self.assertIn("- error_count: `0`", step_summary_text)
+                self.assertIn("- exit_reason: `none`", step_summary_text)
+                self.assertIn("- exit_code: `0`", step_summary_text)
 
                 env_ci_summary_path = root / "gate_status_all_env_summary.md"
                 args_all_env_ci_summary = argparse.Namespace(**vars(args_all))
@@ -832,6 +952,64 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                 self.assertEqual(int(payload_all_fail_custom.get("blocked_exit_code") or 0), 7)
                 self.assertEqual(int(payload_all_fail_custom.get("exit_code") or 0), 7)
                 self.assertTrue(bool(payload_all_fail_custom.get("exit_triggered")))
+
+                args_all_zero_unlock_ready_fatal = argparse.Namespace(**vars(args_all))
+                args_all_zero_unlock_ready_fatal.fail_on_zero_unlock_ready = True
+                captured_all_zero_unlock_ready_fatal = io.StringIO()
+                with self.assertRaises(SystemExit) as cm_zero_unlock_ready:
+                    with redirect_stdout(captured_all_zero_unlock_ready_fatal):
+                        cmd_plans_gate_status_all(args_all_zero_unlock_ready_fatal)
+                self.assertEqual(int(cm_zero_unlock_ready.exception.code or 0), 8)
+                payload_all_zero_unlock_ready_fatal = json.loads(captured_all_zero_unlock_ready_fatal.getvalue())
+                self.assertTrue(bool(payload_all_zero_unlock_ready_fatal.get("fail_on_zero_unlock_ready")))
+                self.assertEqual(int(payload_all_zero_unlock_ready_fatal.get("zero_unlock_ready_exit_code") or 0), 8)
+                self.assertEqual(int(payload_all_zero_unlock_ready_fatal.get("exit_code") or 0), 8)
+                self.assertEqual(
+                    str(payload_all_zero_unlock_ready_fatal.get("exit_reason") or ""),
+                    "zero_unlock_ready_steps",
+                )
+                self.assertTrue(bool(payload_all_zero_unlock_ready_fatal.get("zero_unlock_ready_exit_triggered")))
+
+                args_all_zero_unlock_ready_fatal_custom = argparse.Namespace(**vars(args_all))
+                args_all_zero_unlock_ready_fatal_custom.fail_on_zero_unlock_ready = True
+                args_all_zero_unlock_ready_fatal_custom.zero_unlock_ready_exit_code = 23
+                captured_all_zero_unlock_ready_fatal_custom = io.StringIO()
+                with self.assertRaises(SystemExit) as cm_zero_unlock_ready_custom:
+                    with redirect_stdout(captured_all_zero_unlock_ready_fatal_custom):
+                        cmd_plans_gate_status_all(args_all_zero_unlock_ready_fatal_custom)
+                self.assertEqual(int(cm_zero_unlock_ready_custom.exception.code or 0), 23)
+                payload_all_zero_unlock_ready_fatal_custom = json.loads(
+                    captured_all_zero_unlock_ready_fatal_custom.getvalue()
+                )
+                self.assertEqual(
+                    int(payload_all_zero_unlock_ready_fatal_custom.get("zero_unlock_ready_exit_code") or 0),
+                    23,
+                )
+                self.assertEqual(int(payload_all_zero_unlock_ready_fatal_custom.get("exit_code") or 0), 23)
+                self.assertEqual(
+                    str(payload_all_zero_unlock_ready_fatal_custom.get("exit_reason") or ""),
+                    "zero_unlock_ready_steps",
+                )
+
+                args_all_zero_unlock_ready_precedence = argparse.Namespace(**vars(args_all))
+                args_all_zero_unlock_ready_precedence.fail_on_zero_unlock_ready = True
+                args_all_zero_unlock_ready_precedence.zero_unlock_ready_exit_code = 23
+                args_all_zero_unlock_ready_precedence.fail_on_blocked = True
+                args_all_zero_unlock_ready_precedence.blocked_exit_code = 7
+                captured_all_zero_unlock_ready_precedence = io.StringIO()
+                with self.assertRaises(SystemExit) as cm_zero_unlock_ready_precedence:
+                    with redirect_stdout(captured_all_zero_unlock_ready_precedence):
+                        cmd_plans_gate_status_all(args_all_zero_unlock_ready_precedence)
+                self.assertEqual(int(cm_zero_unlock_ready_precedence.exception.code or 0), 23)
+                payload_all_zero_unlock_ready_precedence = json.loads(
+                    captured_all_zero_unlock_ready_precedence.getvalue()
+                )
+                self.assertTrue(bool(payload_all_zero_unlock_ready_precedence.get("blocked_exit_triggered")))
+                self.assertTrue(bool(payload_all_zero_unlock_ready_precedence.get("zero_unlock_ready_exit_triggered")))
+                self.assertEqual(
+                    str(payload_all_zero_unlock_ready_precedence.get("exit_reason") or ""),
+                    "zero_unlock_ready_steps",
+                )
 
                 args_all_empty_ack_nonfatal = argparse.Namespace(**vars(args_all))
                 captured_all_empty_ack_nonfatal = io.StringIO()
@@ -1107,23 +1285,85 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                     cmd_plans_gate_status_all(args_all)
                 payload_all_text = captured_all_text.getvalue()
                 self.assertIn("only_blocked: no", payload_all_text)
+                self.assertIn("only_unlock_ready: no", payload_all_text)
                 self.assertIn("fail_on_blocked: no", payload_all_text)
                 self.assertIn("fail_on_errors: no", payload_all_text)
                 self.assertIn("fail_on_zero_scanned: no", payload_all_text)
                 self.assertIn("fail_on_zero_evaluated: no", payload_all_text)
+                self.assertIn("fail_on_zero_unlock_ready: no", payload_all_text)
                 self.assertIn("fail_on_empty_ack_commands: no", payload_all_text)
                 self.assertIn("blocked_exit_code: 2", payload_all_text)
                 self.assertIn("error_exit_code: 3", payload_all_text)
                 self.assertIn("zero_scanned_exit_code: 5", payload_all_text)
                 self.assertIn("zero_evaluated_exit_code: 4", payload_all_text)
+                self.assertIn("zero_unlock_ready_exit_code: 8", payload_all_text)
                 self.assertIn("empty_ack_commands_exit_code: 6", payload_all_text)
                 self.assertIn("blocked_step_count: 1", payload_all_text)
+                self.assertIn("unlock_ready_step_count: 0", payload_all_text)
+                self.assertIn("first_unlock_ready_command: none", payload_all_text)
                 self.assertIn("error_count: 0", payload_all_text)
                 self.assertIn("int_gate_status_critical_1", payload_all_text)
                 self.assertIn(
                     "python3 -m jarvis.cli interrupts acknowledge int_gate_status_critical_1 --actor operator",
                     payload_all_text,
                 )
+
+                runtime.acknowledge_interrupt("int_gate_status_critical_1", actor="tester")
+
+                args.output = "json"
+                captured_unblocked = io.StringIO()
+                with redirect_stdout(captured_unblocked):
+                    cmd_plans_gate_status(args)
+                unblocked_payload = json.loads(captured_unblocked.getvalue())
+                self.assertFalse(bool(unblocked_payload.get("blocked")))
+                self.assertTrue(bool(unblocked_payload.get("unlock_ready")))
+
+                args_all_unlock_ready = argparse.Namespace(**vars(args_all))
+                args_all_unlock_ready.output = "json"
+                args_all_unlock_ready.only_blocked = False
+                args_all_unlock_ready.only_unlock_ready = False
+                args_all_unlock_ready.fail_on_blocked = False
+                args_all_unlock_ready.fail_on_errors = False
+                args_all_unlock_ready.fail_on_zero_scanned = False
+                args_all_unlock_ready.fail_on_zero_evaluated = False
+                args_all_unlock_ready.fail_on_empty_ack_commands = False
+                captured_all_unlock_ready = io.StringIO()
+                with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}, clear=False):
+                    with redirect_stdout(captured_all_unlock_ready):
+                        cmd_plans_gate_status_all(args_all_unlock_ready)
+                payload_all_unlock_ready = json.loads(captured_all_unlock_ready.getvalue())
+                assert_unlock_ready_contract(payload_all_unlock_ready)
+                self.assertEqual(int(payload_all_unlock_ready.get("blocked_step_count") or 0), 0)
+                self.assertGreaterEqual(int(payload_all_unlock_ready.get("unlock_ready_step_count") or 0), 1)
+                unlock_ready_steps = list(payload_all_unlock_ready.get("unlock_ready_steps") or [])
+                self.assertGreaterEqual(len(unlock_ready_steps), 1)
+                expected_unlock_ready_command = f"python3 -m jarvis.cli plans promote-ready {plan.plan_id} {step.step_id}"
+                self.assertEqual(str(unlock_ready_steps[0].get("recheck_command") or ""), expected_unlock_ready_command)
+                self.assertEqual(
+                    list(payload_all_unlock_ready.get("unlock_ready_commands") or []),
+                    [expected_unlock_ready_command],
+                )
+                self.assertEqual(
+                    str(payload_all_unlock_ready.get("first_unlock_ready_command") or ""),
+                    expected_unlock_ready_command,
+                )
+
+                args_all_only_unlock_ready = argparse.Namespace(**vars(args_all_unlock_ready))
+                args_all_only_unlock_ready.only_unlock_ready = True
+                captured_all_only_unlock_ready = io.StringIO()
+                with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}, clear=False):
+                    with redirect_stdout(captured_all_only_unlock_ready):
+                        cmd_plans_gate_status_all(args_all_only_unlock_ready)
+                payload_all_only_unlock_ready = json.loads(captured_all_only_unlock_ready.getvalue())
+                self.assertTrue(bool(payload_all_only_unlock_ready.get("only_unlock_ready")))
+                self.assertGreaterEqual(int(payload_all_only_unlock_ready.get("visible_step_count") or 0), 1)
+                self.assertGreaterEqual(
+                    int(payload_all_only_unlock_ready.get("unlock_ready_step_count") or 0),
+                    int(payload_all_only_unlock_ready.get("visible_step_count") or 0),
+                )
+                filtered_gate_rows = list(payload_all_only_unlock_ready.get("gate_rows") or [])
+                self.assertGreaterEqual(len(filtered_gate_rows), 1)
+                self.assertTrue(all(bool(row.get("unlock_ready")) for row in filtered_gate_rows))
 
                 args.enforce_critical_drift_gate = False
                 args.output = "json"
@@ -1132,6 +1372,7 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                     cmd_plans_gate_status(args)
                 disabled_payload = json.loads(captured_disabled.getvalue())
                 self.assertFalse(bool(disabled_payload.get("blocked")))
+                self.assertFalse(bool(disabled_payload.get("unlock_ready")))
                 self.assertEqual(str(disabled_payload.get("gate_mode") or ""), "disabled")
                 self.assertEqual(list(disabled_payload.get("blocking_interrupt_ids") or []), [])
 

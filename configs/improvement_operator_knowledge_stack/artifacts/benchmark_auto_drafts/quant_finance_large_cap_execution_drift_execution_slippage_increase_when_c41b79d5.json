@@ -1,0 +1,68 @@
+{
+  "environment": "controlled_backtest",
+  "baseline_metrics": {
+    "sharpe_ratio": 0.0,
+    "max_drawdown": 0.12,
+    "turnover": 5.0
+  },
+  "candidate_metrics": {
+    "sharpe_ratio": 0.15,
+    "max_drawdown": 0.12,
+    "turnover": 5.0
+  },
+  "baseline": {
+    "metrics": {
+      "sharpe_ratio": 0.0,
+      "max_drawdown": 0.12,
+      "turnover": 5.0
+    }
+  },
+  "candidate": {
+    "metrics": {
+      "sharpe_ratio": 0.15,
+      "max_drawdown": 0.12,
+      "turnover": 5.0
+    },
+    "sample_size": 30
+  },
+  "sample_size": 30,
+  "metadata": {
+    "generated_by": "jarvis.cli.improvement.draft-experiment-jobs",
+    "template_state": "bootstrap_numeric_placeholders",
+    "hypothesis_id": "hyp_2823be0ab0304674b8696becc41b79d5",
+    "domain": "quant_finance",
+    "friction_key": "large_cap_execution_drift_execution_slippage_increase_when",
+    "success_criteria": {
+      "direction": "increase",
+      "guardrails": [
+        {
+          "metric": "max_drawdown",
+          "op": "<=",
+          "value": 0.12
+        },
+        {
+          "metric": "turnover",
+          "op": "<=",
+          "value": 5.0
+        }
+      ],
+      "metric": "sharpe_ratio",
+      "min_effect": 0.15,
+      "min_sample_size": 30
+    },
+    "target_sample_size": 30,
+    "guardrails": [
+      {
+        "metric": "max_drawdown",
+        "op": "<=",
+        "value": 0.12
+      },
+      {
+        "metric": "turnover",
+        "op": "<=",
+        "value": 5.0
+      }
+    ]
+  },
+  "notes": "Drafted controlled experiment artifact with bootstrap numeric placeholders. Replace baseline/candidate metrics with observed controlled-run values before promotion decisions."
+}

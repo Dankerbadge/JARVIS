@@ -31,7 +31,7 @@ jobs:
           python -m pip install --upgrade pip
 
       - name: Evaluate critical drift gate queue
-        id: gate_eval
+        id: gate
         continue-on-error: true
         run: |
           mkdir -p output/ci
@@ -43,54 +43,19 @@ jobs:
             --only-blocked \
             --fail-on-blocked \
             --fail-on-errors \
+            --fail-on-zero-unlock-ready \
             --fail-on-empty-ack-commands \
             --blocked-exit-code 7 \
             --error-exit-code 11 \
+            --zero-unlock-ready-exit-code 23 \
             --empty-ack-commands-exit-code 19 \
             --emit-ci-json-path output/ci/gate_status_all_compact.json \
+            --emit-github-output \
+            --summary-heading "Gate Status Compact" \
             --output text
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -f "${GITHUB_STEP_SUMMARY}" ]; then
             cp "${GITHUB_STEP_SUMMARY}" output/ci/gate_status_all_summary.md
           fi
-
-      - name: Extract compact gate outputs
-        id: gate
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          artifact_path = Path("output/ci/gate_status_all_compact.json").resolve()
-          if artifact_path.exists():
-              payload = json.loads(artifact_path.read_text(encoding="utf-8"))
-          else:
-              payload = {
-                  "blocked_step_count": 0,
-                  "error_count": 1,
-                  "exit_reason": "compact_artifact_missing",
-                  "exit_code": 98,
-              }
-
-          blocked_step_count = int(payload.get("blocked_step_count") or 0)
-          error_count = int(payload.get("error_count") or 0)
-          exit_reason = str(payload.get("exit_reason") or "none").strip() or "none"
-          exit_code = int(payload.get("exit_code") or 0)
-
-          print(f"artifact_path={artifact_path}")
-          print(f"blocked_step_count={blocked_step_count}")
-          print(f"error_count={error_count}")
-          print(f"exit_reason={exit_reason}")
-          print(f"exit_code={exit_code}")
-
-          github_output = Path(os.environ["GITHUB_OUTPUT"])
-          with github_output.open("a", encoding="utf-8") as handle:
-              handle.write(f"artifact_path={artifact_path}\n")
-              handle.write(f"blocked_step_count={blocked_step_count}\n")
-              handle.write(f"error_count={error_count}\n")
-              handle.write(f"exit_reason={exit_reason}\n")
-              handle.write(f"exit_code={exit_code}\n")
-          PY
 
       - name: Upload gate artifacts
         if: always()
@@ -102,15 +67,20 @@ jobs:
       - name: Blocked queue branch
         if: ${{ steps.gate.outputs.blocked_step_count != '0' }}
         run: |
-          echo "Blocked review steps detected. Check the compact artifact and markdown summary for acknowledge commands."
+          echo "Blocked review steps detected (blocked=${{ steps.gate.outputs.blocked_step_count }}, unlock_ready=${{ steps.gate.outputs.unlock_ready_step_count }}). First acknowledge command: ${{ steps.gate.outputs.first_acknowledge_command }}. Check the compact artifact and markdown summary for full acknowledge commands."
 
       - name: Healthy queue branch
         if: ${{ steps.gate.outputs.blocked_step_count == '0' && steps.gate.outputs.exit_reason == 'none' }}
         run: |
-          echo "No blocking critical drift alerts across scanned review steps."
+          echo "No blocking critical drift alerts across scanned review steps (unlock_ready=${{ steps.gate.outputs.unlock_ready_step_count }}). First unlock-ready command: ${{ steps.gate.outputs.first_unlock_ready_command }}."
+
+      - name: Zero unlock-ready branch
+        if: ${{ steps.gate.outputs.exit_reason == 'zero_unlock_ready_steps' }}
+        run: |
+          echo "No unlock-ready steps were found (blocked=${{ steps.gate.outputs.blocked_step_count }}, unlock_ready=${{ steps.gate.outputs.unlock_ready_step_count }}). Review blocker acknowledgements and rerun gate-status-all after promotion candidates are unblocked."
 
       - name: Fail workflow on non-none exit reason
-        if: ${{ steps.gate.outputs.exit_reason != 'none' }}
+        if: ${{ steps.gate.outputs.exit_reason != 'none' && steps.gate.outputs.exit_reason != 'zero_unlock_ready_steps' }}
         run: |
-          echo "Gate evaluation failed with exit_reason=${{ steps.gate.outputs.exit_reason }} exit_code=${{ steps.gate.outputs.exit_code }}"
+          echo "Gate evaluation failed with exit_reason=${{ steps.gate.outputs.exit_reason }} exit_code=${{ steps.gate.outputs.exit_code }} blocked=${{ steps.gate.outputs.blocked_step_count }} unlock_ready=${{ steps.gate.outputs.unlock_ready_step_count }}"
           exit 1

@@ -18,6 +18,109 @@
     "guardrail_sample_multiplier": 1.1,
     "min_sample_increment": 50,
     "guardrail_safety_factor": 0.9,
+    "seed_min_cross_app_count": 1,
+    "seed_min_cross_app_count_by_domain": {
+      "quant_finance": 1,
+      "kalshi_weather": 1,
+      "fitness_apps": 2,
+      "market_ml": 1
+    },
+    "seed_entry_source": "leaderboard",
+    "seed_entry_source_by_domain": {
+      "fitness_apps": "shared_market_displeasures"
+    },
+    "seed_fallback_entry_source": "leaderboard",
+    "seed_limit": 8,
+    "seed_limit_by_domain": {
+      "quant_finance": 6,
+      "kalshi_weather": 6,
+      "fitness_apps": 10,
+      "market_ml": 6
+    },
+    "seed_lookup_limit": 400,
+    "seed_lookup_limit_by_domain": {
+      "quant_finance": 500,
+      "kalshi_weather": 500,
+      "fitness_apps": 600,
+      "market_ml": 500
+    },
+    "seed_lookback_days": 7,
+    "seed_lookback_days_by_domain": {
+      "quant_finance": 10,
+      "kalshi_weather": 10,
+      "fitness_apps": 7,
+      "market_ml": 10
+    },
+    "seed_leaderboard_limit": 12,
+    "seed_leaderboard_limit_by_domain": {
+      "quant_finance": 10,
+      "kalshi_weather": 10,
+      "fitness_apps": 15,
+      "market_ml": 10
+    },
+    "seed_trend_threshold": 0.25,
+    "seed_trend_threshold_by_domain": {
+      "quant_finance": 0.3,
+      "kalshi_weather": 0.3,
+      "fitness_apps": 0.2,
+      "market_ml": 0.3
+    },
+    "seed_trends": "new,rising",
+    "seed_min_impact_score": 0.0,
+    "seed_min_impact_score_by_domain": {
+      "quant_finance": 1.0,
+      "kalshi_weather": 1.0,
+      "fitness_apps": 0.5,
+      "market_ml": 1.0
+    },
+    "seed_min_impact_delta": 0.0,
+    "seed_min_impact_delta_by_domain": {
+      "quant_finance": 0.2,
+      "kalshi_weather": 0.2,
+      "fitness_apps": 0.1,
+      "market_ml": 0.2
+    },
+    "seed_min_signal_count_current": 2,
+    "seed_min_signal_count_current_by_domain": {
+      "quant_finance": 2,
+      "kalshi_weather": 3,
+      "fitness_apps": 2,
+      "market_ml": 3
+    },
+    "draft_statuses": "queued",
+    "draft_statuses_by_domain": {
+      "quant_finance": "queued,testing",
+      "kalshi_weather": "queued,testing",
+      "fitness_apps": "queued,testing,validated,rejected",
+      "market_ml": "queued,testing"
+    },
+    "draft_limit": 8,
+    "draft_limit_by_domain": {
+      "quant_finance": 6,
+      "kalshi_weather": 6,
+      "fitness_apps": 10,
+      "market_ml": 6
+    },
+    "draft_lookup_limit": 400,
+    "draft_lookup_limit_by_domain": {
+      "quant_finance": 500,
+      "kalshi_weather": 500,
+      "fitness_apps": 600,
+      "market_ml": 500
+    },
+    "draft_environment_by_domain": {
+      "quant_finance": "controlled_backtest",
+      "kalshi_weather": "controlled_backtest",
+      "fitness_apps": "controlled_rollout",
+      "market_ml": "controlled_backtest"
+    },
+    "draft_default_sample_size": 100,
+    "draft_default_sample_size_by_domain": {
+      "quant_finance": 140,
+      "kalshi_weather": 140,
+      "fitness_apps": 120,
+      "market_ml": 150
+    },
     "collect_experiment_debug": true,
     "include_decision_timeline": true,
     "experiment_debug_output_dir": "improvement_operator_knowledge_stack/output/debug_runs",
@@ -26,6 +129,15 @@
     "report_hypothesis_limit": 40,
     "report_experiment_limit": 80,
     "report_queue_limit": 30,
+    "seed_domains": "quant_finance,kalshi_weather,fitness_apps,market_ml",
+    "benchmark_top_limit": 12,
+    "verify_matrix_path": "improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json",
+    "verify_matrix_alert_enable": true,
+    "verify_matrix_alert_domain": "markets",
+    "verify_matrix_alert_max_items": 3,
+    "knowledge_brief_enable": true,
+    "knowledge_delta_alert_enable": true,
+    "knowledge_delta_domains": "quant_finance,kalshi_weather,fitness_apps,market_ml",
     "allow_missing_inputs": true
   },
   "feed_jobs": [
@@ -77,6 +189,7 @@
         "rating": "rating",
         "created_at": "created_at",
         "platform": "platform",
+        "app_name": "app_name",
         "app_version": "app_version"
       },
       "static_fields": {
@@ -158,6 +271,94 @@
       "friction_key": "false_positive_drift_in_high_volatility_windows",
       "artifact_path": "improvement_operator_knowledge_stack/artifacts/market_ml_false_positive_control.json",
       "environment": "controlled_backtest"
+    },
+    {
+      "hypothesis_id": "hyp_afa33d99fc614f6580fa49f18e6ecb7b",
+      "domain": "kalshi_weather",
+      "friction_key": "chi_high_temp_54_55_order_sizing_overreacted",
+      "artifact_path": "improvement_operator_knowledge_stack/artifacts/benchmark_auto_drafts/kalshi_weather_chi_high_temp_54_55_order_sizing_overreacted_8e6ecb7b.json",
+      "environment": "controlled_backtest",
+      "notes": "auto_draft:benchmark_priority",
+      "compare_history": true,
+      "collect_debug": true,
+      "auto_retest_lane": true
+    },
+    {
+      "hypothesis_id": "hyp_6d7c6478ac3740629f9a0136d7157313",
+      "domain": "fitness_apps",
+      "friction_key": "beginner_plan_intense_onboarding_plan_was_rigid_i",
+      "artifact_path": "improvement_operator_knowledge_stack/artifacts/benchmark_auto_drafts/fitness_apps_beginner_plan_intense_onboarding_plan_was_rigid_i_d7157313.json",
+      "environment": "controlled_rollout",
+      "notes": "auto_draft:benchmark_priority",
+      "compare_history": true,
+      "collect_debug": true,
+      "auto_retest_lane": true
+    },
+    {
+      "hypothesis_id": "hyp_e3c5d0b277ea4b27864d2eef38d32eb7",
+      "domain": "fitness_apps",
+      "friction_key": "paywall_appear_early_i_hit_paywall_before_i",
+      "artifact_path": "improvement_operator_knowledge_stack/artifacts/benchmark_auto_drafts/fitness_apps_paywall_appear_early_i_hit_paywall_before_i_38d32eb7.json",
+      "environment": "controlled_rollout",
+      "notes": "auto_draft:benchmark_priority",
+      "compare_history": true,
+      "collect_debug": true,
+      "auto_retest_lane": true
+    },
+    {
+      "hypothesis_id": "hyp_067076a7b68844ddb85ab776a0c47ba6",
+      "domain": "kalshi_weather",
+      "friction_key": "nyc_high_temp_68_69_forecast_refresh_missed",
+      "artifact_path": "improvement_operator_knowledge_stack/artifacts/benchmark_auto_drafts/kalshi_weather_nyc_high_temp_68_69_forecast_refresh_missed_a0c47ba6.json",
+      "environment": "controlled_backtest",
+      "notes": "auto_draft:benchmark_priority",
+      "compare_history": true,
+      "collect_debug": true,
+      "auto_retest_lane": true
+    },
+    {
+      "hypothesis_id": "hyp_d7627150ef984175a1e942f2fc976b65",
+      "domain": "market_ml",
+      "friction_key": "entry_classifier_v5_false_positive_spiked_during_high",
+      "artifact_path": "improvement_operator_knowledge_stack/artifacts/benchmark_auto_drafts/market_ml_entry_classifier_v5_false_positive_spiked_during_high_fc976b65.json",
+      "environment": "controlled_backtest",
+      "notes": "auto_draft:benchmark_priority",
+      "compare_history": true,
+      "collect_debug": true,
+      "auto_retest_lane": true
+    },
+    {
+      "hypothesis_id": "hyp_2823be0ab0304674b8696becc41b79d5",
+      "domain": "quant_finance",
+      "friction_key": "large_cap_execution_drift_execution_slippage_increase_when",
+      "artifact_path": "improvement_operator_knowledge_stack/artifacts/benchmark_auto_drafts/quant_finance_large_cap_execution_drift_execution_slippage_increase_when_c41b79d5.json",
+      "environment": "controlled_backtest",
+      "notes": "auto_draft:benchmark_priority",
+      "compare_history": true,
+      "collect_debug": true,
+      "auto_retest_lane": true
+    },
+    {
+      "hypothesis_id": "hyp_e048f4a48f184d2f99281bbc7f8e2b7e",
+      "domain": "market_ml",
+      "friction_key": "entry_classifier_v5_inference_latency_p95_rose_during",
+      "artifact_path": "improvement_operator_knowledge_stack/artifacts/benchmark_cycle2_auto_drafts/market_ml_entry_classifier_v5_inference_latency_p95_rose_during_7f8e2b7e.json",
+      "environment": "controlled_backtest",
+      "notes": "auto_draft:benchmark_priority",
+      "compare_history": true,
+      "collect_debug": true,
+      "auto_retest_lane": true
+    },
+    {
+      "hypothesis_id": "hyp_30d6171d2f3046b2a40e0a8c881822c6",
+      "domain": "quant_finance",
+      "friction_key": "signal_decay_open_signal_half_life_shrink_around",
+      "artifact_path": "improvement_operator_knowledge_stack/artifacts/benchmark_cycle2_auto_drafts/quant_finance_signal_decay_open_signal_half_life_shrink_around_881822c6.json",
+      "environment": "controlled_backtest",
+      "notes": "auto_draft:benchmark_priority",
+      "compare_history": true,
+      "collect_debug": true,
+      "auto_retest_lane": true
     }
   ],
   "output_path": "improvement_operator_knowledge_stack/output/daily_pipeline_report.json"

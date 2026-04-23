@@ -1,0 +1,108 @@
+name: improvement-controlled-matrix-nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "20 5 * * 1-5"
+
+jobs:
+  controlled-matrix-validation:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Run controlled daily pipeline
+        id: daily
+        run: |
+          mkdir -p output/ci/controlled_matrix
+          ./scripts/run_improvement_daily_pipeline.sh \
+            ./configs/improvement_operator_knowledge_stack.json \
+            --strict \
+            --allow-missing-inputs \
+            --output-path output/ci/controlled_matrix/daily_pipeline_report.json \
+            --json-compact
+
+      - name: Verify controlled experiment matrix drift alert
+        id: matrix_alert
+        if: ${{ steps.daily.outcome == 'success' }}
+        run: |
+          ./scripts/run_improvement_verify_matrix_alert.sh \
+            ./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json \
+            output/ci/controlled_matrix/daily_pipeline_report.json \
+            --output-path output/ci/controlled_matrix/verify_matrix_alert_report.json \
+            --json-compact \
+            --alert-domain operations \
+            --alert-max-items 4
+
+      - name: Build controlled matrix compact summary
+        id: matrix
+        if: always()
+        run: |
+          python3 -m jarvis.cli improvement controlled-matrix-compact \
+            --artifact-root output/ci/controlled_matrix \
+            --emit-github-output \
+            --summary-heading "Controlled Matrix Drift Summary"
+
+      - name: Open controlled matrix runtime interrupt alert
+        if: ${{ always() && (steps.daily.outcome != 'success' || steps.matrix.outputs.matrix_status != 'ok') && steps.matrix.outputs.matrix_interrupt_id == 'none' }}
+        id: matrix_runtime_alert
+        env:
+          DAILY_OUTCOME: ${{ steps.daily.outcome }}
+          MATRIX_STATUS: ${{ steps.matrix.outputs.matrix_status }}
+          DRIFT_SEVERITY: ${{ steps.matrix.outputs.drift_severity }}
+          MATRIX_SUMMARY_PATH: ${{ steps.matrix.outputs.matrix_summary_path }}
+          FIRST_REPAIR_COMMAND: ${{ steps.matrix.outputs.first_repair_command }}
+          FIRST_SUGGESTED_ACTION: ${{ steps.matrix.outputs.first_suggested_action }}
+          RERUN_COMMAND: ${{ steps.matrix.outputs.rerun_command }}
+        run: |
+          python3 -m jarvis.cli improvement controlled-matrix-runtime-alert \
+            --summary-path "${MATRIX_SUMMARY_PATH}" \
+            --daily-outcome "${DAILY_OUTCOME}" \
+            --matrix-status "${MATRIX_STATUS}" \
+            --drift-severity "${DRIFT_SEVERITY}" \
+            --first-repair-command "${FIRST_REPAIR_COMMAND}" \
+            --first-suggested-action "${FIRST_SUGGESTED_ACTION}" \
+            --rerun-command "${RERUN_COMMAND}" \
+            --emit-github-output \
+            --summary-heading "Controlled Matrix Runtime Interrupt Alert"
+
+      - name: Collect debug trace artifacts
+        if: always()
+        run: |
+          mkdir -p output/ci/debug_runs output/ci/knowledge_snapshots
+          if [ -d "./configs/improvement_operator_knowledge_stack/output/debug_runs" ]; then
+            cp -R "./configs/improvement_operator_knowledge_stack/output/debug_runs/." output/ci/debug_runs/
+          fi
+          if [ -d "./analysis/improvement/knowledge_snapshots" ]; then
+            cp -R "./analysis/improvement/knowledge_snapshots/." output/ci/knowledge_snapshots/
+          fi
+
+      - name: Upload controlled matrix artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: controlled-matrix-validation
+          path: |
+            output/ci/controlled_matrix/
+            output/ci/debug_runs
+            output/ci/knowledge_snapshots
+
+      - name: Fail on controlled matrix drift
+        if: ${{ always() && (steps.daily.outcome != 'success' || steps.matrix.outputs.matrix_status != 'ok') }}
+        run: |
+          echo "controlled matrix drift gate failed (daily_outcome=${{ steps.daily.outcome }}, matrix_status=${{ steps.matrix.outputs.matrix_status }}, matrix_interrupt_id=${{ steps.matrix.outputs.matrix_interrupt_id }}, runtime_interrupt_id=${{ steps.matrix_runtime_alert.outputs.matrix_runtime_interrupt_id }}, first_repair=${{ steps.matrix.outputs.first_repair_command }}, runtime_first_repair=${{ steps.matrix_runtime_alert.outputs.matrix_runtime_first_repair_command }}, first_suggested=${{ steps.matrix.outputs.first_suggested_action }})"
+          exit 1

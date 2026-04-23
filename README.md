@@ -80,8 +80,19 @@ Generate a week-over-week fitness frustration leaderboard (current week vs prior
 python3 -m jarvis.cli improvement fitness-leaderboard \
   --input-path ./analysis/fitness_market_feedback.jsonl \
   --lookback-days 7 \
+  --app-fields app_name,app,product,source_context.app \
+  --own-app-aliases myapp,my_app_ios,my_app_android \
+  --min-cross-app-count 2 \
   --output-path ./output/improvement/fitness_frustration_leaderboard.json
 ```
+
+The leaderboard now includes:
+- `shared_market_displeasures`: frustrations seen across multiple competitor apps.
+- `white_space_candidates`: market pains not currently present in your own app aliases.
+- `top_apps_current` per cluster plus window-level app coverage diagnostics (`app_resolution`).
+
+App identity extraction now falls back to `source_context` when explicit app fields are missing,
+so single-string provider tags still count toward known app coverage.
 
 Scheduling-friendly wrapper:
 
@@ -97,9 +108,29 @@ Auto-seed hypothesis queue entries from top `new/rising` leaderboard frustration
 python3 -m jarvis.cli improvement seed-from-leaderboard \
   --leaderboard-path ./output/improvement/fitness_frustration_leaderboard.json \
   --trends new,rising \
+  --entry-source shared_market_displeasures \
+  --fallback-entry-source leaderboard \
+  --min-cross-app-count 2 \
+  --min-signal-count-current 3 \
   --limit 8 \
   --output-path ./output/improvement/fitness_leaderboard_seed_report.json
 ```
+
+For whitespace-first strategy (competitor pains not observed in your own app aliases), switch to:
+
+```bash
+python3 -m jarvis.cli improvement seed-from-leaderboard \
+  --leaderboard-path ./output/improvement/fitness_frustration_leaderboard.json \
+  --entry-source white_space_candidates \
+  --fallback-entry-source leaderboard \
+  --trends new,rising \
+  --min-cross-app-count 2 \
+  --min-signal-count-current 3 \
+  --limit 8
+```
+
+`--min-signal-count-current` is useful for controlled validation lanes: it avoids auto-seeding
+hypotheses from low-volume one-off complaints.
 
 Scheduling-friendly wrapper:
 
@@ -107,6 +138,44 @@ Scheduling-friendly wrapper:
 ./scripts/run_improvement_seed_from_leaderboard.sh \
   ./output/improvement/fitness_frustration_leaderboard.json \
   --output-path ./output/improvement/fitness_leaderboard_seed_report.json
+```
+
+Draft controlled experiment jobs directly from that seed report (artifact templates + guardrails + target sample size):
+
+```bash
+python3 -m jarvis.cli improvement draft-experiment-jobs \
+  --seed-report-path ./output/improvement/fitness_leaderboard_seed_report.json \
+  --pipeline-config-path ./configs/improvement_fitness_market_live_example.json \
+  --artifacts-dir ./analysis/improvement/experiment_artifacts \
+  --output-path ./output/improvement/fitness_experiment_draft_report.json
+```
+
+You can also prioritize draft selection from benchmark-ranked frustrations (for multi-domain next-step automation):
+
+```bash
+python3 -m jarvis.cli improvement draft-experiment-jobs \
+  --benchmark-report-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/frustration_benchmark_report.json \
+  --benchmark-min-opportunity 2.0 \
+  --pipeline-config-path ./configs/improvement_fitness_market_live_example.json \
+  --output-path ./output/improvement/benchmark_priority_draft_report.json
+```
+
+This command also writes an updated pipeline config (`*.drafted.json` by default) with appended
+`experiment_jobs` stubs so you can run controlled tests in one step, then execute:
+
+```bash
+python3 -m jarvis.cli improvement daily-pipeline \
+  --config-path ./configs/improvement_fitness_market_live_example.drafted.json
+```
+
+Scheduling-friendly wrapper:
+
+```bash
+./scripts/run_improvement_draft_experiment_jobs.sh \
+  ./output/improvement/fitness_leaderboard_seed_report.json \
+  --benchmark-report-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/frustration_benchmark_report.json \
+  --pipeline-config-path ./configs/improvement_fitness_market_live_example.json \
+  --output-path ./output/improvement/fitness_experiment_draft_report.json
 ```
 
 Run a config-driven daily pipeline (multiple feedback feeds + experiment artifacts):
@@ -176,6 +245,147 @@ Operator-cycle wrapper:
   --strict
 ```
 
+The operator-cycle wrapper now writes `operator_cycle_report.json` and then
+evaluates `improvement knowledge-bootstrap-route` automatically, persisting
+`knowledge_bootstrap_route.json` (same output directory by default) for
+automation branching:
+
+- route `bootstrap`: gather another knowledge snapshot before delta alerting
+- route `run_cycle`: keep normal operator-cycle cadence with delta checks
+- route `noop`: knowledge delta stage was not requested
+
+Disable this post-step with `--no-knowledge-route`, or force it to fail on
+unresolved phase state with `--knowledge-route-strict`.
+
+Enable auto-seeding + auto-drafting inside operator-cycle
+(`pull-feeds -> fitness-leaderboard -> seed-from-leaderboard -> draft-experiment-jobs -> daily-pipeline -> execute-retests -> benchmark-frustrations -> verify-matrix -> verify-matrix-alert`):
+
+```bash
+python3 -m jarvis.cli improvement operator-cycle \
+  --config-path ./configs/improvement_pipeline_example.json \
+  --output-dir ./output/improvement/operator_cycle \
+  --seed-enable \
+  --seed-min-signal-count-current 3 \
+  --draft-enable \
+  --benchmark-enable \
+  --verify-matrix-enable \
+  --verify-matrix-alert-enable \
+  --verify-matrix-path ./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json \
+  --strict
+```
+
+Run the same seed+draft flow across all knowledge-stack domains in one pass:
+
+```bash
+python3 -m jarvis.cli improvement operator-cycle \
+  --config-path ./configs/improvement_operator_knowledge_stack.json \
+  --output-dir ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded \
+  --seed-enable \
+  --seed-domains quant_finance,kalshi_weather,fitness_apps,market_ml \
+  --seed-min-signal-count-current 3 \
+  --draft-enable \
+  --benchmark-enable \
+  --verify-matrix-enable \
+  --verify-matrix-alert-enable \
+  --draft-statuses queued,validated \
+  --strict
+```
+
+For config-driven seed/draft defaults (no extra CLI flags), add these under `defaults`:
+
+```json
+{
+  "seed_entry_source": "leaderboard",
+  "seed_entry_source_by_domain": {
+    "fitness_apps": "shared_market_displeasures"
+  },
+  "seed_fallback_entry_source": "leaderboard",
+  "seed_limit": 8,
+  "seed_limit_by_domain": {
+    "fitness_apps": 10
+  },
+  "seed_lookup_limit": 400,
+  "seed_lookup_limit_by_domain": {
+    "fitness_apps": 600
+  },
+  "seed_lookback_days": 7,
+  "seed_lookback_days_by_domain": {
+    "fitness_apps": 7
+  },
+  "seed_leaderboard_limit": 12,
+  "seed_leaderboard_limit_by_domain": {
+    "fitness_apps": 15
+  },
+  "seed_trend_threshold": 0.25,
+  "seed_trend_threshold_by_domain": {
+    "fitness_apps": 0.2
+  },
+  "seed_trends": "new,rising",
+  "seed_min_impact_score": 0.0,
+  "seed_min_impact_score_by_domain": {
+    "market_ml": 1.0
+  },
+  "seed_min_impact_delta": 0.0,
+  "seed_min_impact_delta_by_domain": {
+    "market_ml": 0.2
+  },
+  "seed_min_cross_app_count": 1,
+  "seed_min_cross_app_count_by_domain": {
+    "fitness_apps": 2
+  },
+  "seed_min_signal_count_current": 2,
+  "seed_min_signal_count_current_by_domain": {
+    "kalshi_weather": 3,
+    "market_ml": 3
+  },
+  "draft_statuses": "queued",
+  "draft_statuses_by_domain": {
+    "fitness_apps": "queued,testing,validated,rejected"
+  },
+  "draft_limit": 8,
+  "draft_limit_by_domain": {
+    "fitness_apps": 10
+  },
+  "draft_lookup_limit": 400,
+  "draft_lookup_limit_by_domain": {
+    "fitness_apps": 600
+  },
+  "draft_environment_by_domain": {
+    "fitness_apps": "controlled_rollout"
+  },
+  "draft_default_sample_size": 100,
+  "draft_default_sample_size_by_domain": {
+    "market_ml": 150
+  },
+  "benchmark_top_limit": 12,
+  "verify_matrix_path": "improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json",
+  "verify_matrix_alert_domain": "markets",
+  "verify_matrix_alert_max_items": 3
+}
+```
+
+Resolution order is the same for lane + threshold knobs:
+CLI override (`--seed-entry-source`, `--seed-fallback-entry-source`, `--seed-trends`,
+`--seed-min-impact-score`, `--seed-min-impact-delta`, `--seed-min-cross-app-count`,
+`--seed-min-signal-count-current`, `--seed-limit`, `--seed-lookup-limit`,
+`--seed-lookback-days`, `--seed-leaderboard-limit`, `--seed-trend-threshold`,
+`--draft-statuses`, `--draft-limit`, `--draft-lookup-limit`, `--draft-environment`,
+`--draft-default-sample-size`, `--benchmark-top-limit`, `--verify-matrix-path`,
+`--verify-matrix-alert-domain`, `--verify-matrix-alert-max-items`,
+`--verify-matrix-alert-urgency`, `--verify-matrix-alert-confidence`),
+then `*_by_domain`, then global default.
+
+If you already generated a seed report, you can still draft directly from that report:
+
+```bash
+python3 -m jarvis.cli improvement operator-cycle \
+  --config-path ./configs/improvement_pipeline_example.json \
+  --output-dir ./output/improvement/operator_cycle \
+  --draft-enable \
+  --draft-seed-report-path ./output/improvement/fitness_leaderboard_seed_report.json \
+  --strict
+```
+
 ### Knowledge-Stack Operator Pack (Quant + Kalshi + Fitness + Market ML)
 
 Seed reusable cross-domain hypotheses:
@@ -233,9 +443,50 @@ python3 -m jarvis.cli improvement verify-matrix-alert \
   --strict
 ```
 
+Generate a cross-domain benchmark that ranks recurring pains, trend acceleration, and implementation win-rates:
+
+```bash
+python3 -m jarvis.cli improvement benchmark-frustrations \
+  --report-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/operator_inbox_summary.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/frustration_benchmark_report.json
+```
+
+Wrapper:
+
+```bash
+./scripts/run_improvement_benchmark_frustrations.sh \
+  ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/operator_inbox_summary.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/frustration_benchmark_report.json
+```
+
+Resolve machine-routable knowledge bootstrap state from an operator-cycle
+report (or operator inbox summary):
+
+```bash
+python3 -m jarvis.cli improvement knowledge-bootstrap-route \
+  --report-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/operator_cycle_report.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/knowledge_bootstrap_route.json
+```
+
+Wrapper:
+
+```bash
+./scripts/run_improvement_knowledge_bootstrap_route.sh \
+  ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/operator_cycle_report.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_seeded_all_domains/knowledge_bootstrap_route.json
+```
+
 `verify-matrix-alert` now classifies drift severity as `warn` or `critical` and auto-scales
 alert urgency/confidence from mismatch/missing/invalid counts and guardrail regressions.
 You can still override with `--alert-urgency` and `--alert-confidence` when needed.
+When `operator-cycle` runs `verify-matrix-alert`, the report now includes
+`promotion_lock` with `blocking_interrupt_ids` and `acknowledge_commands`.
+If lock is active, `promotions` is forced empty and candidates are moved to
+`blocked_promotions` until the alert interrupts are acknowledged.
+Each blocked row includes `unlock_readiness` with exact acknowledge and
+operator-cycle recheck commands.
+`unlock_readiness.unlock_ready` flips `true` only after every listed blocking
+interrupt is actually in `acknowledged` state.
 
 `plans evaluate-promotion` and `plans promote-ready` now enforce a `critical` drift gate
 by default and block promotion while unacknowledged critical drift alerts exist.
@@ -248,6 +499,9 @@ python3 -m jarvis.cli interrupts acknowledge <interrupt_id> --actor operator
 The promotion policy payload now also exposes unblock-ready hints under
 `policy.critical_drift_gate_status` (`blocking_interrupt_ids` +
 `acknowledge_commands`) and per-alert `acknowledge_command` entries.
+`plans gate-status` and `plans gate-status-all` now include `unlock_ready`
+signals so operators can tell when drift blockers are cleared and recheck/promotion
+commands are safe to run.
 For a concise operator view, run:
 
 ```bash
@@ -265,15 +519,18 @@ To scan recent review steps and print one consolidated blocker queue:
 python3 -m jarvis.cli plans gate-status-all \
   --limit 25 \
   --only-blocked \
+  --only-unlock-ready \
   --fail-on-blocked \
   --fail-on-errors \
   --fail-on-zero-scanned \
   --fail-on-zero-evaluated \
+  --fail-on-zero-unlock-ready \
   --fail-on-empty-ack-commands \
   --blocked-exit-code 7 \
   --error-exit-code 11 \
   --zero-scanned-exit-code 17 \
   --zero-evaluated-exit-code 13 \
+  --zero-unlock-ready-exit-code 23 \
   --empty-ack-commands-exit-code 19 \
   --emit-ci-summary-path ./configs/improvement_operator_knowledge_stack/output/gate_status_all_summary.md \
   --emit-ci-json-path ./configs/improvement_operator_knowledge_stack/output/gate_status_all_compact.json \
@@ -287,10 +544,22 @@ python3 -m jarvis.cli plans gate-status-all \
 When `--emit-ci-summary-path` is omitted and `GITHUB_STEP_SUMMARY` is set (for example in GitHub
 Actions), `gate-status-all` automatically writes the same markdown summary to that step-summary path.
 Use `--emit-ci-json-path` when downstream CI jobs need a compact machine-readable artifact instead of parsing stdout.
+Use `--fail-on-zero-unlock-ready` with `--zero-unlock-ready-exit-code` when automation needs explicit
+`exit_reason` signaling for no unlock-ready rows; this workflow treats that specific reason as warning-only.
 Use `./configs/improvement_operator_knowledge_stack/github-actions-gate-status-compact.yml` as a
 copy-ready workflow template that branches on `blocked_step_count` and `exit_reason` from the compact artifact.
+For knowledge-bootstrap route branching, use
+`./configs/improvement_operator_knowledge_stack/github-actions-knowledge-bootstrap-route.yml`.
 Live workflow path in this repo:
 `./.github/workflows/improvement-gate-status-compact.yml`.
+Knowledge-route workflow path in this repo:
+`./.github/workflows/improvement-knowledge-bootstrap-route.yml`.
+That workflow runs on weekdays at `13:25 UTC` and only fails when
+`steps.route.outputs.route_blocking == '1'` (warning/unresolved route state).
+When initial route is `bootstrap`, it executes one follow-up rerun from
+`next_action_command`, regenerates
+`output/ci/knowledge_bootstrap_route_post_bootstrap.json`, and then branches on
+the effective post-follow-up route payload.
 Automated reconciler workflow path in this repo:
 `./.github/workflows/reconcile-codeowner-review-gate.yml`.
 
@@ -745,21 +1014,26 @@ python3 -m jarvis.cli plans gate-status <plan_id> <step_id> \
   --db-path ./.jarvis/jarvis.db
 ```
 
+The gate payload now includes `unlock_ready` plus `recheck_command`.
+
 Show a consolidated blocker queue across recent provider reviews:
 
 ```bash
 python3 -m jarvis.cli plans gate-status-all \
   --limit 25 \
   --only-blocked \
+  --only-unlock-ready \
   --fail-on-blocked \
   --fail-on-errors \
   --fail-on-zero-scanned \
   --fail-on-zero-evaluated \
+  --fail-on-zero-unlock-ready \
   --fail-on-empty-ack-commands \
   --blocked-exit-code 7 \
   --error-exit-code 11 \
   --zero-scanned-exit-code 17 \
   --zero-evaluated-exit-code 13 \
+  --zero-unlock-ready-exit-code 23 \
   --empty-ack-commands-exit-code 19 \
   --emit-ci-summary-path ./configs/improvement_operator_knowledge_stack/output/gate_status_all_summary.md \
   --emit-ci-json-path ./configs/improvement_operator_knowledge_stack/output/gate_status_all_compact.json \
@@ -775,11 +1049,29 @@ python3 -m jarvis.cli plans gate-status-all \
   --db-path ./.jarvis/jarvis.db
 ```
 
+The all-steps payload and CI summary now include `unlock_ready_step_count`,
+`unlock_ready_steps`, `unlock_ready_commands`, `first_unlock_ready_command`,
+`acknowledge_command_count`, and `first_acknowledge_command`.
+Use `--only-unlock-ready` to restrict `gate_rows` to promotion-ready steps.
+Use `--fail-on-zero-unlock-ready` with `--zero-unlock-ready-exit-code` when CI should emit an explicit
+zero-unlock reason; this workflow keeps `zero_unlock_ready_steps` warning-only and fails on other
+non-`none` reasons.
+
 `--emit-ci-summary-path` overrides `GITHUB_STEP_SUMMARY` when both are available.
 For a ready-to-copy workflow branch pattern, use:
 `./configs/improvement_operator_knowledge_stack/github-actions-gate-status-compact.yml`.
+For knowledge-bootstrap route branching, use:
+`./configs/improvement_operator_knowledge_stack/github-actions-knowledge-bootstrap-route.yml`.
 The active workflow in this repo is:
 `./.github/workflows/improvement-gate-status-compact.yml`.
+The active knowledge-route workflow in this repo is:
+`./.github/workflows/improvement-knowledge-bootstrap-route.yml`.
+It runs on weekdays at `13:25 UTC` and blocks CI only when
+`steps.route.outputs.route_blocking == '1'`.
+When initial route is `bootstrap`, it executes one follow-up rerun from
+`next_action_command`, regenerates
+`output/ci/knowledge_bootstrap_route_post_bootstrap.json`, and then branches on
+the effective post-follow-up route payload.
 The automated reconciler workflow in this repo is:
 `./.github/workflows/reconcile-codeowner-review-gate.yml`.
 
@@ -792,6 +1084,11 @@ Single-maintainer safety reconciler (auto-toggle code-owner review gate by colla
   --min-collaborators 2 \
   --apply
 ```
+
+When collaborator count is below `--min-collaborators`, the reconciler also
+sets `required_approving_review_count=0` to prevent single-maintainer merge
+deadlocks and disables `require_last_push_approval`; above threshold it keeps
+at least one required approval and preserves last-push approval behavior.
 
 The scheduled reconciler workflow uses `JARVIS_ADMIN_GH_TOKEN` (repo-admin token scope) to patch
 branch protection safely in GitHub Actions.
