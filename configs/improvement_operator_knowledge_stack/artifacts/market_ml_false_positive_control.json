@@ -1,5 +1,5 @@
 {
-  "environment": "offline_backtest",
+  "environment": "controlled_backtest",
   "notes": "Controlled market-ML calibration test under high-volatility slices.",
   "baseline": {
     "metrics": {

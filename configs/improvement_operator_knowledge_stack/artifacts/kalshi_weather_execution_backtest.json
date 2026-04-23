@@ -1,5 +1,5 @@
 {
-  "environment": "offline_backtest",
+  "environment": "controlled_backtest",
   "notes": "Controlled Kalshi weather execution experiment focused on near-settlement updates.",
   "baseline": {
     "metrics": {

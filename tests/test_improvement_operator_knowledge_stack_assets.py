@@ -87,6 +87,95 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("fitness_apps", domains)
         self.assertIn("market_ml", domains)
 
+    def test_controlled_contract_alignment_and_environment_consistency(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        config_path = repo_root / "configs" / "improvement_operator_knowledge_stack.json"
+        matrix_path = (
+            repo_root
+            / "configs"
+            / "improvement_operator_knowledge_stack"
+            / "matrices"
+            / "controlled_experiment_matrix.json"
+        )
+        template_path = repo_root / "configs" / "improvement_hypothesis_templates_knowledge_stack.json"
+
+        config_payload = json.loads(config_path.read_text(encoding="utf-8"))
+        matrix_payload = json.loads(matrix_path.read_text(encoding="utf-8"))
+        template_payload = json.loads(template_path.read_text(encoding="utf-8"))
+
+        experiment_jobs = [row for row in list(config_payload.get("experiment_jobs") or []) if isinstance(row, dict)]
+        canonical_jobs = [row for row in experiment_jobs if not str(row.get("hypothesis_id") or "").strip()]
+        scenarios = [row for row in list(matrix_payload.get("scenarios") or []) if isinstance(row, dict)]
+        hypotheses = [row for row in list(template_payload.get("hypotheses") or []) if isinstance(row, dict)]
+
+        self.assertGreaterEqual(len(canonical_jobs), 4)
+        self.assertGreaterEqual(len(scenarios), 4)
+
+        canonical_pairs = {
+            (str(row.get("domain") or "").strip(), str(row.get("friction_key") or "").strip())
+            for row in canonical_jobs
+            if str(row.get("domain") or "").strip() and str(row.get("friction_key") or "").strip()
+        }
+        scenario_pairs = {
+            (str(row.get("domain") or "").strip(), str(row.get("friction_key") or "").strip())
+            for row in scenarios
+            if str(row.get("domain") or "").strip() and str(row.get("friction_key") or "").strip()
+        }
+        hypothesis_pairs = {
+            (str(row.get("domain") or "").strip(), str(row.get("friction_key") or "").strip())
+            for row in hypotheses
+            if str(row.get("domain") or "").strip() and str(row.get("friction_key") or "").strip()
+        }
+
+        self.assertEqual(
+            canonical_pairs,
+            scenario_pairs,
+            msg="controlled canonical experiment jobs must match matrix scenarios exactly",
+        )
+        self.assertTrue(
+            scenario_pairs.issubset(hypothesis_pairs),
+            msg="each controlled matrix scenario must map to a template hypothesis",
+        )
+
+        scenario_by_pair: dict[tuple[str, str], dict] = {}
+        for row in scenarios:
+            domain = str(row.get("domain") or "").strip()
+            friction_key = str(row.get("friction_key") or "").strip()
+            if not domain or not friction_key:
+                continue
+            pair = (domain, friction_key)
+            self.assertNotIn(pair, scenario_by_pair, msg=f"duplicate matrix scenario pair: {pair}")
+            scenario_by_pair[pair] = row
+
+        for row in canonical_jobs:
+            domain = str(row.get("domain") or "").strip()
+            friction_key = str(row.get("friction_key") or "").strip()
+            if not domain or not friction_key:
+                continue
+            pair = (domain, friction_key)
+            scenario = scenario_by_pair[pair]
+
+            job_artifact_path = (config_path.parent / str(row.get("artifact_path") or "")).resolve()
+            matrix_artifact_path = (matrix_path.parent / str(scenario.get("artifact_path") or "")).resolve()
+            self.assertEqual(
+                job_artifact_path,
+                matrix_artifact_path,
+                msg=f"matrix/job artifact mismatch for {pair}",
+            )
+            self.assertTrue(job_artifact_path.exists(), msg=f"missing artifact for canonical job: {job_artifact_path}")
+
+            artifact = json.loads(job_artifact_path.read_text(encoding="utf-8"))
+            self.assertIsInstance(artifact, dict)
+            artifact_environment = str(artifact.get("environment") or "").strip()
+            job_environment = str(row.get("environment") or "").strip()
+            self.assertTrue(job_environment, msg=f"missing job environment for {pair}")
+            self.assertTrue(artifact_environment, msg=f"missing artifact environment for {pair}")
+            self.assertEqual(
+                job_environment,
+                artifact_environment,
+                msg=f"artifact/job environment mismatch for {pair}",
+            )
+
     def test_compact_gate_workflow_snippet_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         workflow_path = (
