@@ -8472,6 +8472,164 @@ def cmd_improvement_verify_matrix_compact(args: argparse.Namespace) -> None:
         markdown_lines.append(f"- {action}")
     compact_markdown_path.write_text("\n".join(markdown_lines).rstrip() + "\n", encoding="utf-8")
 
+    if bool(getattr(args, "emit_github_output", False)):
+        domain_statuses = dict(compact_payload.get("domain_statuses") or {})
+        operator_ack_bundle = dict(compact_payload.get("operator_ack_bundle") or {})
+        suggested_actions = [
+            str(item).strip()
+            for item in list(compact_payload.get("suggested_actions") or [])
+            if str(item).strip()
+        ]
+        top_scenarios = [
+            str(item).strip()
+            for item in list(compact_payload.get("top_scenarios") or [])
+            if str(item).strip()
+        ]
+        acknowledge_commands = [
+            str(item).strip()
+            for item in list(compact_payload.get("acknowledge_commands") or [])
+            if str(item).strip()
+        ]
+        unlock_ready_commands = [
+            str(item).strip()
+            for item in list(compact_payload.get("unlock_ready_commands") or [])
+            if str(item).strip()
+        ]
+        repair_commands = [
+            str(item).strip()
+            for item in list(compact_payload.get("repair_commands") or [])
+            if str(item).strip()
+        ]
+
+        compact_status_out = str(compact_payload.get("status") or "unknown").strip().lower() or "unknown"
+        verify_matrix_status_out = (
+            str(compact_payload.get("verify_matrix_status") or "unknown").strip().lower() or "unknown"
+        )
+        drift_severity_out = str(compact_payload.get("drift_severity") or "unknown").strip().lower() or "unknown"
+        required_domain_count_out = _coerce_int(compact_payload.get("required_domain_count"), default=0)
+        covered_domain_count_out = _coerce_int(compact_payload.get("covered_domain_count"), default=0)
+        missing_domain_count_out = _coerce_int(compact_payload.get("missing_domain_count"), default=0)
+        missing_domains_csv_out = str(compact_payload.get("missing_domains_csv") or "none").strip() or "none"
+        required_domain_missing_count_out = _coerce_int(
+            compact_payload.get("required_domain_missing_count"),
+            default=missing_domain_count_out,
+        )
+        first_missing_domain_out = str(compact_payload.get("first_missing_domain") or "none").strip() or "none"
+
+        acknowledge_command_count_out = _coerce_int(
+            compact_payload.get("acknowledge_command_count"),
+            default=len(acknowledge_commands),
+        )
+        first_acknowledge_command_out = str(compact_payload.get("first_acknowledge_command") or "").strip()
+        if not first_acknowledge_command_out:
+            first_acknowledge_command_out = acknowledge_commands[0] if acknowledge_commands else "none"
+
+        recheck_command_out = str(compact_payload.get("recheck_command") or "").strip()
+        if not recheck_command_out:
+            recheck_command_out = unlock_ready_commands[0] if unlock_ready_commands else "none"
+
+        first_unlock_ready_command_out = str(compact_payload.get("first_unlock_ready_command") or "").strip()
+        if not first_unlock_ready_command_out:
+            first_unlock_ready_command_out = unlock_ready_commands[0] if unlock_ready_commands else "none"
+
+        repair_command_count_out = _coerce_int(
+            compact_payload.get("repair_command_count"),
+            default=len(repair_commands),
+        )
+        first_repair_command_out = str(compact_payload.get("first_repair_command") or "").strip()
+        if not first_repair_command_out:
+            first_repair_command_out = repair_commands[0] if repair_commands else "none"
+
+        repair_command_sequence_out = (
+            str(
+                compact_payload.get("repair_command_sequence")
+                or operator_ack_bundle.get("command_sequence")
+                or "none"
+            ).strip()
+            or "none"
+        )
+
+        suggested_action_count_out = _coerce_int(
+            compact_payload.get("suggested_action_count"),
+            default=len(suggested_actions),
+        )
+        first_suggested_action_out = str(compact_payload.get("first_suggested_action") or "").strip()
+        if not first_suggested_action_out:
+            first_suggested_action_out = suggested_actions[0] if suggested_actions else "none"
+
+        top_scenario_count_out = _coerce_int(
+            compact_payload.get("top_scenario_count"),
+            default=len(top_scenarios),
+        )
+        first_top_scenario_out = str(compact_payload.get("first_top_scenario") or "").strip()
+        if not first_top_scenario_out:
+            first_top_scenario_out = top_scenarios[0] if top_scenarios else "none"
+
+        compact_markdown_path_from_payload = Path(
+            str(compact_payload.get("verify_matrix_compact_markdown_path") or compact_markdown_path)
+        ).expanduser().resolve()
+        compact_path_from_payload = Path(
+            str(compact_payload.get("verify_matrix_compact_path") or compact_path)
+        ).expanduser().resolve()
+
+        output_lines = [
+            f"verify_matrix_compact_path={compact_path_from_payload}",
+            f"verify_matrix_compact_markdown_path={compact_markdown_path_from_payload}",
+            f"verify_matrix_compact_status={compact_status_out}",
+            f"verify_matrix_status={verify_matrix_status_out}",
+            f"verify_matrix_drift_severity={drift_severity_out}",
+            f"drift_severity={drift_severity_out}",
+            f"required_domain_count={required_domain_count_out}",
+            f"covered_domain_count={covered_domain_count_out}",
+            f"missing_domain_count={missing_domain_count_out}",
+            f"missing_domains_csv={missing_domains_csv_out}",
+            f"verify_matrix_required_domain_missing_count={required_domain_missing_count_out}",
+            f"verify_matrix_first_missing_domain={first_missing_domain_out}",
+            f"acknowledge_command_count={acknowledge_command_count_out}",
+            f"first_acknowledge_command={first_acknowledge_command_out}",
+            f"verify_matrix_recheck_command={recheck_command_out}",
+            f"verify_matrix_first_unlock_ready_command={first_unlock_ready_command_out}",
+            f"first_unlock_ready_command={first_unlock_ready_command_out}",
+            f"recheck_command={recheck_command_out}",
+            f"repair_command_count={repair_command_count_out}",
+            f"first_repair_command={first_repair_command_out}",
+            f"operator_ack_bundle_command_sequence={repair_command_sequence_out}",
+            f"suggested_action_count={suggested_action_count_out}",
+            f"first_suggested_action={first_suggested_action_out}",
+            f"top_scenario_count={top_scenario_count_out}",
+            f"first_top_scenario={first_top_scenario_out}",
+        ]
+
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_path = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                    f"- status: `{compact_status_out}`",
+                    f"- verify_matrix_status: `{verify_matrix_status_out}`",
+                    f"- drift_severity: `{drift_severity_out}`",
+                    f"- missing_domain_count: `{missing_domain_count_out}`",
+                    f"- missing_domains_csv: `{missing_domains_csv_out}`",
+                    f"- first_unlock_ready_command: `{first_unlock_ready_command_out}`",
+                    "",
+                ]
+                if bool(getattr(args, "summary_include_markdown", False)):
+                    if compact_markdown_path_from_payload.exists():
+                        markdown_text = compact_markdown_path_from_payload.read_text(encoding="utf-8").strip()
+                        if markdown_text:
+                            summary_lines.append(markdown_text)
+                            summary_lines.append("")
+                with summary_path.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
     _print_json_payload(
         compact_payload,
         compact=bool(getattr(args, "json_compact", False)),
@@ -13787,6 +13945,22 @@ def main() -> None:
         type=Path,
         default=Path("output/ci/operator_cycle/operator_cycle_report.json"),
         help="Path to operator-cycle report (defaults to output/ci/operator_cycle/operator_cycle_report.json)",
+    )
+    improvement_verify_matrix_compact.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit compact gate fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_verify_matrix_compact.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
+    )
+    improvement_verify_matrix_compact.add_argument(
+        "--summary-include-markdown",
+        action="store_true",
+        help="Append verify-matrix compact markdown body to step summary when summary heading is enabled",
     )
     improvement_verify_matrix_compact.add_argument("--output-path", type=Path, default=None)
     improvement_verify_matrix_compact.add_argument("--markdown-path", type=Path, default=None)

@@ -267,6 +267,12 @@ Before guardrail checks, it builds compact verify-matrix coverage artifacts:
 - `output/ci/operator_cycle/verify_matrix_compact.json`
 - `output/ci/operator_cycle/verify_matrix_compact.md`
 
+The compact coverage gate is command-driven via
+`improvement verify-matrix-compact`, emits compact outputs through
+`--emit-github-output`, writes the `Verify Matrix Compact Coverage` summary via
+`--summary-heading`, and appends compact markdown details via
+`--summary-include-markdown`.
+
 The compact payload includes per-domain `domain_statuses` for
 `quant_finance`, `kalshi_weather`, `fitness_apps`, and `market_ml`, plus
 `required_domain_count`, `covered_domain_count`, `missing_domain_count`,

@@ -240,16 +240,27 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
             / "github-actions-knowledge-bootstrap-route.yml",
             repo_root / ".github" / "workflows" / "improvement-knowledge-bootstrap-route.yml",
         ]
-        contract_keys = [
+        compact_gate_contract_keys = [
             "unlock_ready_commands",
             "first_unlock_ready_command",
             "acknowledge_command_count",
             "first_acknowledge_command",
             "recheck_command",
         ]
+        bootstrap_route_contract_keys = [
+            "verify_matrix_first_unlock_ready_command",
+            "verify_matrix_recheck_command",
+            "missing_domain_count",
+            "verify_matrix_first_missing_domain",
+        ]
         for workflow_path in workflow_paths:
             self.assertTrue(workflow_path.exists(), msg=f"missing workflow: {workflow_path}")
             content = workflow_path.read_text(encoding="utf-8")
+            contract_keys = (
+                bootstrap_route_contract_keys
+                if "knowledge-bootstrap-route" in workflow_path.name
+                else compact_gate_contract_keys
+            )
             for key in contract_keys:
                 self.assertIn(
                     key,
@@ -298,26 +309,20 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("Verify matrix coverage compact gate", content)
         self.assertIn("id: verify_matrix_compact", content)
         self.assertIn("improvement verify-matrix-compact", content)
+        self.assertIn('--summary-heading "Verify Matrix Compact Coverage"', content)
+        self.assertIn("--summary-include-markdown", content)
+        self.assertIn("--emit-github-output", content)
+        self.assertNotIn("invalid_verify_matrix_compact_payload:expected_json_object", content)
         self.assertIn("verify_matrix_compact.json", content)
         self.assertIn("verify_matrix_compact.md", content)
-        self.assertIn("verify_matrix_required_domain_missing_count", content)
+        self.assertIn("verify_matrix_compact_path", content)
+        self.assertIn("verify_matrix_compact_status", content)
         self.assertIn("verify_matrix_first_missing_domain", content)
-        self.assertIn("required_domain_count", content)
-        self.assertIn("covered_domain_count", content)
         self.assertIn("missing_domain_count", content)
         self.assertIn("missing_domains_csv", content)
         self.assertIn("verify_matrix_recheck_command", content)
         self.assertIn("verify_matrix_first_unlock_ready_command", content)
-        self.assertIn("first_unlock_ready_command", content)
-        self.assertIn("recheck_command", content)
-        self.assertIn("operator_ack_bundle", content)
-        self.assertIn("repair_command_sequence", content)
-        self.assertIn("operator_ack_bundle_command_sequence", content)
         self.assertIn("first_repair_command", content)
-        self.assertIn("suggested_actions", content)
-        self.assertIn("suggested_action_count", content)
-        self.assertIn("first_suggested_action", content)
-        self.assertIn("domain_statuses", content)
         self.assertIn("Open verify matrix coverage interrupt alert", content)
         self.assertIn("improvement verify-matrix-coverage-alert", content)
         self.assertIn("verify_matrix_coverage_alert.json", content)
@@ -550,26 +555,20 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("Verify matrix coverage compact gate", content)
         self.assertIn("id: verify_matrix_compact", content)
         self.assertIn("improvement verify-matrix-compact", content)
+        self.assertIn('--summary-heading "Verify Matrix Compact Coverage"', content)
+        self.assertIn("--summary-include-markdown", content)
+        self.assertIn("--emit-github-output", content)
+        self.assertNotIn("invalid_verify_matrix_compact_payload:expected_json_object", content)
         self.assertIn("verify_matrix_compact.json", content)
         self.assertIn("verify_matrix_compact.md", content)
-        self.assertIn("verify_matrix_required_domain_missing_count", content)
+        self.assertIn("verify_matrix_compact_path", content)
+        self.assertIn("verify_matrix_compact_status", content)
         self.assertIn("verify_matrix_first_missing_domain", content)
-        self.assertIn("required_domain_count", content)
-        self.assertIn("covered_domain_count", content)
         self.assertIn("missing_domain_count", content)
         self.assertIn("missing_domains_csv", content)
         self.assertIn("verify_matrix_recheck_command", content)
         self.assertIn("verify_matrix_first_unlock_ready_command", content)
-        self.assertIn("first_unlock_ready_command", content)
-        self.assertIn("recheck_command", content)
-        self.assertIn("operator_ack_bundle", content)
-        self.assertIn("repair_command_sequence", content)
-        self.assertIn("operator_ack_bundle_command_sequence", content)
         self.assertIn("first_repair_command", content)
-        self.assertIn("suggested_actions", content)
-        self.assertIn("suggested_action_count", content)
-        self.assertIn("first_suggested_action", content)
-        self.assertIn("domain_statuses", content)
         self.assertIn("Open verify matrix coverage interrupt alert", content)
         self.assertIn("improvement verify-matrix-coverage-alert", content)
         self.assertIn("verify_matrix_coverage_alert.json", content)

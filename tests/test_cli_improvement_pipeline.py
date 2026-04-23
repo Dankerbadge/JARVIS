@@ -8067,6 +8067,120 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(compact_payload.get("first_missing_domain") or ""), "none")
             self.assertTrue(markdown_path.exists())
 
+    def test_verify_matrix_compact_emits_github_outputs_and_summary_with_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+
+            recheck_command = (
+                "python3 -m jarvis.cli improvement verify-matrix-alert "
+                "--matrix-path matrix.json --report-path reports/daily_pipeline_report.json"
+            )
+            acknowledge_command = "python3 -m jarvis.cli interrupts acknowledge intr_verify_warn --actor operator"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "verify_matrix": {
+                            "status": "warning",
+                            "drift_severity": "critical",
+                            "summary": {
+                                "mismatch_count": 1,
+                                "missing_count": 1,
+                                "invalid_count": 0,
+                            },
+                            "comparisons": [
+                                {
+                                    "scenario_id": "quant_expected_promote",
+                                    "domain": "quant_finance",
+                                    "status": "matched",
+                                },
+                                {
+                                    "scenario_id": "market_ml_expected_promote",
+                                    "domain": "market_ml",
+                                    "status": "mismatch",
+                                },
+                            ],
+                        },
+                        "verify_matrix_alert": {
+                            "status": "warning",
+                            "drift_severity": "critical",
+                            "acknowledge_commands": [
+                                acknowledge_command,
+                            ],
+                            "alert": {
+                                "top_scenarios": [
+                                    "market_ml_expected_promote",
+                                ],
+                            },
+                        },
+                        "promotion_lock": {
+                            "acknowledge_commands": [
+                                acknowledge_command,
+                            ],
+                            "recheck_command": recheck_command,
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            compact_path = root / "artifacts" / "verify_matrix_compact.json"
+            markdown_path = root / "artifacts" / "verify_matrix_compact.md"
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=compact_path,
+                markdown_path=markdown_path,
+                emit_github_output=True,
+                summary_heading="Verify Matrix Compact Coverage",
+                summary_include_markdown=True,
+                strict=False,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_verify_matrix_compact(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"verify_matrix_compact_path={compact_path.resolve()}", output_lines)
+            self.assertIn(f"verify_matrix_compact_markdown_path={markdown_path.resolve()}", output_lines)
+            self.assertIn("verify_matrix_compact_status=warning", output_lines)
+            self.assertIn("verify_matrix_status=warning", output_lines)
+            self.assertIn("verify_matrix_drift_severity=critical", output_lines)
+            self.assertIn("missing_domain_count=2", output_lines)
+            self.assertIn("verify_matrix_required_domain_missing_count=2", output_lines)
+            self.assertIn("verify_matrix_first_missing_domain=kalshi_weather", output_lines)
+            self.assertIn(f"verify_matrix_recheck_command={recheck_command}", output_lines)
+            self.assertIn(f"verify_matrix_first_unlock_ready_command={recheck_command}", output_lines)
+            self.assertIn(f"first_unlock_ready_command={recheck_command}", output_lines)
+            self.assertTrue(any(line.startswith("operator_ack_bundle_command_sequence=") for line in output_lines))
+            self.assertIn("first_top_scenario=market_ml_expected_promote", output_lines)
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Verify Matrix Compact Coverage", summary)
+            self.assertIn("- status: `warning`", summary)
+            self.assertIn("- verify_matrix_status: `warning`", summary)
+            self.assertIn("- drift_severity: `critical`", summary)
+            self.assertIn("- missing_domain_count: `2`", summary)
+            self.assertIn("- missing_domains_csv: `kalshi_weather,fitness_apps`", summary)
+            self.assertIn(f"- first_unlock_ready_command: `{recheck_command}`", summary)
+            self.assertIn("# Verify Matrix Compact Coverage", summary)
+
     def test_verify_matrix_coverage_alert_creates_interrupt_and_updates_compact_payload(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
