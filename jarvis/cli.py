@@ -7880,6 +7880,7 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
     mismatch_count = 0
     missing_count = 0
     invalid_count = 0
+    mapped_run_indexes: set[int] = set()
 
     for index, scenario in enumerate(scenarios):
         scenario_domain = str(scenario.get("domain") or "").strip().lower()
@@ -7963,6 +7964,10 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
             matched_count += 1
         else:
             mismatch_count += 1
+        selected_index_raw = selected_run.get("index")
+        run_index = int(selected_index_raw) if selected_index_raw is not None else -1
+        if run_index >= 0:
+            mapped_run_indexes.add(run_index)
 
         comparisons.append(
             {
@@ -7980,9 +7985,25 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
             }
         )
 
+    unmapped_runs = [
+        dict(row)
+        for row in run_rows
+        if (
+            int(row.get("index")) if row.get("index") is not None else -1
+        ) not in mapped_run_indexes
+    ]
+    unmapped_by_domain_counter: Counter[str] = Counter(
+        str(row.get("domain") or "unknown").strip().lower() or "unknown"
+        for row in unmapped_runs
+    )
+    unmapped_run_count_by_domain = [
+        {"domain": domain, "count": int(count)}
+        for domain, count in sorted(unmapped_by_domain_counter.items(), key=lambda item: (-int(item[1]), item[0]))
+    ]
+
     total_scenarios = len(scenarios)
     verification_status = "ok"
-    if mismatch_count > 0 or missing_count > 0 or invalid_count > 0:
+    if mismatch_count > 0 or missing_count > 0 or invalid_count > 0 or bool(unmapped_runs):
         verification_status = "warning"
 
     summary = {
@@ -7992,6 +8013,9 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
         "missing_count": missing_count,
         "invalid_count": invalid_count,
         "match_rate": round((matched_count / total_scenarios), 4) if total_scenarios > 0 else 0.0,
+        "mapped_run_count": len(mapped_run_indexes),
+        "unmapped_run_count": len(unmapped_runs),
+        "mapped_run_coverage_rate": round((len(mapped_run_indexes) / len(run_rows)), 4) if run_rows else 0.0,
     }
 
     return {
@@ -8003,12 +8027,15 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
         "run_count": len(run_rows),
         "summary": summary,
         "comparisons": comparisons,
+        "unmapped_runs": unmapped_runs,
+        "unmapped_run_count_by_domain": unmapped_run_count_by_domain,
     }
 
 
 def _classify_matrix_drift_severity(payload: dict[str, Any]) -> dict[str, Any]:
     summary = dict(payload.get("summary") or {})
     rows = [row for row in list(payload.get("comparisons") or []) if isinstance(row, dict)]
+    unmapped_runs = [row for row in list(payload.get("unmapped_runs") or []) if isinstance(row, dict)]
     mismatches = [row for row in rows if str(row.get("status") or "") == "mismatch"]
     missing = [row for row in rows if str(row.get("status") or "") == "missing_run"]
     invalid = [row for row in rows if str(row.get("status") or "") == "invalid_scenario"]
@@ -8021,8 +8048,9 @@ def _classify_matrix_drift_severity(payload: dict[str, Any]) -> dict[str, Any]:
     mismatch_count = int(summary.get("mismatch_count") or len(mismatches))
     missing_count = int(summary.get("missing_count") or len(missing))
     invalid_count = int(summary.get("invalid_count") or len(invalid))
+    unmapped_run_count = int(summary.get("unmapped_run_count") or len(unmapped_runs))
     guardrail_mismatch_count = len(guardrail_mismatches)
-    total_issues = mismatch_count + missing_count + invalid_count
+    total_issues = mismatch_count + missing_count + invalid_count + unmapped_run_count
 
     if total_issues <= 0:
         return {
@@ -8032,6 +8060,7 @@ def _classify_matrix_drift_severity(payload: dict[str, Any]) -> dict[str, Any]:
             "mismatch_count": mismatch_count,
             "missing_count": missing_count,
             "invalid_count": invalid_count,
+            "unmapped_run_count": unmapped_run_count,
             "guardrail_mismatch_count": guardrail_mismatch_count,
             "recommended_urgency": None,
             "recommended_confidence": None,
@@ -8056,6 +8085,12 @@ def _classify_matrix_drift_severity(payload: dict[str, Any]) -> dict[str, Any]:
     if invalid_count >= 1:
         score += 1
         reasons.append("has_invalid_scenarios")
+    if unmapped_run_count >= 1:
+        score += 1
+        reasons.append("has_unmapped_runs")
+    if unmapped_run_count >= 3:
+        score += 1
+        reasons.append("multiple_unmapped_runs")
     if guardrail_mismatch_count >= 1:
         score += 3
         reasons.append("guardrail_regression_detected")
@@ -8080,6 +8115,7 @@ def _classify_matrix_drift_severity(payload: dict[str, Any]) -> dict[str, Any]:
         "mismatch_count": mismatch_count,
         "missing_count": missing_count,
         "invalid_count": invalid_count,
+        "unmapped_run_count": unmapped_run_count,
         "guardrail_mismatch_count": guardrail_mismatch_count,
         "recommended_urgency": float(recommended_urgency),
         "recommended_confidence": float(recommended_confidence),
@@ -8094,6 +8130,7 @@ def _build_matrix_drift_mitigations(
     max_items: int = 3,
 ) -> list[str]:
     rows = [row for row in list(payload.get("comparisons") or []) if isinstance(row, dict)]
+    unmapped_runs = [row for row in list(payload.get("unmapped_runs") or []) if isinstance(row, dict)]
     mismatches = [row for row in rows if str(row.get("status") or "") == "mismatch"]
     missing = [row for row in rows if str(row.get("status") or "") == "missing_run"]
     invalid = [row for row in rows if str(row.get("status") or "") == "invalid_scenario"]
@@ -8121,6 +8158,22 @@ def _build_matrix_drift_mitigations(
         actions.append("Run missing controlled experiments before advancing operator-cycle promotions.")
     if invalid:
         actions.append("Fix invalid matrix scenarios (missing match fields or expected verdicts) to restore drift coverage.")
+    if unmapped_runs:
+        coverage_domains = sorted(
+            {
+                str(row.get("domain") or "").strip().lower()
+                for row in unmapped_runs
+                if str(row.get("domain") or "").strip()
+            }
+        )
+        if coverage_domains:
+            actions.append(
+                "Add matrix scenarios for unmapped experiment runs in domains: "
+                + ", ".join(coverage_domains[: max(1, int(max_items))])
+                + "."
+            )
+        else:
+            actions.append("Add matrix scenarios for unmapped experiment runs to restore controlled-test coverage.")
     if not actions:
         actions.append("No matrix drift detected; continue controlled validation cadence.")
     return actions
@@ -8166,6 +8219,11 @@ def cmd_improvement_verify_matrix_alert(args: argparse.Namespace) -> None:
     if verification_status != "ok":
         summary = dict(verification_payload.get("summary") or {})
         comparisons = [row for row in list(verification_payload.get("comparisons") or []) if isinstance(row, dict)]
+        unmapped_rows = [
+            row
+            for row in list(verification_payload.get("unmapped_runs") or [])
+            if isinstance(row, dict)
+        ][:top_items]
         mismatch_rows = [row for row in comparisons if str(row.get("status") or "") == "mismatch"][:top_items]
         missing_rows = [row for row in comparisons if str(row.get("status") or "") == "missing_run"][:top_items]
         invalid_rows = [row for row in comparisons if str(row.get("status") or "") == "invalid_scenario"][:top_items]
@@ -8174,6 +8232,16 @@ def cmd_improvement_verify_matrix_alert(args: argparse.Namespace) -> None:
             str(row.get("scenario_id") or f"scenario_{idx}")
             for idx, row in enumerate([*mismatch_rows, *missing_rows, *invalid_rows])
         ]
+        for row in unmapped_rows:
+            run_ref = str(row.get("run_id") or "").strip()
+            if run_ref:
+                scenario_refs.append(f"run:{run_ref}")
+                continue
+            hypothesis_ref = str(row.get("hypothesis_id") or "").strip()
+            if hypothesis_ref:
+                scenario_refs.append(f"hypothesis:{hypothesis_ref}")
+                continue
+            scenario_refs.append(f"unmapped_index:{int(row.get('index') or 0)}")
         compact_refs = ",".join(scenario_refs[:top_items]) if scenario_refs else "none"
         reason = (
             "matrix_drift_detected"
@@ -8181,6 +8249,7 @@ def cmd_improvement_verify_matrix_alert(args: argparse.Namespace) -> None:
             + f" mismatches={int(summary.get('mismatch_count') or 0)}"
             + f" missing={int(summary.get('missing_count') or 0)}"
             + f" invalid={int(summary.get('invalid_count') or 0)}"
+            + f" unmapped_runs={int(summary.get('unmapped_run_count') or 0)}"
             + f" guardrail_mismatches={int(severity_profile.get('guardrail_mismatch_count') or 0)}"
             + f" top={compact_refs}"
         )

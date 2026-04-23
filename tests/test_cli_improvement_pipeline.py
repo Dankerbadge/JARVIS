@@ -7787,12 +7787,103 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(summary.get("mismatch_count") or 0), 1)
             self.assertEqual(int(summary.get("missing_count") or 0), 1)
             self.assertEqual(int(summary.get("invalid_count") or 0), 0)
+            self.assertEqual(int(summary.get("unmapped_run_count") or 0), 0)
+            self.assertEqual(int(summary.get("mapped_run_count") or 0), 2)
 
             comparisons = list(payload.get("comparisons") or [])
             statuses = {str((item or {}).get("scenario_id") or ""): str((item or {}).get("status") or "") for item in comparisons}
             self.assertEqual(statuses.get("quant_promote_expected"), "matched")
             self.assertEqual(statuses.get("market_ml_expected_promote_but_blocked"), "mismatch")
             self.assertEqual(statuses.get("missing_scenario"), "missing_run")
+
+    def test_verify_matrix_warns_on_unmapped_experiment_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            daily_report_path = root / "reports" / "daily_pipeline_report.json"
+            daily_report_path.parent.mkdir(parents=True, exist_ok=True)
+            daily_report_path.write_text(
+                json.dumps(
+                    {
+                        "experiment_runs": [
+                            {
+                                "run_id": "exp_mapped_quant",
+                                "hypothesis_id": "hyp_quant_1",
+                                "artifact_path": str((root / "artifacts" / "quant_eval.json").resolve()),
+                                "verdict": "promote",
+                                "resolution": {
+                                    "domain": "quant_finance",
+                                    "friction_key": "execution_slippage_regime_drift",
+                                },
+                            },
+                            {
+                                "run_id": "exp_unmapped_kalshi",
+                                "hypothesis_id": "hyp_kalshi_1",
+                                "artifact_path": str((root / "artifacts" / "kalshi_eval.json").resolve()),
+                                "verdict": "promote",
+                                "resolution": {
+                                    "domain": "kalshi_weather",
+                                    "friction_key": "forecast_timing_mismatch_near_settlement",
+                                },
+                            },
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            matrix_path = root / "matrix.json"
+            matrix_path.write_text(
+                json.dumps(
+                    {
+                        "scenarios": [
+                            {
+                                "scenario_id": "quant_expected_promote",
+                                "domain": "quant_finance",
+                                "friction_key": "execution_slippage_regime_drift",
+                                "expected_verdict": "promote",
+                            }
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                matrix_path=matrix_path,
+                report_path=daily_report_path,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_verify_matrix(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(str(payload.get("drift_severity") or ""), "warn")
+            summary = dict(payload.get("summary") or {})
+            self.assertEqual(int(summary.get("matched_count") or 0), 1)
+            self.assertEqual(int(summary.get("mismatch_count") or 0), 0)
+            self.assertEqual(int(summary.get("missing_count") or 0), 0)
+            self.assertEqual(int(summary.get("invalid_count") or 0), 0)
+            self.assertEqual(int(summary.get("mapped_run_count") or 0), 1)
+            self.assertEqual(int(summary.get("unmapped_run_count") or 0), 1)
+
+            unmapped_runs = [row for row in list(payload.get("unmapped_runs") or []) if isinstance(row, dict)]
+            self.assertEqual(len(unmapped_runs), 1)
+            self.assertEqual(str(unmapped_runs[0].get("run_id") or ""), "exp_unmapped_kalshi")
+
+            by_domain = {
+                str(row.get("domain") or ""): int(row.get("count") or 0)
+                for row in list(payload.get("unmapped_run_count_by_domain") or [])
+                if isinstance(row, dict)
+            }
+            self.assertEqual(by_domain.get("kalshi_weather"), 1)
 
     def test_verify_matrix_resolves_daily_report_from_operator_cycle_payload(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -8866,6 +8957,95 @@ class CliImprovementPipelineTests(unittest.TestCase):
             alert = dict(payload.get("alert") or {})
             self.assertEqual(float(alert.get("urgency_score") or 0.0), 0.9)
             self.assertEqual(float(alert.get("confidence") or 0.0), 0.86)
+
+    def test_verify_matrix_alert_includes_unmapped_run_details(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            daily_report_path = root / "reports" / "daily_pipeline_report.json"
+            daily_report_path.parent.mkdir(parents=True, exist_ok=True)
+            daily_report_path.write_text(
+                json.dumps(
+                    {
+                        "experiment_runs": [
+                            {
+                                "run_id": "exp_mapped_quant",
+                                "hypothesis_id": "hyp_quant_1",
+                                "artifact_path": str((root / "artifacts" / "quant_eval.json").resolve()),
+                                "verdict": "promote",
+                                "resolution": {
+                                    "domain": "quant_finance",
+                                    "friction_key": "execution_slippage_regime_drift",
+                                },
+                            },
+                            {
+                                "run_id": "exp_unmapped_market",
+                                "hypothesis_id": "hyp_market_1",
+                                "artifact_path": str((root / "artifacts" / "market_eval.json").resolve()),
+                                "verdict": "promote",
+                                "resolution": {
+                                    "domain": "market_ml",
+                                    "friction_key": "latency_spikes_during_feature_enrichment",
+                                },
+                            },
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            matrix_path = root / "matrix.json"
+            matrix_path.write_text(
+                json.dumps(
+                    {
+                        "scenarios": [
+                            {
+                                "scenario_id": "quant_expected_promote",
+                                "domain": "quant_finance",
+                                "friction_key": "execution_slippage_regime_drift",
+                                "expected_verdict": "promote",
+                            }
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                matrix_path=matrix_path,
+                report_path=daily_report_path,
+                alert_domain="markets",
+                alert_urgency=None,
+                alert_confidence=None,
+                alert_max_items=3,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_verify_matrix_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(str(payload.get("drift_severity") or ""), "warn")
+            self.assertTrue(bool(payload.get("alert_created")))
+            alert = dict(payload.get("alert") or {})
+            reason = str(alert.get("reason") or "")
+            self.assertIn("matrix_drift_detected", reason)
+            self.assertIn("unmapped_runs=1", reason)
+            self.assertIn("run:exp_unmapped_market", reason)
+            self.assertTrue(
+                any(
+                    "unmapped experiment runs" in str(item).lower()
+                    for item in list(payload.get("mitigation_actions") or [])
+                )
+            )
 
     def test_domain_smoke_outputs_emits_github_outputs_and_summary(self) -> None:
         with tempfile.TemporaryDirectory() as td:

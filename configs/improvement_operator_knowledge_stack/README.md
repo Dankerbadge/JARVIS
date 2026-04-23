@@ -148,6 +148,11 @@ python3 -m jarvis.cli improvement verify-matrix \
   --strict
 ```
 
+Coverage drift is included in the same report via
+`summary.unmapped_run_count`, `unmapped_runs`, and
+`unmapped_run_count_by_domain` whenever experiment runs are not mapped by
+matrix scenarios.
+
 Wrapper:
 
 ```bash
