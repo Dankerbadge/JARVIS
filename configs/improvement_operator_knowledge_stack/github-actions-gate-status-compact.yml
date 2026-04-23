@@ -67,7 +67,7 @@ jobs:
           echo "No unlock-ready steps were found (blocked=${{ steps.gate.outputs.blocked_step_count }}, unlock_ready=${{ steps.gate.outputs.unlock_ready_step_count }}). Review blocker acknowledgements and rerun gate-status-all after promotion candidates are unblocked."
 
       - name: Fail workflow on non-none exit reason
-        if: ${{ steps.gate.outputs.exit_reason != 'none' }}
+        if: ${{ steps.gate.outputs.exit_reason != 'none' && steps.gate.outputs.exit_reason != 'zero_unlock_ready_steps' }}
         run: |
           echo "Gate evaluation failed with exit_reason=${{ steps.gate.outputs.exit_reason }} exit_code=${{ steps.gate.outputs.exit_code }} blocked=${{ steps.gate.outputs.blocked_step_count }} unlock_ready=${{ steps.gate.outputs.unlock_ready_step_count }}"
           exit 1

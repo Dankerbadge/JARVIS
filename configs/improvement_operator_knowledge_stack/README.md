@@ -380,9 +380,10 @@ Copy that file into `.github/workflows/` to run `plans gate-status-all` with
 - `steps.gate.outputs.acknowledge_command_count`
 - `steps.gate.outputs.first_acknowledge_command`
 
-The compact gate workflow now enforces `--fail-on-zero-unlock-ready` with
-`--zero-unlock-ready-exit-code 23`, so it fails fast when no unlock-ready
-promotion candidates are visible.
+The compact gate workflow keeps `--fail-on-zero-unlock-ready` with
+`--zero-unlock-ready-exit-code 23` so `exit_reason` captures that condition,
+but CI treats `zero_unlock_ready_steps` as a warning branch and only fails on
+other non-`none` exit reasons.
 
 Single-maintainer safety reconciler (auto-toggle code-owner review gate by collaborator count):
 

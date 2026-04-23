@@ -544,8 +544,8 @@ python3 -m jarvis.cli plans gate-status-all \
 When `--emit-ci-summary-path` is omitted and `GITHUB_STEP_SUMMARY` is set (for example in GitHub
 Actions), `gate-status-all` automatically writes the same markdown summary to that step-summary path.
 Use `--emit-ci-json-path` when downstream CI jobs need a compact machine-readable artifact instead of parsing stdout.
-Use `--fail-on-zero-unlock-ready` with `--zero-unlock-ready-exit-code` when automation must fail fast if
-no unlock-ready rows are available for promotion.
+Use `--fail-on-zero-unlock-ready` with `--zero-unlock-ready-exit-code` when automation needs explicit
+`exit_reason` signaling for no unlock-ready rows; this workflow treats that specific reason as warning-only.
 Use `./configs/improvement_operator_knowledge_stack/github-actions-gate-status-compact.yml` as a
 copy-ready workflow template that branches on `blocked_step_count` and `exit_reason` from the compact artifact.
 For knowledge-bootstrap route branching, use
@@ -1053,8 +1053,9 @@ The all-steps payload and CI summary now include `unlock_ready_step_count`,
 `unlock_ready_steps`, `unlock_ready_commands`, `first_unlock_ready_command`,
 `acknowledge_command_count`, and `first_acknowledge_command`.
 Use `--only-unlock-ready` to restrict `gate_rows` to promotion-ready steps.
-Use `--fail-on-zero-unlock-ready` with `--zero-unlock-ready-exit-code` when CI should fail if no
-unlock-ready steps are discovered.
+Use `--fail-on-zero-unlock-ready` with `--zero-unlock-ready-exit-code` when CI should emit an explicit
+zero-unlock reason; this workflow keeps `zero_unlock_ready_steps` warning-only and fails on other
+non-`none` reasons.
 
 `--emit-ci-summary-path` overrides `GITHUB_STEP_SUMMARY` when both are available.
 For a ready-to-copy workflow branch pattern, use:
