@@ -226,6 +226,37 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("compact_artifact_missing", content)
         self.assertIn("output/ci/gate_status_all_summary.md", content)
 
+    def test_unlock_ready_contract_consistency_across_compact_gate_and_bootstrap_workflows(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        workflow_paths = [
+            repo_root
+            / "configs"
+            / "improvement_operator_knowledge_stack"
+            / "github-actions-gate-status-compact.yml",
+            repo_root / ".github" / "workflows" / "improvement-gate-status-compact.yml",
+            repo_root
+            / "configs"
+            / "improvement_operator_knowledge_stack"
+            / "github-actions-knowledge-bootstrap-route.yml",
+            repo_root / ".github" / "workflows" / "improvement-knowledge-bootstrap-route.yml",
+        ]
+        contract_keys = [
+            "unlock_ready_commands",
+            "first_unlock_ready_command",
+            "acknowledge_command_count",
+            "first_acknowledge_command",
+            "recheck_command",
+        ]
+        for workflow_path in workflow_paths:
+            self.assertTrue(workflow_path.exists(), msg=f"missing workflow: {workflow_path}")
+            content = workflow_path.read_text(encoding="utf-8")
+            for key in contract_keys:
+                self.assertIn(
+                    key,
+                    content,
+                    msg=f"{workflow_path} missing unlock-ready contract key: {key}",
+                )
+
     def test_knowledge_bootstrap_route_workflow_template_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         workflow_path = (
