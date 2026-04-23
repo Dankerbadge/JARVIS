@@ -551,6 +551,9 @@ type opens a delivered operations interrupt and fails with compact repair data:
 `codeowner_review_drift_reconcile_trigger_non_workflow_run_count`,
 `codeowner_review_drift_reconcile_trigger_non_workflow_events_csv`, and
 `codeowner_review_drift_reconcile_trigger_non_workflow_run_ids_csv`.
+The workflow passes `--event-audit-since 2026-04-23T00:00:00Z` so legacy
+reconcile runs before the workflow-run-only cutover are ignored while any new
+post-cutover non-`workflow_run` run still fails the audit.
 
 Wrapper:
 

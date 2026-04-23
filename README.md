@@ -684,7 +684,9 @@ The drift-check dry-run command injects source provenance via
 The reconcile audit workflow adds recent-run trigger-event auditing via
 `./scripts/audit_reconcile_codeowner_review_gate.sh` and raises the same
 runtime alert when any recent reconcile run event differs from
-`workflow_run`.
+`workflow_run`. It now applies
+`--event-audit-since 2026-04-23T00:00:00Z` so only post-cutover runs are
+enforced by this event-drift gate.
 
 Override gate behavior only when explicitly needed:
 
@@ -1243,6 +1245,8 @@ The reconcile audit workflow runs
 `./scripts/audit_reconcile_codeowner_review_gate.sh` and feeds its payload into
 the same runtime alert path, so non-`workflow_run` reconcile events trigger an
 operations interrupt even when status-check contexts are otherwise aligned.
+It applies `--event-audit-since 2026-04-23T00:00:00Z` to exclude legacy
+pre-cutover runs from the event-drift gate.
 
 Single-maintainer safety reconciler (auto-toggle code-owner review gate by collaborator count):
 
