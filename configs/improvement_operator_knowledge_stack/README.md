@@ -540,6 +540,8 @@ Mutating reconcile artifacts carry drift-check provenance fields for auditing:
 `source_workflow_run_id`, `source_workflow_run_conclusion`,
 `source_workflow_name`, `source_workflow_event`, and
 `source_workflow_run_url`.
+Both drift-check and audit workflows now fail explicitly when
+`JARVIS_ADMIN_GH_TOKEN` is missing, instead of silently passing a skipped run.
 
 The scheduled reconcile audit workflow (`reconcile-codeowner-review-gate-audit.yml`)
 runs `./scripts/audit_reconcile_codeowner_review_gate.sh` to combine baseline
