@@ -260,6 +260,10 @@ After matrix lanes complete, `domain-smoke-aggregate` downloads
 `output/ci/domain_smoke/domain_smoke_cross_domain_summary.json` and
 `output/ci/domain_smoke/domain_smoke_cross_domain_summary.md`, including ranked
 `top_risks` with rerun/acknowledge commands.
+When `warning_count > 0`, it also writes
+`output/ci/domain_smoke/domain_smoke_cross_domain_alert.json` and opens a
+single delivered cross-domain interrupt with aggregate acknowledge/rerun
+commands.
 
 Copy that file into `.github/workflows/` to run `plans gate-status-all`, read
 `output/ci/gate_status_all_compact.json`, and branch on:
