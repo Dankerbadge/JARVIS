@@ -5908,9 +5908,14 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         getattr(args, "seed_enable", False)
         or getattr(args, "seed_leaderboard_input_path", None) is not None
     )
+    seed_domains_raw = (
+        getattr(args, "seed_domains", None)
+        if getattr(args, "seed_domains", None) is not None
+        else operator_cycle_defaults.get("seed_domains")
+    )
     seed_domains = [
-        str(item or "").strip().lower()
-        for item in _parse_csv_items(getattr(args, "seed_domains", None))
+        _normalize_seed_domain_name(str(item or "").strip().lower())
+        for item in _parse_csv_items(seed_domains_raw)
         if str(item or "").strip()
     ]
     if not seed_domains:

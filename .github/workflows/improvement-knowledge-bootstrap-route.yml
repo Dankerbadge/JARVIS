@@ -270,6 +270,54 @@ jobs:
         run: |
           echo "Knowledge delta stage not requested or unresolved for this run."
 
+      - name: Guardrail gate
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report_path = Path("output/ci/operator_cycle/operator_cycle_report.json").resolve()
+          if not report_path.exists():
+            raise SystemExit(f"missing_operator_report:{report_path}")
+
+          payload = json.loads(report_path.read_text(encoding="utf-8"))
+          stage_error_count = int(payload.get("stage_error_count") or 0)
+          verify_matrix = dict(payload.get("verify_matrix") or {})
+          verify_matrix_status = str(verify_matrix.get("status") or "unknown").strip().lower() or "unknown"
+          operator_status = str(payload.get("status") or "unknown").strip().lower() or "unknown"
+
+          print(f"guardrail_gate_report={report_path}")
+          print(f"guardrail_gate_operator_status={operator_status}")
+          print(f"guardrail_gate_stage_error_count={stage_error_count}")
+          print(f"guardrail_gate_verify_matrix_status={verify_matrix_status}")
+
+          github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+          if github_step_summary:
+            summary_path = Path(github_step_summary).expanduser()
+            summary_lines = [
+              "## Operator Guardrail Gate",
+              "",
+              f"- operator_status: `{operator_status}`",
+              f"- stage_error_count: `{stage_error_count}`",
+              f"- verify_matrix_status: `{verify_matrix_status}`",
+              "",
+            ]
+            with summary_path.open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(summary_lines) + "\n")
+
+          if stage_error_count > 0:
+            raise SystemExit(
+              "operator_guardrail_gate_failed:stage_error_count>0 "
+              f"(count={stage_error_count})"
+            )
+          if verify_matrix_status != "ok":
+            raise SystemExit(
+              "operator_guardrail_gate_failed:verify_matrix_status_not_ok "
+              f"(status={verify_matrix_status})"
+            )
+          PY
+
       - name: Upload route artifacts
         if: always()
         uses: actions/upload-artifact@v7

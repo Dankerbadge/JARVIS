@@ -129,10 +129,15 @@
     "report_hypothesis_limit": 40,
     "report_experiment_limit": 80,
     "report_queue_limit": 30,
+    "seed_domains": "quant_finance,kalshi_weather,fitness_apps,market_ml",
     "benchmark_top_limit": 12,
     "verify_matrix_path": "improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json",
+    "verify_matrix_alert_enable": true,
     "verify_matrix_alert_domain": "markets",
     "verify_matrix_alert_max_items": 3,
+    "knowledge_brief_enable": true,
+    "knowledge_delta_alert_enable": true,
+    "knowledge_delta_domains": "quant_finance,kalshi_weather,fitness_apps,market_ml",
     "allow_missing_inputs": true
   },
   "feed_jobs": [

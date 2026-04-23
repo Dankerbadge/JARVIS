@@ -17,6 +17,17 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         defaults = dict(payload.get("defaults") or {})
         self.assertTrue(bool(defaults.get("auto_retest_lane")))
         self.assertTrue(bool(defaults.get("collect_experiment_debug")))
+        self.assertTrue(bool(defaults.get("verify_matrix_alert_enable")))
+        self.assertTrue(bool(defaults.get("knowledge_brief_enable")))
+        self.assertTrue(bool(defaults.get("knowledge_delta_alert_enable")))
+        self.assertEqual(
+            str(defaults.get("seed_domains") or ""),
+            "quant_finance,kalshi_weather,fitness_apps,market_ml",
+        )
+        self.assertEqual(
+            str(defaults.get("knowledge_delta_domains") or ""),
+            "quant_finance,kalshi_weather,fitness_apps,market_ml",
+        )
 
         feed_jobs = list(payload.get("feed_jobs") or [])
         feedback_jobs = list(payload.get("feedback_jobs") or [])
@@ -129,6 +140,9 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("artifact_source", content)
         self.assertIn("--knowledge-brief-enable", content)
         self.assertIn("--knowledge-delta-alert-enable", content)
+        self.assertIn("Guardrail gate", content)
+        self.assertIn("guardrail_gate_stage_error_count", content)
+        self.assertIn("operator_guardrail_gate_failed:verify_matrix_status_not_ok", content)
 
     def test_codeowner_review_gate_reconciler_script_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -173,6 +187,9 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("artifact_source", content)
         self.assertIn("--knowledge-brief-enable", content)
         self.assertIn("--knowledge-delta-alert-enable", content)
+        self.assertIn("Guardrail gate", content)
+        self.assertIn("guardrail_gate_stage_error_count", content)
+        self.assertIn("operator_guardrail_gate_failed:verify_matrix_status_not_ok", content)
 
     def test_active_reconcile_codeowner_workflow_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
