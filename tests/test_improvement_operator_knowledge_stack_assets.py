@@ -321,6 +321,30 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("domain_smoke_", content)
         self.assertIn("_smoke_summary.json", content)
 
+    def test_domain_smoke_nightly_workflow_template_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        workflow_path = (
+            repo_root
+            / "configs"
+            / "improvement_operator_knowledge_stack"
+            / "github-actions-domain-smoke-nightly.yml"
+        )
+        self.assertTrue(workflow_path.exists())
+        content = workflow_path.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", content)
+        self.assertIn("schedule:", content)
+        self.assertIn("matrix:", content)
+        self.assertIn("quant_finance", content)
+        self.assertIn("kalshi_weather", content)
+        self.assertIn("fitness_apps", content)
+        self.assertIn("market_ml", content)
+        self.assertIn("run_improvement_domain_smoke.sh", content)
+        self.assertIn("--allow-missing", content)
+        self.assertIn("_smoke_summary.json", content)
+        self.assertIn("Collect debug trace artifacts", content)
+        self.assertIn("actions/upload-artifact@v7", content)
+        self.assertIn("steps.smoke.outputs.smoke_blocking == '1'", content)
+
     def test_active_knowledge_bootstrap_route_workflow_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         workflow_path = (
@@ -351,6 +375,30 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("Collect debug trace artifacts", content)
         self.assertIn("output/ci/debug_runs", content)
         self.assertIn("output/ci/knowledge_snapshots", content)
+
+    def test_active_domain_smoke_nightly_workflow_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        workflow_path = (
+            repo_root
+            / ".github"
+            / "workflows"
+            / "improvement-domain-smoke-nightly.yml"
+        )
+        self.assertTrue(workflow_path.exists())
+        content = workflow_path.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", content)
+        self.assertIn("schedule:", content)
+        self.assertIn("matrix:", content)
+        self.assertIn("quant_finance", content)
+        self.assertIn("kalshi_weather", content)
+        self.assertIn("fitness_apps", content)
+        self.assertIn("market_ml", content)
+        self.assertIn("run_improvement_domain_smoke.sh", content)
+        self.assertIn("--allow-missing", content)
+        self.assertIn("_smoke_summary.json", content)
+        self.assertIn("Collect debug trace artifacts", content)
+        self.assertIn("actions/upload-artifact@v7", content)
+        self.assertIn("steps.smoke.outputs.smoke_blocking == '1'", content)
 
     def test_active_reconcile_codeowner_workflow_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

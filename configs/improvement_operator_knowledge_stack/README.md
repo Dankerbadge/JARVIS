@@ -222,11 +222,13 @@ GitHub Actions template for compact JSON branching:
 
 - `./configs/improvement_operator_knowledge_stack/github-actions-gate-status-compact.yml`
 - `./configs/improvement_operator_knowledge_stack/github-actions-knowledge-bootstrap-route.yml`
+- `./configs/improvement_operator_knowledge_stack/github-actions-domain-smoke-nightly.yml`
 
 Active workflow in this repo:
 
 - `./.github/workflows/improvement-gate-status-compact.yml`
 - `./.github/workflows/improvement-knowledge-bootstrap-route.yml`
+- `./.github/workflows/improvement-domain-smoke-nightly.yml`
 - `./.github/workflows/reconcile-codeowner-review-gate.yml`
 
 `improvement-knowledge-bootstrap-route.yml` runs on weekdays at `13:25 UTC`
@@ -245,6 +247,11 @@ Before artifact upload, the workflow also collects:
 - `analysis/improvement/knowledge_snapshots`
 
 into `output/ci/` for run-level debug traceability.
+
+`improvement-domain-smoke-nightly.yml` runs on weekdays at `03:40 UTC` with a
+four-domain matrix (`quant_finance`, `kalshi_weather`, `fitness_apps`,
+`market_ml`), executes `run_improvement_domain_smoke.sh` for each lane, and
+uploads per-domain artifacts from `output/ci/domain_smoke/<domain>/`.
 
 Copy that file into `.github/workflows/` to run `plans gate-status-all`, read
 `output/ci/gate_status_all_compact.json`, and branch on:

@@ -1,0 +1,167 @@
+name: improvement-domain-smoke-nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "40 3 * * 1-5"
+
+jobs:
+  domain-smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        domain:
+          - quant_finance
+          - kalshi_weather
+          - fitness_apps
+          - market_ml
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Run domain smoke loop
+        run: |
+          mkdir -p "output/ci/domain_smoke/${{ matrix.domain }}"
+          ./scripts/run_improvement_domain_smoke.sh \
+            ./configs/improvement_operator_knowledge_stack.json \
+            "${{ matrix.domain }}" \
+            --output-dir "output/ci/domain_smoke/${{ matrix.domain }}" \
+            --allow-missing
+
+      - name: Extract domain smoke outputs
+        id: smoke
+        env:
+          MATRIX_DOMAIN: ${{ matrix.domain }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          domain = str(os.getenv("MATRIX_DOMAIN") or "unknown").strip().lower() or "unknown"
+          summary_path = Path(f"output/ci/domain_smoke/{domain}/{domain}_smoke_summary.json").resolve()
+          if summary_path.exists():
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+          else:
+            payload = {
+              "status": "warning",
+              "domain": domain,
+              "reason": "domain_smoke_summary_missing",
+              "pull_report_path": None,
+              "leaderboard_report_path": None,
+              "seed_report_path": None,
+            }
+
+          status = str(payload.get("status") or "warning").strip().lower() or "warning"
+          reported_domain = str(payload.get("domain") or "").strip().lower()
+          pull_report_path = str(payload.get("pull_report_path") or "none").strip() or "none"
+          leaderboard_report_path = str(payload.get("leaderboard_report_path") or "none").strip() or "none"
+          seed_report_path = str(payload.get("seed_report_path") or "none").strip() or "none"
+
+          reason = "none"
+          smoke_blocking = 0
+          if not summary_path.exists():
+            status = "warning"
+            reason = "domain_smoke_summary_missing"
+            smoke_blocking = 1
+          elif not reported_domain:
+            status = "warning"
+            reason = "domain_smoke_domain_missing"
+            smoke_blocking = 1
+          elif reported_domain != domain:
+            status = "warning"
+            reason = f"domain_smoke_domain_mismatch:{reported_domain}"
+            smoke_blocking = 1
+          elif status != "ok":
+            reason = f"domain_smoke_status_not_ok:{status}"
+            smoke_blocking = 1
+
+          print(f"domain={domain}")
+          print(f"summary_path={summary_path}")
+          print(f"status={status}")
+          print(f"reported_domain={reported_domain or 'none'}")
+          print(f"reason={reason}")
+          print(f"smoke_blocking={smoke_blocking}")
+          print(f"pull_report_path={pull_report_path}")
+          print(f"leaderboard_report_path={leaderboard_report_path}")
+          print(f"seed_report_path={seed_report_path}")
+
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as handle:
+            handle.write(f"domain={domain}\n")
+            handle.write(f"summary_path={summary_path}\n")
+            handle.write(f"status={status}\n")
+            handle.write(f"reported_domain={reported_domain or 'none'}\n")
+            handle.write(f"reason={reason}\n")
+            handle.write(f"smoke_blocking={smoke_blocking}\n")
+            handle.write(f"pull_report_path={pull_report_path}\n")
+            handle.write(f"leaderboard_report_path={leaderboard_report_path}\n")
+            handle.write(f"seed_report_path={seed_report_path}\n")
+
+          github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+          if github_step_summary:
+            summary_output = Path(github_step_summary).expanduser()
+            summary_lines = [
+              "## Domain Smoke",
+              "",
+              f"- domain: `{domain}`",
+              f"- status: `{status}`",
+              f"- reason: `{reason}`",
+              f"- summary_path: `{summary_path}`",
+              f"- pull_report_path: `{pull_report_path}`",
+              f"- leaderboard_report_path: `{leaderboard_report_path}`",
+              f"- seed_report_path: `{seed_report_path}`",
+              "",
+            ]
+            with summary_output.open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(summary_lines) + "\n")
+          PY
+
+      - name: Warning smoke branch
+        if: ${{ steps.smoke.outputs.smoke_blocking == '1' }}
+        run: |
+          echo "Domain smoke run requires attention (domain=${{ steps.smoke.outputs.domain }}, status=${{ steps.smoke.outputs.status }}, reason=${{ steps.smoke.outputs.reason }})."
+
+      - name: Healthy smoke branch
+        if: ${{ steps.smoke.outputs.smoke_blocking == '0' }}
+        run: |
+          echo "Domain smoke run healthy (domain=${{ steps.smoke.outputs.domain }}, status=${{ steps.smoke.outputs.status }})."
+
+      - name: Collect debug trace artifacts
+        if: always()
+        run: |
+          domain_dir="output/ci/domain_smoke/${{ matrix.domain }}"
+          mkdir -p "${domain_dir}"
+          if [[ -d configs/improvement_operator_knowledge_stack/output/debug_runs ]]; then
+            cp -R configs/improvement_operator_knowledge_stack/output/debug_runs "${domain_dir}/debug_runs"
+          fi
+          if [[ -d analysis/improvement/knowledge_snapshots ]]; then
+            cp -R analysis/improvement/knowledge_snapshots "${domain_dir}/knowledge_snapshots"
+          fi
+
+      - name: Upload domain smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: domain-smoke-${{ matrix.domain }}
+          path: output/ci/domain_smoke/${{ matrix.domain }}/
+
+      - name: Fail workflow on warning status
+        if: ${{ steps.smoke.outputs.smoke_blocking == '1' }}
+        run: |
+          echo "Domain smoke blocking status detected (domain=${{ steps.smoke.outputs.domain }}, reason=${{ steps.smoke.outputs.reason }})."
+          exit 1
