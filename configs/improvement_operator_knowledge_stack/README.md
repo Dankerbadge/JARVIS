@@ -265,6 +265,8 @@ The aggregate summary JSON also carries `operator_ack_bundle` with
 acknowledge per-domain interrupts in order.
 For compact UIs it also exposes `acknowledge_command_count` and
 `first_acknowledge_command`.
+For symmetric compact triage it also exposes `rerun_command_count` and
+`first_rerun_command`.
 When `warning_count > 0`, it also writes
 `output/ci/domain_smoke/domain_smoke_cross_domain_alert.json` and opens a
 single delivered cross-domain interrupt with aggregate acknowledge/rerun

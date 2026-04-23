@@ -509,6 +509,13 @@ jobs:
             if per_domain_acknowledge_commands
             else "none"
           )
+          rerun_preview_commands: list[str] = []
+          for row in rows:
+            rerun_command = str(row.get("rerun_command") or "").strip()
+            if rerun_command and rerun_command not in rerun_preview_commands:
+              rerun_preview_commands.append(rerun_command)
+          rerun_command_count = len(rerun_preview_commands)
+          first_rerun_command = rerun_preview_commands[0] if rerun_preview_commands else "none"
           per_domain_acknowledge_command_count = len(per_domain_acknowledge_commands)
           first_per_domain_acknowledge_command = (
             per_domain_acknowledge_commands[0]
@@ -549,6 +556,9 @@ jobs:
             "acknowledge_bundle_command_sequence": per_domain_acknowledge_sequence,
             "acknowledge_command_count": per_domain_acknowledge_command_count,
             "first_acknowledge_command": first_per_domain_acknowledge_command,
+            "rerun_preview_commands": rerun_preview_commands,
+            "rerun_command_count": rerun_command_count,
+            "first_rerun_command": first_rerun_command,
           }
 
           summary_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -594,6 +604,8 @@ jobs:
           print(f"top_risk_score={top_risk_score}")
           print(f"acknowledge_command_count={per_domain_acknowledge_command_count}")
           print(f"first_acknowledge_command={first_per_domain_acknowledge_command}")
+          print(f"rerun_command_count={rerun_command_count}")
+          print(f"first_rerun_command={first_rerun_command}")
           print(f"acknowledge_bundle_command_sequence={per_domain_acknowledge_sequence}")
 
           github_output = Path(os.environ["GITHUB_OUTPUT"])
@@ -609,6 +621,8 @@ jobs:
             handle.write(f"top_risk_score={top_risk_score}\n")
             handle.write(f"acknowledge_command_count={per_domain_acknowledge_command_count}\n")
             handle.write(f"first_acknowledge_command={first_per_domain_acknowledge_command}\n")
+            handle.write(f"rerun_command_count={rerun_command_count}\n")
+            handle.write(f"first_rerun_command={first_rerun_command}\n")
             handle.write(f"acknowledge_bundle_command_sequence={per_domain_acknowledge_sequence}\n")
 
           github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
@@ -626,6 +640,8 @@ jobs:
               f"- top_risk_score: `{top_risk_score}`",
               f"- acknowledge_command_count: `{per_domain_acknowledge_command_count}`",
               f"- first_acknowledge_command: `{first_per_domain_acknowledge_command}`",
+              f"- rerun_command_count: `{rerun_command_count}`",
+              f"- first_rerun_command: `{first_rerun_command}`",
               f"- acknowledge_bundle_command_sequence: `{per_domain_acknowledge_sequence}`",
               f"- summary_path: `{summary_output_path}`",
               "",
@@ -702,6 +718,11 @@ jobs:
             "./configs/improvement_operator_knowledge_stack.json "
             f"{top_domain if top_domain != 'none' else 'quant_finance'} --allow-missing"
           )
+          rerun_preview_commands = list(rerun_commands)
+          if rerun_command and rerun_command not in rerun_preview_commands:
+            rerun_preview_commands.append(rerun_command)
+          rerun_command_count = len(rerun_preview_commands)
+          first_rerun_command = rerun_preview_commands[0] if rerun_preview_commands else "none"
 
           reason = (
             "cross_domain_smoke_warning"
@@ -786,6 +807,9 @@ jobs:
             "acknowledge_command": None if acknowledge_command == "none" else acknowledge_command,
             "rerun_command": rerun_command,
             "rerun_commands": rerun_commands,
+            "rerun_preview_commands": rerun_preview_commands,
+            "rerun_command_count": rerun_command_count,
+            "first_rerun_command": first_rerun_command,
             "reason": reason,
             "why_now": why_now,
             "why_not_later": why_not_later,
@@ -827,6 +851,9 @@ jobs:
           summary_payload["acknowledge_bundle_command_sequence"] = bundle_sequence
           summary_payload["acknowledge_command_count"] = bundle_command_count
           summary_payload["first_acknowledge_command"] = first_acknowledge_command
+          summary_payload["rerun_preview_commands"] = rerun_preview_commands
+          summary_payload["rerun_command_count"] = rerun_command_count
+          summary_payload["first_rerun_command"] = first_rerun_command
           summary_payload["cross_domain_interrupt_id"] = interrupt_id or None
           summary_payload["cross_domain_alert_path"] = str(alert_path)
           if summary_path:
@@ -837,6 +864,8 @@ jobs:
           payload["acknowledge_bundle_command_sequence"] = bundle_sequence
           payload["acknowledge_command_count"] = bundle_command_count
           payload["first_acknowledge_command"] = first_acknowledge_command
+          payload["rerun_command_count"] = rerun_command_count
+          payload["first_rerun_command"] = first_rerun_command
           alert_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
           print(f"cross_domain_alert_path={alert_path}")
@@ -846,6 +875,8 @@ jobs:
           print(f"cross_domain_rerun_command={rerun_command}")
           print(f"acknowledge_command_count={bundle_command_count}")
           print(f"first_acknowledge_command={first_acknowledge_command}")
+          print(f"rerun_command_count={rerun_command_count}")
+          print(f"first_rerun_command={first_rerun_command}")
           print(f"acknowledge_bundle_command_sequence={bundle_sequence}")
           print(f"cross_domain_runtime_error={runtime_error}")
 
@@ -858,6 +889,8 @@ jobs:
             handle.write(f"cross_domain_rerun_command={rerun_command}\n")
             handle.write(f"acknowledge_command_count={bundle_command_count}\n")
             handle.write(f"first_acknowledge_command={first_acknowledge_command}\n")
+            handle.write(f"rerun_command_count={rerun_command_count}\n")
+            handle.write(f"first_rerun_command={first_rerun_command}\n")
             handle.write(f"acknowledge_bundle_command_sequence={bundle_sequence}\n")
             handle.write(f"cross_domain_runtime_error={runtime_error}\n")
 
@@ -877,6 +910,8 @@ jobs:
               f"- acknowledge_command: `{acknowledge_command}`",
               f"- acknowledge_command_count: `{bundle_command_count}`",
               f"- first_acknowledge_command: `{first_acknowledge_command}`",
+              f"- rerun_command_count: `{rerun_command_count}`",
+              f"- first_rerun_command: `{first_rerun_command}`",
               f"- acknowledge_bundle_command_sequence: `{bundle_sequence}`",
               f"- runtime_error: `{runtime_error}`",
               "",
