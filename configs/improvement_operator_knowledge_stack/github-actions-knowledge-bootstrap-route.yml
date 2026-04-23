@@ -188,60 +188,73 @@ jobs:
       - name: Extract effective knowledge route outputs
         id: route
         run: |
+          set -euo pipefail
+
+          POST_ROUTE_ARTIFACT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route_post_bootstrap.json"
+          INITIAL_ROUTE_ARTIFACT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route.json"
+          if [[ -f "${POST_ROUTE_ARTIFACT_PATH}" ]]; then
+            ROUTE_ARTIFACT_PATH="${POST_ROUTE_ARTIFACT_PATH}"
+            ROUTE_ARTIFACT_SOURCE="post_bootstrap"
+          elif [[ -f "${INITIAL_ROUTE_ARTIFACT_PATH}" ]]; then
+            ROUTE_ARTIFACT_PATH="${INITIAL_ROUTE_ARTIFACT_PATH}"
+            ROUTE_ARTIFACT_SOURCE="initial"
+          else
+            ROUTE_ARTIFACT_PATH="${INITIAL_ROUTE_ARTIFACT_PATH}"
+            ROUTE_ARTIFACT_SOURCE="missing"
+          fi
+
+          ROUTE_OUTPUT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route_effective_outputs.json"
+          python3 -m jarvis.cli improvement knowledge-bootstrap-route-outputs \
+            --artifact-path "${ROUTE_ARTIFACT_PATH}" \
+            --artifact-source "${ROUTE_ARTIFACT_SOURCE}" \
+            --output-path "${ROUTE_OUTPUT_PATH}" \
+            --json-compact > /dev/null
+
           python3 - <<'PY'
           import json
           import os
           from pathlib import Path
 
-          post_artifact_path = Path("output/ci/knowledge_bootstrap_route_post_bootstrap.json").resolve()
-          initial_artifact_path = Path("output/ci/knowledge_bootstrap_route.json").resolve()
-          if post_artifact_path.exists():
-            artifact_path = post_artifact_path
-            artifact_source = "post_bootstrap"
-          elif initial_artifact_path.exists():
-            artifact_path = initial_artifact_path
-            artifact_source = "initial"
-          else:
-            artifact_path = initial_artifact_path
-            artifact_source = "missing"
+          output_path = Path("output/ci/knowledge_bootstrap_route_effective_outputs.json").resolve()
+          if not output_path.exists():
+            raise SystemExit(f"missing_knowledge_bootstrap_route_effective_outputs:{output_path}")
 
-          if artifact_path.exists():
-            payload = json.loads(artifact_path.read_text(encoding="utf-8"))
-          else:
-            payload = {
-              "status": "warning",
-              "phase": "unknown",
-              "route": "noop",
-              "next_action": "knowledge bootstrap route artifact missing",
-              "next_action_command": None,
-            }
+          payload = json.loads(output_path.read_text(encoding="utf-8"))
+          if not isinstance(payload, dict):
+            raise SystemExit("invalid_knowledge_bootstrap_route_effective_outputs:expected_json_object")
 
+          artifact_path = str(payload.get("artifact_path") or "").strip() or "none"
+          artifact_source = str(payload.get("artifact_source") or "unknown").strip() or "unknown"
           status = str(payload.get("status") or "warning").strip() or "warning"
           phase = str(payload.get("phase") or "unknown").strip() or "unknown"
           route = str(payload.get("route") or "noop").strip() or "noop"
+          route_blocking = int(payload.get("route_blocking") or 0)
           next_action = str(payload.get("next_action") or "").strip() or "none"
           next_action_command = str(payload.get("next_action_command") or "").strip() or "none"
-          route_blocking = status == "warning" and route != "bootstrap"
 
           print(f"artifact_path={artifact_path}")
           print(f"artifact_source={artifact_source}")
           print(f"status={status}")
           print(f"phase={phase}")
           print(f"route={route}")
-          print(f"route_blocking={int(route_blocking)}")
+          print(f"route_blocking={route_blocking}")
           print(f"next_action={next_action}")
           print(f"next_action_command={next_action_command}")
 
-          github_output = Path(os.environ["GITHUB_OUTPUT"])
-          with github_output.open("a", encoding="utf-8") as handle:
-            handle.write(f"artifact_path={artifact_path}\n")
-            handle.write(f"artifact_source={artifact_source}\n")
-            handle.write(f"status={status}\n")
-            handle.write(f"phase={phase}\n")
-            handle.write(f"route={route}\n")
-            handle.write(f"route_blocking={int(route_blocking)}\n")
-            handle.write(f"next_action={next_action}\n")
-            handle.write(f"next_action_command={next_action_command}\n")
+          github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+          if github_output:
+            output_lines = [
+              f"artifact_path={artifact_path}",
+              f"artifact_source={artifact_source}",
+              f"status={status}",
+              f"phase={phase}",
+              f"route={route}",
+              f"route_blocking={route_blocking}",
+              f"next_action={next_action}",
+              f"next_action_command={next_action_command}",
+            ]
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(output_lines) + "\n")
 
           github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
           if github_step_summary:
@@ -253,7 +266,7 @@ jobs:
               f"- status: `{status}`",
               f"- phase: `{phase}`",
               f"- route: `{route}`",
-              f"- route_blocking: `{int(route_blocking)}`",
+              f"- route_blocking: `{route_blocking}`",
               f"- next_action: `{next_action}`",
               f"- next_action_command: `{next_action_command}`",
               "",
