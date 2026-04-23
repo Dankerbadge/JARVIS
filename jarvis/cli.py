@@ -8304,6 +8304,63 @@ def _append_unique_string(items: list[str], value: Any) -> None:
         items.append(candidate)
 
 
+def cmd_improvement_reconcile_codeowner_review_gate_outputs(args: argparse.Namespace) -> None:
+    report_path = args.report_path.resolve()
+    loaded = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise ValueError("invalid_reconcile_codeowner_review_gate_payload:expected_json_object")
+
+    reviews = dict(loaded.get("required_pull_request_reviews") or {})
+    collaborator_count = _coerce_int(loaded.get("collaborator_count"), default=0)
+    current_require_code_owner_reviews = bool(reviews.get("current_require_code_owner_reviews"))
+    desired_require_code_owner_reviews = bool(reviews.get("desired_require_code_owner_reviews"))
+
+    payload: dict[str, Any] = {
+        "report_path": str(report_path),
+        "collaborator_count": collaborator_count,
+        "current_require_code_owner_reviews": current_require_code_owner_reviews,
+        "desired_require_code_owner_reviews": desired_require_code_owner_reviews,
+    }
+
+    if bool(getattr(args, "emit_github_output", False)):
+        output_lines = [
+            f"collaborator_count={collaborator_count}",
+            (
+                "current_require_code_owner_reviews="
+                + ("true" if current_require_code_owner_reviews else "false")
+            ),
+            (
+                "desired_require_code_owner_reviews="
+                + ("true" if desired_require_code_owner_reviews else "false")
+            ),
+        ]
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_output = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                    f"- collaborator_count: `{collaborator_count}`",
+                    f"- current_require_code_owner_reviews: `{'true' if current_require_code_owner_reviews else 'false'}`",
+                    f"- desired_require_code_owner_reviews: `{'true' if desired_require_code_owner_reviews else 'false'}`",
+                    "",
+                ]
+                with summary_output.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+
+
 def cmd_improvement_domain_smoke_outputs(args: argparse.Namespace) -> None:
     domain = (
         str(getattr(args, "domain", None) or os.getenv("MATRIX_DOMAIN") or "unknown")
@@ -15536,6 +15593,29 @@ def main() -> None:
     improvement_verify_matrix_alert.add_argument("--repo-path", type=Path, default=_default_repo_path())
     improvement_verify_matrix_alert.add_argument("--db-path", type=Path, default=_default_db_path())
 
+    improvement_reconcile_codeowner_review_gate_outputs = improvement_sub.add_parser(
+        "reconcile-codeowner-review-gate-outputs",
+        help="Extract reconcile-codeowner-review-gate output fields for workflow step outputs",
+    )
+    improvement_reconcile_codeowner_review_gate_outputs.add_argument(
+        "--report-path",
+        type=Path,
+        default=Path("output/ci/codeowner_review_reconcile.json"),
+        help="Path to reconcile_codeowner_review_gate script output payload",
+    )
+    improvement_reconcile_codeowner_review_gate_outputs.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit reconcile fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_reconcile_codeowner_review_gate_outputs.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
+    )
+    improvement_reconcile_codeowner_review_gate_outputs.add_argument("--json-compact", action="store_true")
+
     improvement_domain_smoke_outputs = improvement_sub.add_parser(
         "domain-smoke-outputs",
         help="Extract normalized domain-smoke status outputs from per-domain smoke summary artifacts",
@@ -16319,6 +16399,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "verify-matrix-alert":
         cmd_improvement_verify_matrix_alert(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "reconcile-codeowner-review-gate-outputs":
+        cmd_improvement_reconcile_codeowner_review_gate_outputs(args)
         return
     if args.cmd == "improvement" and args.improvement_cmd == "domain-smoke-outputs":
         cmd_improvement_domain_smoke_outputs(args)

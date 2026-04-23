@@ -20,6 +20,7 @@ from jarvis.cli import (
     cmd_improvement_daily_pipeline,
     cmd_improvement_domain_smoke_outputs,
     cmd_improvement_domain_smoke_runtime_alert,
+    cmd_improvement_reconcile_codeowner_review_gate_outputs,
     cmd_improvement_draft_experiment_jobs,
     cmd_improvement_execute_retests,
     cmd_improvement_fitness_leaderboard,
@@ -8946,6 +8947,54 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertIn("- status: `ok`", summary)
             self.assertIn("- reason: `none`", summary)
             self.assertIn(f"- summary_path: `{summary_path.resolve()}`", summary)
+
+    def test_reconcile_codeowner_review_gate_outputs_emits_github_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report_path = root / "output" / "ci" / "codeowner_review_reconcile.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "collaborator_count": 3,
+                        "required_pull_request_reviews": {
+                            "current_require_code_owner_reviews": False,
+                            "desired_require_code_owner_reviews": True,
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            github_output_path = root / "ci" / "github_output.txt"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            args = argparse.Namespace(
+                report_path=report_path,
+                emit_github_output=True,
+                summary_heading=None,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_reconcile_codeowner_review_gate_outputs(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(int(payload.get("collaborator_count") or 0), 3)
+            self.assertFalse(bool(payload.get("current_require_code_owner_reviews")))
+            self.assertTrue(bool(payload.get("desired_require_code_owner_reviews")))
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn("collaborator_count=3", output_lines)
+            self.assertIn("current_require_code_owner_reviews=false", output_lines)
+            self.assertIn("desired_require_code_owner_reviews=true", output_lines)
 
     def test_domain_smoke_runtime_alert_creates_interrupt_and_emits_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as td:

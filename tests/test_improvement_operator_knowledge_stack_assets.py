@@ -695,6 +695,9 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("JARVIS_ADMIN_GH_TOKEN", content)
         self.assertIn("reconcile_codeowner_review_gate.sh", content)
         self.assertIn("codeowner_review_reconcile.json", content)
+        self.assertIn("improvement reconcile-codeowner-review-gate-outputs", content)
+        self.assertIn("--emit-github-output", content)
+        self.assertNotIn("python3 - <<'PY'", content)
 
 
 if __name__ == "__main__":
