@@ -5,9 +5,14 @@ on:
   schedule:
     - cron: "50 13 * * 1-5"
 
+concurrency:
+  group: reconcile-codeowner-review-gate-drift-check-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   reconcile-drift:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     env:

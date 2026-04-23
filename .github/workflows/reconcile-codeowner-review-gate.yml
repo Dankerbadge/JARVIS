@@ -9,10 +9,15 @@ on:
     branches:
       - main
 
+concurrency:
+  group: reconcile-codeowner-review-gate-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   reconcile:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     env:
@@ -67,6 +72,17 @@ jobs:
           python3 -m jarvis.cli improvement reconcile-codeowner-review-gate-outputs \
             --report-path output/ci/codeowner_review_reconcile.json \
             --emit-github-output
+
+      - name: Fail when reconcile admin token is missing
+        run: |
+          if [ ! -f output/ci/codeowner_review_reconcile.json ]; then
+            echo "::error title=Missing reconcile report::output/ci/codeowner_review_reconcile.json was not generated."
+            exit 1
+          fi
+          if grep -q '"reason": "missing_secret"' output/ci/codeowner_review_reconcile.json; then
+            echo "::error title=Missing JARVIS admin token::JARVIS_ADMIN_GH_TOKEN is required for reconcile-codeowner-review-gate."
+            exit 1
+          fi
 
       - name: Upload reconcile artifact
         if: always()
