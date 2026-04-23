@@ -498,6 +498,8 @@ jobs:
             suggested_actions.append("No blocking cross-domain smoke risk detected; continue scheduled cadence.")
           if not rows:
             suggested_actions.append("No domain smoke artifacts found; verify upstream matrix artifact upload.")
+          suggested_action_count = len(suggested_actions)
+          first_suggested_action = suggested_actions[0] if suggested_actions else "none"
 
           per_domain_acknowledge_commands: list[str] = []
           for row in rows:
@@ -539,6 +541,8 @@ jobs:
             "top_risks": top_risks,
             "domains": rows,
             "suggested_actions": suggested_actions,
+            "suggested_action_count": suggested_action_count,
+            "first_suggested_action": first_suggested_action,
             "operator_ack_bundle": {
               "status": "ready" if per_domain_acknowledge_commands else "empty",
               "command_count": per_domain_acknowledge_command_count,
@@ -602,6 +606,8 @@ jobs:
           print(f"alerts_created_count={alerts_created_count}")
           print(f"top_domain={top_domain}")
           print(f"top_risk_score={top_risk_score}")
+          print(f"suggested_action_count={suggested_action_count}")
+          print(f"first_suggested_action={first_suggested_action}")
           print(f"acknowledge_command_count={per_domain_acknowledge_command_count}")
           print(f"first_acknowledge_command={first_per_domain_acknowledge_command}")
           print(f"rerun_command_count={rerun_command_count}")
@@ -619,6 +625,8 @@ jobs:
             handle.write(f"alerts_created_count={alerts_created_count}\n")
             handle.write(f"top_domain={top_domain}\n")
             handle.write(f"top_risk_score={top_risk_score}\n")
+            handle.write(f"suggested_action_count={suggested_action_count}\n")
+            handle.write(f"first_suggested_action={first_suggested_action}\n")
             handle.write(f"acknowledge_command_count={per_domain_acknowledge_command_count}\n")
             handle.write(f"first_acknowledge_command={first_per_domain_acknowledge_command}\n")
             handle.write(f"rerun_command_count={rerun_command_count}\n")
@@ -638,6 +646,8 @@ jobs:
               f"- alerts_created_count: `{alerts_created_count}`",
               f"- top_domain: `{top_domain}`",
               f"- top_risk_score: `{top_risk_score}`",
+              f"- suggested_action_count: `{suggested_action_count}`",
+              f"- first_suggested_action: `{first_suggested_action}`",
               f"- acknowledge_command_count: `{per_domain_acknowledge_command_count}`",
               f"- first_acknowledge_command: `{first_per_domain_acknowledge_command}`",
               f"- rerun_command_count: `{rerun_command_count}`",
@@ -815,6 +825,13 @@ jobs:
             "why_not_later": why_not_later,
             "runtime_error": None if runtime_error == "none" else runtime_error,
           }
+          suggested_actions = [
+            str(item).strip()
+            for item in list(summary_payload.get("suggested_actions") or [])
+            if str(item).strip()
+          ]
+          suggested_action_count = len(suggested_actions)
+          first_suggested_action = suggested_actions[0] if suggested_actions else "none"
 
           existing_bundle = dict(summary_payload.get("operator_ack_bundle") or {})
           bundle_commands = [
@@ -854,6 +871,8 @@ jobs:
           summary_payload["rerun_preview_commands"] = rerun_preview_commands
           summary_payload["rerun_command_count"] = rerun_command_count
           summary_payload["first_rerun_command"] = first_rerun_command
+          summary_payload["suggested_action_count"] = suggested_action_count
+          summary_payload["first_suggested_action"] = first_suggested_action
           summary_payload["cross_domain_interrupt_id"] = interrupt_id or None
           summary_payload["cross_domain_alert_path"] = str(alert_path)
           if summary_path:
@@ -866,6 +885,9 @@ jobs:
           payload["first_acknowledge_command"] = first_acknowledge_command
           payload["rerun_command_count"] = rerun_command_count
           payload["first_rerun_command"] = first_rerun_command
+          payload["suggested_actions"] = suggested_actions
+          payload["suggested_action_count"] = suggested_action_count
+          payload["first_suggested_action"] = first_suggested_action
           alert_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
           print(f"cross_domain_alert_path={alert_path}")
@@ -873,6 +895,8 @@ jobs:
           print(f"cross_domain_alert_created={1 if interrupt_id else 0}")
           print(f"cross_domain_acknowledge_command={acknowledge_command}")
           print(f"cross_domain_rerun_command={rerun_command}")
+          print(f"suggested_action_count={suggested_action_count}")
+          print(f"first_suggested_action={first_suggested_action}")
           print(f"acknowledge_command_count={bundle_command_count}")
           print(f"first_acknowledge_command={first_acknowledge_command}")
           print(f"rerun_command_count={rerun_command_count}")
@@ -887,6 +911,8 @@ jobs:
             handle.write(f"cross_domain_alert_created={1 if interrupt_id else 0}\n")
             handle.write(f"cross_domain_acknowledge_command={acknowledge_command}\n")
             handle.write(f"cross_domain_rerun_command={rerun_command}\n")
+            handle.write(f"suggested_action_count={suggested_action_count}\n")
+            handle.write(f"first_suggested_action={first_suggested_action}\n")
             handle.write(f"acknowledge_command_count={bundle_command_count}\n")
             handle.write(f"first_acknowledge_command={first_acknowledge_command}\n")
             handle.write(f"rerun_command_count={rerun_command_count}\n")
@@ -908,6 +934,8 @@ jobs:
               f"- top_risk_score: `{top_risk_score}`",
               f"- rerun_command: `{rerun_command}`",
               f"- acknowledge_command: `{acknowledge_command}`",
+              f"- suggested_action_count: `{suggested_action_count}`",
+              f"- first_suggested_action: `{first_suggested_action}`",
               f"- acknowledge_command_count: `{bundle_command_count}`",
               f"- first_acknowledge_command: `{first_acknowledge_command}`",
               f"- rerun_command_count: `{rerun_command_count}`",
