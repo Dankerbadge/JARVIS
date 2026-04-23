@@ -1063,6 +1063,10 @@ class CliImprovementPipelineTests(unittest.TestCase):
                                 "impact_score_delta": 2.5,
                                 "signal_count_current": 12,
                                 "signal_count_previous": 7,
+                                "evidence_samples_current": [
+                                    {"record_id": "seed_paywall_1"},
+                                    {"record_id": "seed_paywall_2"},
+                                ],
                             },
                             {
                                 "rank": 2,
@@ -1073,6 +1077,9 @@ class CliImprovementPipelineTests(unittest.TestCase):
                                 "impact_score_delta": 7.8,
                                 "signal_count_current": 6,
                                 "signal_count_previous": 0,
+                                "evidence_samples_current": [
+                                    {"record_id": "seed_onboarding_1"},
+                                ],
                             },
                         ],
                     },
@@ -1167,10 +1174,19 @@ class CliImprovementPipelineTests(unittest.TestCase):
 
             drafts = [dict(item) for item in list(draft_payload.get("drafts") or []) if isinstance(item, dict)]
             self.assertEqual(len(drafts), 2)
+            expected_evidence_ids_by_friction = {
+                "paywall_before_core_workout_trial": ["seed_paywall_1", "seed_paywall_2"],
+                "onboarding_plan_too_rigid_for_beginner_adherence": ["seed_onboarding_1"],
+            }
             for row in drafts:
                 self.assertEqual(int(row.get("target_sample_size") or 0), 200)
                 self.assertEqual(str(row.get("primary_metric") or ""), "retention_d30")
                 self.assertTrue(bool(list(row.get("guardrails") or [])))
+                friction_key = str(row.get("friction_key") or "")
+                self.assertEqual(
+                    list(row.get("seed_evidence_record_ids") or []),
+                    list(expected_evidence_ids_by_friction.get(friction_key) or []),
+                )
                 artifact_path = Path(str(row.get("artifact_path") or ""))
                 self.assertTrue(artifact_path.exists())
                 artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
@@ -1179,6 +1195,10 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 self.assertEqual(
                     str((metadata.get("success_criteria") or {}).get("metric") or ""),
                     "retention_d30",
+                )
+                self.assertEqual(
+                    list(metadata.get("seed_evidence_record_ids") or []),
+                    list(expected_evidence_ids_by_friction.get(friction_key) or []),
                 )
 
             updated_pipeline = json.loads(drafted_config_path.read_text(encoding="utf-8"))

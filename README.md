@@ -172,6 +172,9 @@ python3 -m jarvis.cli improvement daily-pipeline \
   --config-path ./configs/improvement_fitness_market_live_example.drafted.json
 ```
 
+When seed metadata includes evidence lineage, drafted artifact metadata now carries
+`seed_evidence_record_ids` so controlled tests remain traceable to concrete source records.
+
 Scheduling-friendly wrapper:
 
 ```bash

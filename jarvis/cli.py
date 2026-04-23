@@ -3619,6 +3619,7 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 "trend": trend,
                 "impact_score_current": round(impact_score_current, 4),
                 "impact_score_delta": round(impact_score_delta, 4),
+                "seed_evidence_record_ids": list(seed_evidence_record_ids),
             }
             created.append(created_entry)
             existing_by_key[friction_key] = hypothesis
@@ -3874,6 +3875,11 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
             source_by_hypothesis_id[hypothesis_id] = {
                 "seed_index": int(index),
                 "seed_reason": str(row.get("reason") or "seed_report_row"),
+                "seed_evidence_record_ids": [
+                    str(item).strip()
+                    for item in list(row.get("seed_evidence_record_ids") or [])
+                    if str(item).strip()
+                ],
             }
 
     domain_filter_raw = str(getattr(args, "domain", None) or domain_from_seed or domain_from_benchmark or "").strip().lower()
@@ -4037,6 +4043,23 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
             if not friction_key:
                 friction_key = _normalize_friction_key(hypothesis.get("title")) or f"hypothesis_{index + 1}"
             status_value = str(hypothesis.get("status") or "").strip().lower()
+            hypothesis_metadata = (
+                dict(hypothesis.get("metadata") or {})
+                if isinstance(hypothesis.get("metadata"), dict)
+                else {}
+            )
+            source_hint = dict(source_by_hypothesis_id.get(hypothesis_id) or {})
+            source_reason = str(source_hint.get("seed_reason") or "queued_hypothesis")
+            seed_evidence_record_ids: list[str] = []
+            for raw_ids in (
+                hypothesis_metadata.get("seed_evidence_record_ids"),
+                source_hint.get("seed_evidence_record_ids"),
+            ):
+                for item in list(raw_ids or []):
+                    value = str(item).strip()
+                    if not value or value in seed_evidence_record_ids:
+                        continue
+                    seed_evidence_record_ids.append(value)
 
             success_criteria = (
                 dict(hypothesis.get("success_criteria") or {})
@@ -4102,6 +4125,8 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
                     "success_criteria": success_criteria,
                     "target_sample_size": int(target_sample_size),
                     "guardrails": guardrails,
+                    "seed_source_reason": source_reason,
+                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
                 },
                 "notes": (
                     "Drafted controlled experiment artifact with bootstrap numeric placeholders. "
@@ -4131,9 +4156,6 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
             else:
                 job_artifact_path = str(artifact_path)
 
-            source_hint = dict(source_by_hypothesis_id.get(hypothesis_id) or {})
-            source_reason = str(source_hint.get("seed_reason") or "queued_hypothesis")
-
             job_entry: dict[str, Any] = {
                 "hypothesis_id": hypothesis_id,
                 "domain": domain,
@@ -4144,6 +4166,7 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
                 "compare_history": True,
                 "collect_debug": True,
                 "auto_retest_lane": True,
+                "seed_evidence_record_ids": list(seed_evidence_record_ids),
             }
 
             config_action = "not_requested"
@@ -4190,6 +4213,7 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
                     "direction": direction,
                     "min_effect": float(min_effect),
                     "guardrails": guardrails,
+                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
                     "source_hint": source_hint,
                 }
             )

@@ -97,6 +97,10 @@ The smoke wrapper resolves domain-specific defaults from config, runs:
 
 and writes `<domain>_smoke_summary.json` under the smoke output directory.
 
+Seeded evidence lineage (`seed_evidence_record_ids`) now propagates into
+drafted experiment artifact metadata so cross-domain controlled tests preserve
+source-record traceability.
+
 ## 2) Run full operator cycle
 
 ```bash
