@@ -10315,6 +10315,14 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
     ):
         _append_unique_string(desired_required_status_checks, value)
     desired_required_status_checks = sorted(desired_required_status_checks)
+    current_required_status_checks_strict = _coerce_bool(
+        status_checks.get("current_strict", status_checks.get("strict")),
+        default=False,
+    )
+    desired_required_status_checks_strict = _coerce_bool(
+        status_checks.get("desired_strict", current_required_status_checks_strict),
+        default=current_required_status_checks_strict,
+    )
 
     missing_required_status_checks = sorted(
         set(desired_required_status_checks) - set(current_required_status_checks)
@@ -10325,6 +10333,8 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
 
     required_status_checks_change_needed = bool(status_checks.get("change_needed"))
     if current_required_status_checks != desired_required_status_checks:
+        required_status_checks_change_needed = True
+    if current_required_status_checks_strict != desired_required_status_checks_strict:
         required_status_checks_change_needed = True
 
     current_required_status_checks_csv = ",".join(current_required_status_checks)
@@ -10345,6 +10355,10 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
         ]
         for context in desired_required_status_checks:
             rerun_parts.append(f"--required-status-check {context}")
+        rerun_parts.append(
+            "--required-status-check-strict "
+            + ("true" if desired_required_status_checks_strict else "false")
+        )
         rerun_parts.append("--apply")
         rerun_parts.append("> output/ci/codeowner_review_reconcile.json")
         rerun_command = " ".join(rerun_parts)
@@ -10355,6 +10369,8 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
         + f" required_status_checks_change_needed={required_status_checks_change_needed}"
         + f" missing_contexts={missing_required_status_checks_csv}"
         + f" extra_contexts={extra_required_status_checks_csv}"
+        + f" current_strict={str(current_required_status_checks_strict).lower()}"
+        + f" desired_strict={str(desired_required_status_checks_strict).lower()}"
     )
     why_now = (
         "required status-check drift means branch protection no longer enforces the baseline quality gates."
@@ -10408,6 +10424,8 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
                     "desired_required_status_checks": desired_required_status_checks,
                     "missing_required_status_checks": missing_required_status_checks,
                     "extra_required_status_checks": extra_required_status_checks,
+                    "current_required_status_checks_strict": bool(current_required_status_checks_strict),
+                    "desired_required_status_checks_strict": bool(desired_required_status_checks_strict),
                     "rerun_command": rerun_command,
                     "source_workflow_run_id": source_workflow_run_id or None,
                     "source_workflow_run_conclusion": source_workflow_run_conclusion or None,
@@ -10443,6 +10461,8 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
         "desired_required_status_checks": desired_required_status_checks,
         "missing_required_status_checks": missing_required_status_checks,
         "extra_required_status_checks": extra_required_status_checks,
+        "current_required_status_checks_strict": bool(current_required_status_checks_strict),
+        "desired_required_status_checks_strict": bool(desired_required_status_checks_strict),
         "current_required_status_checks_csv": current_required_status_checks_csv,
         "desired_required_status_checks_csv": desired_required_status_checks_csv,
         "missing_required_status_checks_csv": missing_required_status_checks_csv,
