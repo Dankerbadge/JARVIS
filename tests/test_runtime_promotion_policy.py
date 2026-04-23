@@ -12,7 +12,11 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from jarvis.cli import cmd_plans_gate_status, cmd_plans_gate_status_all
+from jarvis.cli import (
+    _build_gate_status_all_ci_json_payload,
+    cmd_plans_gate_status,
+    cmd_plans_gate_status_all,
+)
 from jarvis.models import utc_now_iso
 from jarvis.interrupts import InterruptDecision
 from jarvis.providers.base import ProviderReviewArtifact, ReviewFeedbackSnapshot, ReviewStatusSnapshot
@@ -192,6 +196,36 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
         _git(str(repo), "remote", "add", "origin", str(remote))
         _git(str(repo), "push", "-u", "origin", "main")
         return repo, remote
+
+    def test_gate_status_all_ci_json_payload_normalizes_first_unlock_ready_command(self) -> None:
+        payload = _build_gate_status_all_ci_json_payload(
+            {
+                "only_blocked": False,
+                "only_unlock_ready": False,
+                "scanned_review_count": 0,
+                "evaluated_step_count": 0,
+                "visible_step_count": 0,
+                "blocked_step_count": 0,
+                "unlock_ready_step_count": 0,
+                "error_count": 0,
+                "exit_reason": "none",
+                "exit_code": 0,
+                "exit_triggered": False,
+                "blocked_exit_triggered": False,
+                "error_exit_triggered": False,
+                "zero_scanned_exit_triggered": False,
+                "zero_evaluated_exit_triggered": False,
+                "zero_unlock_ready_exit_triggered": False,
+                "empty_ack_commands_exit_triggered": False,
+                "blocked_steps": [],
+                "unlock_ready_steps": [],
+                "unlock_ready_commands": [],
+                "acknowledge_commands": [],
+                "errors": [],
+                "next_action": "",
+            }
+        )
+        self.assertEqual(str(payload.get("first_unlock_ready_command") or ""), "none")
 
     def test_promotion_policy_blocks_without_required_checks_override(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -680,6 +714,8 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                 self.assertGreaterEqual(int(payload_all.get("visible_step_count") or 0), 1)
                 self.assertGreaterEqual(int(payload_all.get("blocked_step_count") or 0), 1)
                 self.assertEqual(int(payload_all.get("unlock_ready_step_count") or 0), 0)
+                self.assertEqual(list(payload_all.get("unlock_ready_commands") or []), [])
+                self.assertEqual(str(payload_all.get("first_unlock_ready_command") or ""), "none")
                 self.assertEqual(int(payload_all.get("error_count") or 0), 0)
                 blocked_steps = list(payload_all.get("blocked_steps") or [])
                 self.assertGreaterEqual(len(blocked_steps), 1)
@@ -733,6 +769,7 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                 self.assertIn("# plans gate-status-all summary", ci_summary_text)
                 self.assertIn("- blocked_step_count: 1", ci_summary_text)
                 self.assertIn("- unlock_ready_step_count: 0", ci_summary_text)
+                self.assertIn("- first_unlock_ready_command: none", ci_summary_text)
                 self.assertIn("int_gate_status_critical_1", ci_summary_text)
                 self.assertIn(
                     "`python3 -m jarvis.cli interrupts acknowledge int_gate_status_critical_1 --actor operator`",
@@ -755,6 +792,8 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                 ci_json_payload = json.loads(ci_json_path.read_text(encoding="utf-8"))
                 self.assertEqual(int(ci_json_payload.get("blocked_step_count") or 0), 1)
                 self.assertEqual(int(ci_json_payload.get("unlock_ready_step_count") or 0), 0)
+                self.assertEqual(list(ci_json_payload.get("unlock_ready_commands") or []), [])
+                self.assertEqual(str(ci_json_payload.get("first_unlock_ready_command") or ""), "none")
                 self.assertEqual(int(ci_json_payload.get("error_count") or 0), 0)
                 self.assertEqual(str(ci_json_payload.get("exit_reason") or ""), "none")
                 self.assertEqual(int(ci_json_payload.get("exit_code") or 0), 0)
@@ -1192,6 +1231,7 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                 self.assertIn("empty_ack_commands_exit_code: 6", payload_all_text)
                 self.assertIn("blocked_step_count: 1", payload_all_text)
                 self.assertIn("unlock_ready_step_count: 0", payload_all_text)
+                self.assertIn("first_unlock_ready_command: none", payload_all_text)
                 self.assertIn("error_count: 0", payload_all_text)
                 self.assertIn("int_gate_status_critical_1", payload_all_text)
                 self.assertIn(
@@ -1227,9 +1267,15 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                 self.assertGreaterEqual(int(payload_all_unlock_ready.get("unlock_ready_step_count") or 0), 1)
                 unlock_ready_steps = list(payload_all_unlock_ready.get("unlock_ready_steps") or [])
                 self.assertGreaterEqual(len(unlock_ready_steps), 1)
+                expected_unlock_ready_command = f"python3 -m jarvis.cli plans promote-ready {plan.plan_id} {step.step_id}"
+                self.assertEqual(str(unlock_ready_steps[0].get("recheck_command") or ""), expected_unlock_ready_command)
                 self.assertEqual(
-                    str(unlock_ready_steps[0].get("recheck_command") or ""),
-                    f"python3 -m jarvis.cli plans promote-ready {plan.plan_id} {step.step_id}",
+                    list(payload_all_unlock_ready.get("unlock_ready_commands") or []),
+                    [expected_unlock_ready_command],
+                )
+                self.assertEqual(
+                    str(payload_all_unlock_ready.get("first_unlock_ready_command") or ""),
+                    expected_unlock_ready_command,
                 )
 
                 args_all_only_unlock_ready = argparse.Namespace(**vars(args_all_unlock_ready))

@@ -1050,8 +1050,8 @@ python3 -m jarvis.cli plans gate-status-all \
 ```
 
 The all-steps payload and CI summary now include `unlock_ready_step_count`,
-`unlock_ready_steps`, `acknowledge_command_count`, and
-`first_acknowledge_command`.
+`unlock_ready_steps`, `unlock_ready_commands`, `first_unlock_ready_command`,
+`acknowledge_command_count`, and `first_acknowledge_command`.
 Use `--only-unlock-ready` to restrict `gate_rows` to promotion-ready steps.
 Use `--fail-on-zero-unlock-ready` with `--zero-unlock-ready-exit-code` when CI should fail if no
 unlock-ready steps are discovered.

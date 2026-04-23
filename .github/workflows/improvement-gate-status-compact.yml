@@ -70,6 +70,8 @@ jobs:
               payload = {
                   "blocked_step_count": 0,
                   "unlock_ready_step_count": 0,
+                  "unlock_ready_commands": [],
+                  "first_unlock_ready_command": "none",
                   "acknowledge_commands": [],
                   "error_count": 1,
                   "exit_reason": "compact_artifact_missing",
@@ -78,6 +80,22 @@ jobs:
 
           blocked_step_count = int(payload.get("blocked_step_count") or 0)
           unlock_ready_step_count = int(payload.get("unlock_ready_step_count") or 0)
+          unlock_ready_commands = [
+              str(command).strip()
+              for command in list(payload.get("unlock_ready_commands") or [])
+              if str(command).strip()
+          ]
+          if not unlock_ready_commands:
+              unlock_ready_commands = [
+                  str((row or {}).get("recheck_command") or "").strip()
+                  for row in list(payload.get("unlock_ready_steps") or [])
+                  if str((row or {}).get("recheck_command") or "").strip()
+              ]
+          first_unlock_ready_command = (
+              str(payload.get("first_unlock_ready_command") or "").strip()
+              or (unlock_ready_commands[0] if unlock_ready_commands else "none")
+          )
+          first_unlock_ready_command_output = first_unlock_ready_command.replace("\n", " ").strip() or "none"
           acknowledge_commands = [
               str(command).strip()
               for command in list(payload.get("acknowledge_commands") or [])
@@ -93,6 +111,7 @@ jobs:
           print(f"artifact_path={artifact_path}")
           print(f"blocked_step_count={blocked_step_count}")
           print(f"unlock_ready_step_count={unlock_ready_step_count}")
+          print(f"first_unlock_ready_command={first_unlock_ready_command_output}")
           print(f"acknowledge_command_count={acknowledge_command_count}")
           print(f"first_acknowledge_command={first_acknowledge_command_output}")
           print(f"error_count={error_count}")
@@ -104,6 +123,7 @@ jobs:
               handle.write(f"artifact_path={artifact_path}\n")
               handle.write(f"blocked_step_count={blocked_step_count}\n")
               handle.write(f"unlock_ready_step_count={unlock_ready_step_count}\n")
+              handle.write(f"first_unlock_ready_command={first_unlock_ready_command_output}\n")
               handle.write(f"acknowledge_command_count={acknowledge_command_count}\n")
               handle.write(f"first_acknowledge_command={first_acknowledge_command_output}\n")
               handle.write(f"error_count={error_count}\n")
@@ -118,6 +138,7 @@ jobs:
                   "",
                   f"- blocked_step_count: `{blocked_step_count}`",
                   f"- unlock_ready_step_count: `{unlock_ready_step_count}`",
+                  f"- first_unlock_ready_command: `{first_unlock_ready_command_output}`",
                   f"- acknowledge_command_count: `{acknowledge_command_count}`",
                   f"- first_acknowledge_command: `{first_acknowledge_command_output}`",
                   f"- error_count: `{error_count}`",
@@ -147,7 +168,7 @@ jobs:
       - name: Healthy queue branch
         if: ${{ steps.gate.outputs.blocked_step_count == '0' && steps.gate.outputs.exit_reason == 'none' }}
         run: |
-          echo "No blocking critical drift alerts across scanned review steps (unlock_ready=${{ steps.gate.outputs.unlock_ready_step_count }})."
+          echo "No blocking critical drift alerts across scanned review steps (unlock_ready=${{ steps.gate.outputs.unlock_ready_step_count }}). First unlock-ready command: ${{ steps.gate.outputs.first_unlock_ready_command }}."
 
       - name: Zero unlock-ready branch
         if: ${{ steps.gate.outputs.exit_reason == 'zero_unlock_ready_steps' }}

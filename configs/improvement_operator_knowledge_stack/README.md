@@ -335,6 +335,7 @@ Copy that file into `.github/workflows/` to run `plans gate-status-all`, read
 - `steps.gate.outputs.exit_reason`
 - `steps.gate.outputs.blocked_step_count`
 - `steps.gate.outputs.unlock_ready_step_count`
+- `steps.gate.outputs.first_unlock_ready_command`
 - `steps.gate.outputs.acknowledge_command_count`
 - `steps.gate.outputs.first_acknowledge_command`
 

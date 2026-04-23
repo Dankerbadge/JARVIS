@@ -1644,6 +1644,14 @@ def _render_gate_status_payload_text(payload: dict[str, Any]) -> str:
 def _render_gate_status_all_ci_summary(payload: dict[str, Any]) -> str:
     blocked_steps = list(payload.get("blocked_steps") or [])
     unlock_ready_steps = list(payload.get("unlock_ready_steps") or [])
+    unlock_ready_commands = list(payload.get("unlock_ready_commands") or [])
+    normalized_unlock_ready_commands = [
+        str(command).strip() for command in unlock_ready_commands if str(command).strip()
+    ]
+    first_unlock_ready_command = (
+        str(payload.get("first_unlock_ready_command") or "").strip()
+        or (normalized_unlock_ready_commands[0] if normalized_unlock_ready_commands else "none")
+    )
     acknowledge_commands = list(payload.get("acknowledge_commands") or [])
     normalized_ack_commands = [str(command).strip() for command in acknowledge_commands if str(command).strip()]
     errors = list(payload.get("errors") or [])
@@ -1658,6 +1666,7 @@ def _render_gate_status_all_ci_summary(payload: dict[str, Any]) -> str:
         f"- visible_step_count: {int(payload.get('visible_step_count') or 0)}",
         f"- blocked_step_count: {int(payload.get('blocked_step_count') or 0)}",
         f"- unlock_ready_step_count: {int(payload.get('unlock_ready_step_count') or 0)}",
+        f"- first_unlock_ready_command: {first_unlock_ready_command}",
         f"- error_count: {int(payload.get('error_count') or 0)}",
         f"- exit_reason: {str(payload.get('exit_reason') or '')}",
         f"- exit_code: {int(payload.get('exit_code') or 0)}",
@@ -1710,6 +1719,14 @@ def _render_gate_status_all_ci_summary(payload: dict[str, Any]) -> str:
 
 
 def _build_gate_status_all_ci_json_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    unlock_ready_commands = [
+        str(command).strip() for command in list(payload.get("unlock_ready_commands") or []) if str(command).strip()
+    ]
+    first_unlock_ready_command = str(payload.get("first_unlock_ready_command") or "").strip()
+    if not first_unlock_ready_command and unlock_ready_commands:
+        first_unlock_ready_command = unlock_ready_commands[0]
+    if not first_unlock_ready_command:
+        first_unlock_ready_command = "none"
     return {
         "only_blocked": bool(payload.get("only_blocked")),
         "only_unlock_ready": bool(payload.get("only_unlock_ready")),
@@ -1745,6 +1762,8 @@ def _build_gate_status_all_ci_json_payload(payload: dict[str, Any]) -> dict[str,
             }
             for item in list(payload.get("unlock_ready_steps") or [])
         ],
+        "unlock_ready_commands": unlock_ready_commands,
+        "first_unlock_ready_command": first_unlock_ready_command,
         "acknowledge_commands": list(payload.get("acknowledge_commands") or []),
         "errors": [
             {
@@ -1878,6 +1897,15 @@ def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
             visible_rows = [row for row in visible_rows if bool(row.get("blocked"))]
         if only_unlock_ready:
             visible_rows = [row for row in visible_rows if bool(row.get("unlock_ready"))]
+        unlock_ready_commands: list[str] = []
+        seen_unlock_ready_commands: set[str] = set()
+        for row in unlock_ready_rows:
+            recheck_command = str(row.get("recheck_command") or "").strip()
+            if not recheck_command or recheck_command in seen_unlock_ready_commands:
+                continue
+            seen_unlock_ready_commands.add(recheck_command)
+            unlock_ready_commands.append(recheck_command)
+        first_unlock_ready_command = unlock_ready_commands[0] if unlock_ready_commands else "none"
         blocked_exit_triggered = fail_on_blocked and bool(blocked_rows)
         error_exit_triggered = fail_on_errors and bool(errors)
         zero_scanned_exit_triggered = fail_on_zero_scanned and len(review_refs) == 0
@@ -1956,6 +1984,8 @@ def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
                 }
                 for item in unlock_ready_rows
             ],
+            "unlock_ready_commands": unlock_ready_commands,
+            "first_unlock_ready_command": first_unlock_ready_command,
             "acknowledge_commands": deduped_ack_commands,
             "errors": errors,
             "next_action": next_action,
@@ -2005,6 +2035,7 @@ def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
                 f"visible_step_count: {int(payload['visible_step_count'])}",
                 f"blocked_step_count: {int(payload['blocked_step_count'])}",
                 f"unlock_ready_step_count: {int(payload['unlock_ready_step_count'])}",
+                f"first_unlock_ready_command: {first_unlock_ready_command}",
                 f"error_count: {int(payload['error_count'])}",
             ]
             lines.append("blocker_queue:")
