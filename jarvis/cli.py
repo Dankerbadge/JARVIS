@@ -8304,6 +8304,131 @@ def _append_unique_string(items: list[str], value: Any) -> None:
         items.append(candidate)
 
 
+def cmd_improvement_domain_smoke_outputs(args: argparse.Namespace) -> None:
+    domain = (
+        str(getattr(args, "domain", None) or os.getenv("MATRIX_DOMAIN") or "unknown")
+        .strip()
+        .lower()
+        or "unknown"
+    )
+    artifact_root = (
+        args.artifact_root.resolve()
+        if getattr(args, "artifact_root", None) is not None
+        else Path("output/ci/domain_smoke").resolve()
+    )
+    summary_path = (
+        args.summary_path.resolve()
+        if getattr(args, "summary_path", None) is not None
+        else (artifact_root / domain / f"{domain}_smoke_summary.json").resolve()
+    )
+
+    payload: dict[str, Any] = {}
+    if summary_path.exists():
+        try:
+            loaded = json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            loaded = {}
+        if isinstance(loaded, dict):
+            payload = dict(loaded)
+    else:
+        payload = {
+            "status": "warning",
+            "domain": domain,
+            "reason": "domain_smoke_summary_missing",
+            "pull_report_path": None,
+            "leaderboard_report_path": None,
+            "seed_report_path": None,
+        }
+
+    status = str(payload.get("status") or "warning").strip().lower() or "warning"
+    reported_domain = str(payload.get("domain") or "").strip().lower()
+    pull_report_path = str(payload.get("pull_report_path") or "none").strip() or "none"
+    leaderboard_report_path = str(payload.get("leaderboard_report_path") or "none").strip() or "none"
+    seed_report_path = str(payload.get("seed_report_path") or "none").strip() or "none"
+
+    reason = "none"
+    smoke_blocking = 0
+    if not summary_path.exists():
+        status = "warning"
+        reason = "domain_smoke_summary_missing"
+        smoke_blocking = 1
+    elif not reported_domain:
+        status = "warning"
+        reason = "domain_smoke_domain_missing"
+        smoke_blocking = 1
+    elif reported_domain != domain:
+        status = "warning"
+        reason = f"domain_smoke_domain_mismatch:{reported_domain}"
+        smoke_blocking = 1
+    elif status != "ok":
+        reason = f"domain_smoke_status_not_ok:{status}"
+        smoke_blocking = 1
+
+    normalized: dict[str, Any] = {
+        "domain": domain,
+        "summary_path": str(summary_path),
+        "status": status,
+        "reported_domain": reported_domain or "none",
+        "reason": reason,
+        "smoke_blocking": int(smoke_blocking),
+        "pull_report_path": pull_report_path,
+        "leaderboard_report_path": leaderboard_report_path,
+        "seed_report_path": seed_report_path,
+    }
+
+    output_path = (
+        args.output_path.resolve()
+        if getattr(args, "output_path", None) is not None
+        else None
+    )
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(normalized, indent=2), encoding="utf-8")
+        normalized["output_path"] = str(output_path)
+
+    if bool(getattr(args, "emit_github_output", False)):
+        output_lines = [
+            f"domain={domain}",
+            f"summary_path={summary_path}",
+            f"status={status}",
+            f"reported_domain={reported_domain or 'none'}",
+            f"reason={reason}",
+            f"smoke_blocking={smoke_blocking}",
+            f"pull_report_path={pull_report_path}",
+            f"leaderboard_report_path={leaderboard_report_path}",
+            f"seed_report_path={seed_report_path}",
+        ]
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_output = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                    f"- domain: `{domain}`",
+                    f"- status: `{status}`",
+                    f"- reason: `{reason}`",
+                    f"- summary_path: `{summary_path}`",
+                    f"- pull_report_path: `{pull_report_path}`",
+                    f"- leaderboard_report_path: `{leaderboard_report_path}`",
+                    f"- seed_report_path: `{seed_report_path}`",
+                    "",
+                ]
+                with summary_output.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
+    _print_json_payload(
+        normalized,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+
+
 def cmd_improvement_controlled_matrix_compact(args: argparse.Namespace) -> None:
     artifact_root = (
         args.artifact_root.resolve()
@@ -14619,6 +14744,37 @@ def main() -> None:
     improvement_verify_matrix_alert.add_argument("--repo-path", type=Path, default=_default_repo_path())
     improvement_verify_matrix_alert.add_argument("--db-path", type=Path, default=_default_db_path())
 
+    improvement_domain_smoke_outputs = improvement_sub.add_parser(
+        "domain-smoke-outputs",
+        help="Extract normalized domain-smoke status outputs from per-domain smoke summary artifacts",
+    )
+    improvement_domain_smoke_outputs.add_argument("--domain", type=str, default=None)
+    improvement_domain_smoke_outputs.add_argument(
+        "--artifact-root",
+        type=Path,
+        default=Path("output/ci/domain_smoke"),
+        help="Artifact root directory for per-domain smoke artifacts",
+    )
+    improvement_domain_smoke_outputs.add_argument(
+        "--summary-path",
+        type=Path,
+        default=None,
+        help="Optional explicit smoke summary path (defaults under artifact root by domain)",
+    )
+    improvement_domain_smoke_outputs.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit normalized smoke output fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_domain_smoke_outputs.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
+    )
+    improvement_domain_smoke_outputs.add_argument("--output-path", type=Path, default=None)
+    improvement_domain_smoke_outputs.add_argument("--json-compact", action="store_true")
+
     improvement_controlled_matrix_compact = improvement_sub.add_parser(
         "controlled-matrix-compact",
         help="Build compact controlled-matrix drift summary JSON/Markdown artifacts from verify-matrix-alert output",
@@ -15262,6 +15418,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "verify-matrix-alert":
         cmd_improvement_verify_matrix_alert(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "domain-smoke-outputs":
+        cmd_improvement_domain_smoke_outputs(args)
         return
     if args.cmd == "improvement" and args.improvement_cmd == "controlled-matrix-compact":
         cmd_improvement_controlled_matrix_compact(args)

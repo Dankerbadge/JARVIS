@@ -305,6 +305,8 @@ into `output/ci/` for run-level debug traceability.
 four-domain matrix (`quant_finance`, `kalshi_weather`, `fitness_apps`,
 `market_ml`), executes `run_improvement_domain_smoke.sh` for each lane, and
 uploads per-domain artifacts from `output/ci/domain_smoke/<domain>/`.
+The lane output extraction adapter is command-driven via
+`python3 -m jarvis.cli improvement domain-smoke-outputs --emit-github-output --summary-heading "Domain Smoke"`.
 When a lane is blocking, it also writes `<domain>_smoke_alert.json`,
 auto-creates a delivered interrupt in lane-local `jarvis.db`, and emits both
 an `acknowledge_command` and a direct smoke-loop `rerun_command`.

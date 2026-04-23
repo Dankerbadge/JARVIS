@@ -16,6 +16,7 @@ from jarvis.cli import (
     cmd_improvement_controlled_matrix_compact,
     cmd_improvement_controlled_matrix_runtime_alert,
     cmd_improvement_daily_pipeline,
+    cmd_improvement_domain_smoke_outputs,
     cmd_improvement_draft_experiment_jobs,
     cmd_improvement_execute_retests,
     cmd_improvement_fitness_leaderboard,
@@ -8861,6 +8862,87 @@ class CliImprovementPipelineTests(unittest.TestCase):
             alert = dict(payload.get("alert") or {})
             self.assertEqual(float(alert.get("urgency_score") or 0.0), 0.9)
             self.assertEqual(float(alert.get("confidence") or 0.0), 0.86)
+
+    def test_domain_smoke_outputs_emits_github_outputs_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            domain = "fitness_apps"
+            artifact_root = root / "output" / "ci" / "domain_smoke"
+            summary_path = artifact_root / domain / f"{domain}_smoke_summary.json"
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "domain": domain,
+                        "pull_report_path": str((summary_path.parent / "pull_report.json").resolve()),
+                        "leaderboard_report_path": str((summary_path.parent / "leaderboard_report.json").resolve()),
+                        "seed_report_path": str((summary_path.parent / "seed_report.json").resolve()),
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            args = argparse.Namespace(
+                domain=domain,
+                artifact_root=artifact_root,
+                summary_path=None,
+                emit_github_output=True,
+                summary_heading="Domain Smoke",
+                output_path=None,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_domain_smoke_outputs(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("domain") or ""), domain)
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("reported_domain") or ""), domain)
+            self.assertEqual(str(payload.get("reason") or ""), "none")
+            self.assertEqual(int(payload.get("smoke_blocking") or 0), 0)
+            self.assertEqual(str(payload.get("summary_path") or ""), str(summary_path.resolve()))
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"domain={domain}", output_lines)
+            self.assertIn(f"summary_path={summary_path.resolve()}", output_lines)
+            self.assertIn("status=ok", output_lines)
+            self.assertIn(f"reported_domain={domain}", output_lines)
+            self.assertIn("reason=none", output_lines)
+            self.assertIn("smoke_blocking=0", output_lines)
+            self.assertIn(
+                f"pull_report_path={str((summary_path.parent / 'pull_report.json').resolve())}",
+                output_lines,
+            )
+            self.assertIn(
+                f"leaderboard_report_path={str((summary_path.parent / 'leaderboard_report.json').resolve())}",
+                output_lines,
+            )
+            self.assertIn(
+                f"seed_report_path={str((summary_path.parent / 'seed_report.json').resolve())}",
+                output_lines,
+            )
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Domain Smoke", summary)
+            self.assertIn(f"- domain: `{domain}`", summary)
+            self.assertIn("- status: `ok`", summary)
+            self.assertIn("- reason: `none`", summary)
+            self.assertIn(f"- summary_path: `{summary_path.resolve()}`", summary)
 
     def test_controlled_matrix_compact_emits_github_outputs_and_summary(self) -> None:
         with tempfile.TemporaryDirectory() as td:
