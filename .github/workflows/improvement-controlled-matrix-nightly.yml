@@ -324,6 +324,267 @@ jobs:
               handle.write("\n".join(summary_lines) + "\n")
           PY
 
+      - name: Open controlled matrix runtime interrupt alert
+        if: ${{ always() && (steps.daily.outcome != 'success' || steps.matrix.outputs.matrix_status != 'ok') && steps.matrix.outputs.matrix_interrupt_id == 'none' }}
+        id: matrix_runtime_alert
+        env:
+          DAILY_OUTCOME: ${{ steps.daily.outcome }}
+          MATRIX_STATUS: ${{ steps.matrix.outputs.matrix_status }}
+          DRIFT_SEVERITY: ${{ steps.matrix.outputs.drift_severity }}
+          MATRIX_SUMMARY_PATH: ${{ steps.matrix.outputs.matrix_summary_path }}
+          FIRST_REPAIR_COMMAND: ${{ steps.matrix.outputs.first_repair_command }}
+          FIRST_SUGGESTED_ACTION: ${{ steps.matrix.outputs.first_suggested_action }}
+          RERUN_COMMAND: ${{ steps.matrix.outputs.rerun_command }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          from jarvis.ids import new_id
+          from jarvis.interrupts import InterruptDecision
+          from jarvis.runtime import JarvisRuntime
+
+          def _append_unique(items, value):
+            value = str(value or "").strip()
+            if value and value not in items:
+              items.append(value)
+
+          summary_path = Path(str(os.getenv("MATRIX_SUMMARY_PATH") or "")).expanduser().resolve()
+          summary_payload = {}
+          if summary_path.exists():
+            try:
+              loaded = json.loads(summary_path.read_text(encoding="utf-8"))
+            except Exception:
+              loaded = {}
+            if isinstance(loaded, dict):
+              summary_payload = loaded
+
+          daily_outcome = str(os.getenv("DAILY_OUTCOME") or "unknown").strip().lower() or "unknown"
+          matrix_status = str(
+            os.getenv("MATRIX_STATUS")
+            or summary_payload.get("status")
+            or "warning"
+          ).strip().lower() or "warning"
+          drift_severity = str(
+            os.getenv("DRIFT_SEVERITY")
+            or summary_payload.get("drift_severity")
+            or "unknown"
+          ).strip().lower() or "unknown"
+          first_repair_command = str(
+            os.getenv("FIRST_REPAIR_COMMAND")
+            or summary_payload.get("first_repair_command")
+            or ""
+          ).strip()
+          rerun_command = str(
+            os.getenv("RERUN_COMMAND")
+            or summary_payload.get("rerun_command")
+            or ""
+          ).strip()
+          if not first_repair_command:
+            first_repair_command = rerun_command
+          if not first_repair_command:
+            first_repair_command = (
+              "./scripts/run_improvement_verify_matrix_alert.sh "
+              "./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json "
+              "output/ci/controlled_matrix/daily_pipeline_report.json "
+              "--output-path output/ci/controlled_matrix/verify_matrix_alert_report.json "
+              "--json-compact --alert-domain operations --alert-max-items 4"
+            )
+          first_suggested_action = str(
+            os.getenv("FIRST_SUGGESTED_ACTION")
+            or summary_payload.get("first_suggested_action")
+            or f"rerun controlled matrix triage: {first_repair_command}"
+          ).strip() or f"rerun controlled matrix triage: {first_repair_command}"
+
+          alert_path = Path("output/ci/controlled_matrix/controlled_matrix_runtime_alert.json").resolve()
+          alert_path.parent.mkdir(parents=True, exist_ok=True)
+          db_path = (alert_path.parent / "jarvis.db").resolve()
+
+          reason = (
+            "controlled_matrix_runtime_gate_failure"
+            + f" daily_outcome={daily_outcome}"
+            + f" matrix_status={matrix_status}"
+            + f" drift_severity={drift_severity}"
+          )
+          why_now = (
+            "controlled matrix validation failed without a direct matrix interrupt and requires "
+            "immediate operator triage to restore reliable hypothesis testing cadence."
+          )
+          why_not_later = (
+            "delaying controlled matrix runtime triage can leave quant, Kalshi weather, fitness, "
+            "and market-ml validation coverage stale."
+          )
+
+          interrupt_id = ""
+          acknowledge_command = "none"
+          runtime_error = "none"
+          runtime = None
+          try:
+            runtime = JarvisRuntime(
+              db_path=db_path,
+              repo_path=Path.cwd(),
+            )
+            urgency_score = 0.97 if daily_outcome != "success" else 0.93
+            confidence = 0.92 if matrix_status != "ok" else 0.88
+            decision = InterruptDecision(
+              interrupt_id=new_id("int"),
+              candidate_id=new_id("cand"),
+              domain="operations",
+              reason=reason,
+              urgency_score=urgency_score,
+              confidence=confidence,
+              suppression_window_hit=False,
+              delivered=True,
+              why_now=why_now,
+              why_not_later=why_not_later,
+              status="delivered",
+            )
+            runtime.interrupt_store.store(decision)
+            interrupt = runtime.interrupt_store.get(decision.interrupt_id) or decision.to_dict()
+            interrupt_id = str(interrupt.get("interrupt_id") or "").strip()
+            if interrupt_id:
+              acknowledge_command = (
+                "python3 -m jarvis.cli interrupts acknowledge "
+                f"{interrupt_id} --actor operator --db-path {db_path}"
+              )
+            runtime.memory.append_event(
+              "improvement.controlled_matrix_runtime_alert_created",
+              {
+                "interrupt_id": interrupt_id or None,
+                "summary_path": str(summary_path),
+                "daily_outcome": daily_outcome,
+                "matrix_status": matrix_status,
+                "drift_severity": drift_severity,
+                "first_repair_command": first_repair_command,
+              },
+            )
+          except Exception as exc:  # pragma: no cover - workflow inline guard
+            runtime_error = str(exc).strip() or "unknown_runtime_error"
+          finally:
+            if runtime is not None:
+              runtime.close()
+
+          payload = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "status": "warning",
+            "daily_outcome": daily_outcome,
+            "matrix_status": matrix_status,
+            "drift_severity": drift_severity,
+            "summary_path": str(summary_path),
+            "alert_created": bool(interrupt_id),
+            "interrupt_id": interrupt_id or None,
+            "interrupt_db_path": str(db_path),
+            "acknowledge_command": None if acknowledge_command == "none" else acknowledge_command,
+            "first_repair_command": first_repair_command,
+            "first_suggested_action": first_suggested_action,
+            "reason": reason,
+            "why_now": why_now,
+            "why_not_later": why_not_later,
+            "runtime_error": None if runtime_error == "none" else runtime_error,
+          }
+          alert_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+          if summary_path and summary_payload:
+            summary_payload["runtime_alert_path"] = str(alert_path)
+            summary_payload["runtime_alert_created"] = bool(interrupt_id)
+            summary_payload["runtime_interrupt_id"] = interrupt_id or None
+            summary_payload["runtime_acknowledge_command"] = (
+              None if acknowledge_command == "none" else acknowledge_command
+            )
+            summary_payload["runtime_first_repair_command"] = first_repair_command
+            summary_payload["runtime_error"] = None if runtime_error == "none" else runtime_error
+
+            acknowledge_commands = [
+              str(command).strip()
+              for command in list(summary_payload.get("acknowledge_commands") or [])
+              if str(command).strip()
+            ]
+            if acknowledge_command != "none":
+              _append_unique(acknowledge_commands, acknowledge_command)
+            summary_payload["acknowledge_commands"] = acknowledge_commands
+            summary_payload["acknowledge_command_count"] = len(acknowledge_commands)
+            summary_payload["first_acknowledge_command"] = (
+              acknowledge_commands[0] if acknowledge_commands else "none"
+            )
+
+            repair_commands = [
+              str(command).strip()
+              for command in list(summary_payload.get("repair_commands") or [])
+              if str(command).strip()
+            ]
+            if not repair_commands:
+              repair_commands = list(acknowledge_commands)
+            _append_unique(repair_commands, first_repair_command)
+            summary_payload["repair_commands"] = repair_commands
+            summary_payload["repair_command_count"] = len(repair_commands)
+            summary_payload["first_repair_command"] = (
+              repair_commands[0] if repair_commands else first_repair_command
+            )
+            repair_sequence = " && ".join(repair_commands) if repair_commands else "none"
+            summary_payload["operator_ack_bundle"] = {
+              "status": "ready" if repair_commands else "empty",
+              "command_count": len(repair_commands),
+              "commands": repair_commands,
+              "command_sequence": repair_sequence,
+              "first_command": repair_commands[0] if repair_commands else None,
+            }
+            summary_payload["operator_ack_bundle_command_sequence"] = repair_sequence
+
+            suggested_actions = [
+              str(action).strip()
+              for action in list(summary_payload.get("suggested_actions") or [])
+              if str(action).strip()
+            ]
+            _append_unique(suggested_actions, first_suggested_action)
+            if acknowledge_command != "none":
+              _append_unique(suggested_actions, f"[runtime] acknowledge interrupt: {acknowledge_command}")
+            _append_unique(suggested_actions, f"[runtime] repair command: {first_repair_command}")
+            summary_payload["suggested_actions"] = suggested_actions
+            summary_payload["suggested_action_count"] = len(suggested_actions)
+            summary_payload["first_suggested_action"] = (
+              suggested_actions[0] if suggested_actions else "none"
+            )
+
+            summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
+
+          print(f"matrix_runtime_alert_path={alert_path}")
+          print(f"matrix_runtime_interrupt_id={interrupt_id or 'none'}")
+          print(f"matrix_runtime_alert_created={1 if interrupt_id else 0}")
+          print(f"matrix_runtime_acknowledge_command={acknowledge_command}")
+          print(f"matrix_runtime_first_repair_command={first_repair_command}")
+          print(f"matrix_runtime_error={runtime_error}")
+
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as handle:
+            handle.write(f"matrix_runtime_alert_path={alert_path}\n")
+            handle.write(f"matrix_runtime_interrupt_id={interrupt_id or 'none'}\n")
+            handle.write(f"matrix_runtime_alert_created={1 if interrupt_id else 0}\n")
+            handle.write(f"matrix_runtime_acknowledge_command={acknowledge_command}\n")
+            handle.write(f"matrix_runtime_first_repair_command={first_repair_command}\n")
+            handle.write(f"matrix_runtime_error={runtime_error}\n")
+
+          github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+          if github_step_summary:
+            summary_output = Path(github_step_summary).expanduser()
+            summary_lines = [
+              "## Controlled Matrix Runtime Interrupt Alert",
+              "",
+              f"- interrupt_id: `{interrupt_id or 'none'}`",
+              f"- alert_created: `{1 if interrupt_id else 0}`",
+              f"- daily_outcome: `{daily_outcome}`",
+              f"- matrix_status: `{matrix_status}`",
+              f"- drift_severity: `{drift_severity}`",
+              f"- acknowledge_command: `{acknowledge_command}`",
+              f"- first_repair_command: `{first_repair_command}`",
+              f"- runtime_error: `{runtime_error}`",
+              "",
+            ]
+            with summary_output.open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(summary_lines) + "\n")
+          PY
+
       - name: Collect debug trace artifacts
         if: always()
         run: |
@@ -348,5 +609,5 @@ jobs:
       - name: Fail on controlled matrix drift
         if: ${{ always() && (steps.daily.outcome != 'success' || steps.matrix.outputs.matrix_status != 'ok') }}
         run: |
-          echo "controlled matrix drift gate failed (daily_outcome=${{ steps.daily.outcome }}, matrix_status=${{ steps.matrix.outputs.matrix_status }}, first_repair=${{ steps.matrix.outputs.first_repair_command }})"
+          echo "controlled matrix drift gate failed (daily_outcome=${{ steps.daily.outcome }}, matrix_status=${{ steps.matrix.outputs.matrix_status }}, matrix_interrupt_id=${{ steps.matrix.outputs.matrix_interrupt_id }}, runtime_interrupt_id=${{ steps.matrix_runtime_alert.outputs.matrix_runtime_interrupt_id }}, first_repair=${{ steps.matrix.outputs.first_repair_command }}, runtime_first_repair=${{ steps.matrix_runtime_alert.outputs.matrix_runtime_first_repair_command }}, first_suggested=${{ steps.matrix.outputs.first_suggested_action }})"
           exit 1

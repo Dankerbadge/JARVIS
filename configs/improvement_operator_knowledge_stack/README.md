@@ -318,9 +318,14 @@ For compact triage, the summary includes `acknowledge_command_count` and
 `suggested_action_count` / `first_suggested_action`,
 `mitigation_action_count` / `first_mitigation_action`, and
 `top_scenario_count` / `first_top_scenario`.
+When drift gating fails without a pre-existing matrix interrupt, it also writes
+`output/ci/controlled_matrix/controlled_matrix_runtime_alert.json`, opens a
+delivered operations interrupt, and appends runtime fields to summary payload
+(`runtime_alert_path`, `runtime_interrupt_id`, `runtime_acknowledge_command`,
+`runtime_first_repair_command`).
 The workflow uploads those artifacts under `controlled-matrix-validation` and
 fails when either the daily pipeline step fails or controlled matrix status is
-not `ok`.
+not `ok`, printing matrix/runtime interrupt ids and repair command hints.
 
 Copy that file into `.github/workflows/` to run `plans gate-status-all`, read
 `output/ci/gate_status_all_compact.json`, and branch on:
