@@ -673,6 +673,8 @@ required status-check baselines drift, and fails with repair guidance before
 the mutating reconcile workflow runs. The mutating workflow is chained via
 `workflow_run` and only auto-runs when the drift-check workflow concludes
 `success` (no direct `workflow_dispatch` on the mutating workflow).
+The reconcile workflow includes a trigger-event guard step that fails loudly
+if `github.event_name` is ever anything other than `workflow_run`.
 The drift-check dry-run command injects source provenance via
 `--source-workflow-run-id`, `--source-workflow-run-conclusion`,
 `--source-workflow-name`, `--source-workflow-event`, and
@@ -1222,6 +1224,8 @@ It runs before auto-apply reconciliation, opens an operations interrupt via
 `improvement reconcile-codeowner-review-gate-runtime-alert` when
 `required_status_checks_change_needed=true`, and fails with compact
 current/desired status-check context outputs.
+The mutating reconcile workflow enforces a runtime event guard so any future
+non-`workflow_run` execution attempt fails immediately.
 Its dry-run call to `reconcile_codeowner_review_gate.sh` passes
 `--source-workflow-run-id`, `--source-workflow-run-conclusion`,
 `--source-workflow-name`, `--source-workflow-event`, and

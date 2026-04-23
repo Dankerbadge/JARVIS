@@ -526,6 +526,8 @@ reconciliation for baseline improvement checks:
 `improvement-evidence-lane-smoke`.
 The mutating reconcile workflow intentionally has no direct
 `workflow_dispatch`; manual runs start from the drift-check workflow.
+It also has a runtime trigger-event guard that fails if
+`github.event_name` is anything other than `workflow_run`.
 The dry-run drift-check workflow runs before auto-apply reconcile,
 uses `improvement reconcile-codeowner-review-gate-runtime-alert` to open
 an operations interrupt when required status-check contexts drift, and fails
