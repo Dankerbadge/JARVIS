@@ -2847,6 +2847,14 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertIn("--verify-matrix-enable", recheck_command)
             self.assertIn("--verify-matrix-alert-enable", recheck_command)
             self.assertIn("--verify-matrix-path", recheck_command)
+            self.assertEqual(
+                list(promotion_lock.get("unlock_ready_commands") or []),
+                [recheck_command],
+            )
+            self.assertEqual(
+                str(promotion_lock.get("first_unlock_ready_command") or ""),
+                recheck_command,
+            )
 
             self.assertEqual(list(payload.get("promotions") or []), [])
             blocked_promotions = [dict(item) for item in list(payload.get("blocked_promotions") or []) if isinstance(item, dict)]
@@ -2863,6 +2871,14 @@ class CliImprovementPipelineTests(unittest.TestCase):
             unlock_ack_commands = [str(item) for item in list(unlock_readiness.get("acknowledge_commands") or [])]
             self.assertTrue(any(alert_interrupt_id in item for item in unlock_ack_commands))
             self.assertEqual(str(unlock_readiness.get("recheck_command") or ""), recheck_command)
+            self.assertEqual(
+                list(unlock_readiness.get("unlock_ready_commands") or []),
+                [recheck_command],
+            )
+            self.assertEqual(
+                str(unlock_readiness.get("first_unlock_ready_command") or ""),
+                recheck_command,
+            )
             self.assertEqual(int((payload.get("metrics") or {}).get("blocked_promotion_count") or 0), 1)
             self.assertEqual(int((payload.get("metrics") or {}).get("promotion_count") or 0), 0)
 
@@ -2870,6 +2886,19 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertTrue(verify_alert_report_path.exists())
             verify_alert_report = json.loads(verify_alert_report_path.read_text(encoding="utf-8"))
             self.assertTrue(bool(verify_alert_report.get("alert_created")))
+
+            operator_report_path = Path(str(payload.get("operator_report_path") or ""))
+            self.assertTrue(operator_report_path.exists())
+            operator_report = json.loads(operator_report_path.read_text(encoding="utf-8"))
+            report_promotion_lock = dict(operator_report.get("promotion_lock") or {})
+            self.assertEqual(
+                list(report_promotion_lock.get("unlock_ready_commands") or []),
+                [recheck_command],
+            )
+            self.assertEqual(
+                str(report_promotion_lock.get("first_unlock_ready_command") or ""),
+                recheck_command,
+            )
 
             inbox_summary_path = Path(str(payload.get("inbox_summary_path") or ""))
             self.assertTrue(inbox_summary_path.exists())
@@ -2880,6 +2909,15 @@ class CliImprovementPipelineTests(unittest.TestCase):
             )
             self.assertTrue(bool(((inbox_summary.get("verify_matrix_alert") or {}).get("alert_created"))))
             self.assertTrue(bool(((inbox_summary.get("promotion_lock") or {}).get("active"))))
+            summary_promotion_lock = dict(inbox_summary.get("promotion_lock") or {})
+            self.assertEqual(
+                list(summary_promotion_lock.get("unlock_ready_commands") or []),
+                [recheck_command],
+            )
+            self.assertEqual(
+                str(summary_promotion_lock.get("first_unlock_ready_command") or ""),
+                recheck_command,
+            )
             self.assertEqual(list(inbox_summary.get("promotions") or []), [])
             summary_blocked_promotions = [
                 dict(item) for item in list(inbox_summary.get("blocked_promotions") or []) if isinstance(item, dict)
@@ -2887,6 +2925,14 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(len(summary_blocked_promotions), 1)
             summary_unlock = dict(summary_blocked_promotions[0].get("unlock_readiness") or {})
             self.assertEqual(str(summary_unlock.get("recheck_command") or ""), recheck_command)
+            self.assertEqual(
+                list(summary_unlock.get("unlock_ready_commands") or []),
+                [recheck_command],
+            )
+            self.assertEqual(
+                str(summary_unlock.get("first_unlock_ready_command") or ""),
+                recheck_command,
+            )
             self.assertFalse(bool(summary_unlock.get("unlock_ready")))
 
     def test_operator_cycle_runs_knowledge_brief_delta_alert_stage(self) -> None:
@@ -4050,6 +4096,15 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 str((promotion_lock.get("blocking_interrupt_statuses") or {}).get(acknowledged_interrupt_id) or ""),
                 "acknowledged",
             )
+            recheck_command = str(promotion_lock.get("recheck_command") or "")
+            self.assertEqual(
+                list(promotion_lock.get("unlock_ready_commands") or []),
+                [recheck_command],
+            )
+            self.assertEqual(
+                str(promotion_lock.get("first_unlock_ready_command") or ""),
+                recheck_command,
+            )
 
             blocked_promotions = [dict(item) for item in list(payload.get("blocked_promotions") or []) if isinstance(item, dict)]
             self.assertEqual(len(blocked_promotions), 1)
@@ -4062,6 +4117,14 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 "acknowledged",
             )
             self.assertIn(ack_command, list(unlock_readiness.get("acknowledge_commands") or []))
+            self.assertEqual(
+                list(unlock_readiness.get("unlock_ready_commands") or []),
+                [recheck_command],
+            )
+            self.assertEqual(
+                str(unlock_readiness.get("first_unlock_ready_command") or ""),
+                recheck_command,
+            )
 
             self.assertEqual(list(payload.get("promotions") or []), [])
             self.assertEqual(int((payload.get("metrics") or {}).get("blocked_promotion_count") or 0), 1)

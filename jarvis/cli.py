@@ -7569,6 +7569,12 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         str(promotion_lock_interrupt_statuses.get(interrupt_id) or "").strip().lower() == "acknowledged"
         for interrupt_id in promotion_lock_interrupt_ids
     )
+    promotion_lock_unlock_ready_commands = [
+        str(promotion_lock_recheck_command).strip()
+    ] if str(promotion_lock_recheck_command).strip() and str(promotion_lock_recheck_command).strip() != "none" else []
+    promotion_lock_first_unlock_ready_command = (
+        promotion_lock_unlock_ready_commands[0] if promotion_lock_unlock_ready_commands else "none"
+    )
     promotion_lock = {
         "active": promotion_lock_active,
         "source": "verify_matrix_alert",
@@ -7577,6 +7583,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "blocking_interrupt_statuses": promotion_lock_interrupt_statuses,
         "acknowledge_commands": promotion_lock_acknowledge_commands,
         "unlock_ready": promotion_lock_unlock_ready,
+        "unlock_ready_commands": list(promotion_lock_unlock_ready_commands),
+        "first_unlock_ready_command": promotion_lock_first_unlock_ready_command,
         "recheck_command": promotion_lock_recheck_command,
         "next_action": (
             "Run operator-cycle recheck to release frozen promotions."
@@ -7613,6 +7621,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "blocking_interrupt_ids": list(promotion_lock_interrupt_ids),
                     "blocking_interrupt_statuses": dict(promotion_lock_interrupt_statuses),
                     "acknowledge_commands": list(promotion_lock_acknowledge_commands),
+                    "unlock_ready_commands": list(promotion_lock_unlock_ready_commands),
+                    "first_unlock_ready_command": promotion_lock_first_unlock_ready_command,
                     "recheck_command": promotion_lock_recheck_command,
                     "next_action": (
                         "Rerun operator-cycle verification to release this frozen promotion."

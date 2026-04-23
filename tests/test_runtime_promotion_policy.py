@@ -694,6 +694,19 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                     repo_path=repo,
                     db_path=root / "jarvis.db",
                 )
+
+                def assert_unlock_ready_contract(runtime_payload: dict) -> None:
+                    self.assertIn("unlock_ready_commands", runtime_payload)
+                    self.assertIn("first_unlock_ready_command", runtime_payload)
+                    unlock_ready_commands = list(runtime_payload.get("unlock_ready_commands") or [])
+                    first_unlock_ready_command = str(runtime_payload.get("first_unlock_ready_command") or "")
+                    self.assertIsInstance(unlock_ready_commands, list)
+                    self.assertTrue(isinstance(first_unlock_ready_command, str))
+                    if unlock_ready_commands:
+                        self.assertEqual(first_unlock_ready_command, str(unlock_ready_commands[0]))
+                    else:
+                        self.assertEqual(first_unlock_ready_command, "none")
+
                 captured_all = io.StringIO()
                 # Keep baseline expectations deterministic across local runs and GitHub Actions,
                 # where GITHUB_STEP_SUMMARY may be set automatically.
@@ -701,6 +714,7 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                     with redirect_stdout(captured_all):
                         cmd_plans_gate_status_all(args_all)
                 payload_all = json.loads(captured_all.getvalue())
+                assert_unlock_ready_contract(payload_all)
                 self.assertFalse(bool(payload_all.get("only_blocked")))
                 self.assertFalse(bool(payload_all.get("only_unlock_ready")))
                 self.assertFalse(bool(payload_all.get("fail_on_blocked")))
@@ -790,6 +804,7 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                 )
                 self.assertTrue(ci_json_path.exists())
                 ci_json_payload = json.loads(ci_json_path.read_text(encoding="utf-8"))
+                assert_unlock_ready_contract(ci_json_payload)
                 self.assertEqual(int(ci_json_payload.get("blocked_step_count") or 0), 1)
                 self.assertEqual(int(ci_json_payload.get("unlock_ready_step_count") or 0), 0)
                 self.assertEqual(list(ci_json_payload.get("unlock_ready_commands") or []), [])
@@ -1263,6 +1278,7 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                     with redirect_stdout(captured_all_unlock_ready):
                         cmd_plans_gate_status_all(args_all_unlock_ready)
                 payload_all_unlock_ready = json.loads(captured_all_unlock_ready.getvalue())
+                assert_unlock_ready_contract(payload_all_unlock_ready)
                 self.assertEqual(int(payload_all_unlock_ready.get("blocked_step_count") or 0), 0)
                 self.assertGreaterEqual(int(payload_all_unlock_ready.get("unlock_ready_step_count") or 0), 1)
                 unlock_ready_steps = list(payload_all_unlock_ready.get("unlock_ready_steps") or [])
