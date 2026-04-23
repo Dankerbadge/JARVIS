@@ -9157,6 +9157,92 @@ class CliImprovementPipelineTests(unittest.TestCase):
             }
             self.assertEqual(by_domain.get("kalshi_weather"), 1)
 
+    def test_verify_matrix_can_ignore_unmapped_runs_when_matrix_allows_it(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            daily_report_path = root / "reports" / "daily_pipeline_report.json"
+            daily_report_path.parent.mkdir(parents=True, exist_ok=True)
+            daily_report_path.write_text(
+                json.dumps(
+                    {
+                        "experiment_runs": [
+                            {
+                                "run_id": "exp_mapped_quant",
+                                "hypothesis_id": "hyp_quant_1",
+                                "artifact_path": str((root / "artifacts" / "quant_eval.json").resolve()),
+                                "verdict": "promote",
+                                "resolution": {
+                                    "domain": "quant_finance",
+                                    "friction_key": "execution_slippage_regime_drift",
+                                },
+                            },
+                            {
+                                "run_id": "exp_unmapped_kalshi",
+                                "hypothesis_id": "hyp_kalshi_1",
+                                "artifact_path": str((root / "artifacts" / "kalshi_eval.json").resolve()),
+                                "verdict": "promote",
+                                "resolution": {
+                                    "domain": "kalshi_weather",
+                                    "friction_key": "forecast_timing_mismatch_near_settlement",
+                                },
+                            },
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            matrix_path = root / "matrix.json"
+            matrix_path.write_text(
+                json.dumps(
+                    {
+                        "allow_unmapped_runs": True,
+                        "scenarios": [
+                            {
+                                "scenario_id": "quant_expected_promote",
+                                "domain": "quant_finance",
+                                "friction_key": "execution_slippage_regime_drift",
+                                "expected_verdict": "promote",
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                matrix_path=matrix_path,
+                report_path=daily_report_path,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_verify_matrix(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("drift_severity") or ""), "none")
+            self.assertEqual(bool(payload.get("allow_unmapped_runs")), True)
+            self.assertEqual(bool(payload.get("unmapped_runs_ignored")), True)
+            summary = dict(payload.get("summary") or {})
+            self.assertEqual(int(summary.get("matched_count") or 0), 1)
+            self.assertEqual(int(summary.get("mismatch_count") or 0), 0)
+            self.assertEqual(int(summary.get("missing_count") or 0), 0)
+            self.assertEqual(int(summary.get("invalid_count") or 0), 0)
+            self.assertEqual(int(summary.get("mapped_run_count") or 0), 1)
+            self.assertEqual(int(summary.get("unmapped_run_count") or 0), 1)
+            self.assertEqual(int(summary.get("unmapped_run_count_considered") or 0), 0)
+
+            unmapped_runs = [row for row in list(payload.get("unmapped_runs") or []) if isinstance(row, dict)]
+            self.assertEqual(len(unmapped_runs), 1)
+            self.assertEqual(str(unmapped_runs[0].get("run_id") or ""), "exp_unmapped_kalshi")
+
     def test_verify_matrix_resolves_daily_report_from_operator_cycle_payload(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
