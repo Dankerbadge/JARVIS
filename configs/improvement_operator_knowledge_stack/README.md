@@ -100,6 +100,8 @@ and writes `<domain>_smoke_summary.json` under the smoke output directory.
 Seeded evidence lineage (`seed_evidence_record_ids`) now propagates into
 drafted experiment artifact metadata so cross-domain controlled tests preserve
 source-record traceability.
+The same IDs now flow through daily-pipeline/retest outputs for faster
+debug-to-source navigation during operator triage.
 
 ## 2) Run full operator cycle
 

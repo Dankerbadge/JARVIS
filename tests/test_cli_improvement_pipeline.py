@@ -1926,6 +1926,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                     statement="Candidate should be blocked when false positive rate violates guardrail.",
                     proposed_change="Raise threshold aggressively.",
                     friction_key="false_positive_drift",
+                    metadata={"seed_evidence_record_ids": ["seed_src_1", "seed_src_2"]},
                 )
                 hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
                 self.assertTrue(bool(hypothesis_id))
@@ -2025,6 +2026,10 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(len(experiment_runs), 1)
             self.assertEqual(str((experiment_runs[0] or {}).get("verdict") or ""), "blocked_guardrail")
             self.assertGreaterEqual(int((experiment_runs[0] or {}).get("failed_checks_count") or 0), 1)
+            self.assertEqual(
+                list((experiment_runs[0] or {}).get("seed_evidence_record_ids") or []),
+                ["seed_src_1", "seed_src_2"],
+            )
             side_by_side = dict((experiment_runs[0] or {}).get("side_by_side") or {})
             self.assertTrue(bool(side_by_side.get("has_previous")))
             self.assertEqual(
@@ -2041,7 +2046,17 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(retest.get("hypothesis_status") or ""), "queued")
             self.assertGreaterEqual(int(retest.get("recommended_sample_size") or 0), 550)
             self.assertTrue(bool(list(retest.get("safety_targets") or [])))
+            self.assertEqual(
+                list(retest.get("seed_evidence_record_ids") or []),
+                ["seed_src_1", "seed_src_2"],
+            )
             self.assertEqual(int(payload.get("retest_runs_count") or 0), 1)
+            retest_runs = [dict(item) for item in list(payload.get("retest_runs") or []) if isinstance(item, dict)]
+            self.assertEqual(len(retest_runs), 1)
+            self.assertEqual(
+                list((retest_runs[0] or {}).get("seed_evidence_record_ids") or []),
+                ["seed_src_1", "seed_src_2"],
+            )
 
             debug_report_path = Path(str((experiment_runs[0] or {}).get("debug_report_path") or ""))
             self.assertTrue(debug_report_path.exists())
@@ -2113,6 +2128,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                             {
                                 "hypothesis_id": hypothesis_id,
                                 "run_id": trigger_run_id,
+                                "seed_evidence_record_ids": ["seed_src_9", "seed_src_10"],
                             }
                         ]
                     },
@@ -2149,12 +2165,115 @@ class CliImprovementPipelineTests(unittest.TestCase):
             runs = list(payload.get("runs") or [])
             self.assertEqual(len(runs), 1)
             self.assertEqual(str((runs[0] or {}).get("hypothesis_id") or ""), hypothesis_id)
+            self.assertEqual(
+                list((runs[0] or {}).get("seed_evidence_record_ids") or []),
+                ["seed_src_9", "seed_src_10"],
+            )
             side_by_side = dict((runs[0] or {}).get("side_by_side") or {})
             transition = dict(side_by_side.get("verdict_transition") or {})
             self.assertEqual(str(transition.get("previous") or ""), "blocked_guardrail")
             self.assertTrue(bool(str(transition.get("current") or "")))
             artifact_path = Path(str((runs[0] or {}).get("artifact_path") or ""))
             self.assertTrue(artifact_path.exists())
+            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+            artifact_metadata = dict(artifact_payload.get("metadata") or {})
+            self.assertEqual(
+                list(artifact_metadata.get("seed_evidence_record_ids") or []),
+                ["seed_src_9", "seed_src_10"],
+            )
+
+    def test_execute_retests_fallback_carries_seed_evidence_ids_from_experiment_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Execute retest fallback lane",
+                    statement="Fallback retest extraction should preserve source evidence lineage.",
+                    proposed_change="Retry with guardrail-safe settings.",
+                    friction_key="false_positive_drift",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+
+                blocked = runtime.run_hypothesis_experiment(
+                    hypothesis_id=hypothesis_id,
+                    environment="offline_backtest",
+                    baseline_metrics={
+                        "precision_at_k": 0.30,
+                        "false_positive_rate": 0.18,
+                        "inference_latency_ms_p95": 210,
+                    },
+                    candidate_metrics={
+                        "precision_at_k": 0.38,
+                        "false_positive_rate": 0.32,
+                        "inference_latency_ms_p95": 215,
+                    },
+                    sample_size=500,
+                )
+                trigger_run_id = str(blocked.get("run_id") or "")
+                self.assertTrue(bool(trigger_run_id))
+
+                queued = runtime.queue_hypothesis_retest_from_run(
+                    run_id=trigger_run_id,
+                    guardrail_sample_multiplier=1.1,
+                    min_sample_increment=50,
+                    guardrail_safety_factor=0.9,
+                )
+                self.assertTrue(bool(queued.get("queued")))
+            finally:
+                runtime.close()
+
+            pipeline_report_path = root / "reports" / "daily_pipeline_report.json"
+            pipeline_report_path.parent.mkdir(parents=True, exist_ok=True)
+            pipeline_report_path.write_text(
+                json.dumps(
+                    {
+                        "experiment_runs": [
+                            {
+                                "hypothesis_id": hypothesis_id,
+                                "seed_evidence_record_ids": ["seed_fallback_1", "seed_fallback_2"],
+                                "retest": {
+                                    "queued": True,
+                                    "hypothesis_id": hypothesis_id,
+                                    "run_id": trigger_run_id,
+                                },
+                            }
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                pipeline_report_path=pipeline_report_path,
+                max_runs=None,
+                artifact_dir=None,
+                environment=None,
+                notes_prefix="auto_retest",
+                allow_missing_jobs=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_execute_retests(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            runs = [dict(item) for item in list(payload.get("runs") or []) if isinstance(item, dict)]
+            self.assertEqual(len(runs), 1)
+            self.assertEqual(
+                list((runs[0] or {}).get("seed_evidence_record_ids") or []),
+                ["seed_fallback_1", "seed_fallback_2"],
+            )
 
     def test_operator_cycle_runs_pull_daily_retest_and_writes_inbox_summary(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -4334,6 +4334,21 @@ def _coerce_int(value: Any, *, default: int) -> int:
         return int(default)
 
 
+def _normalize_record_id_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    out: list[str] = []
+    for item in list(value or []):
+        text = str(item).strip()
+        if not text or text in out:
+            continue
+        out.append(text)
+    return out
+
+
 def _resolve_pipeline_hypothesis_id(
     *,
     runtime: JarvisRuntime,
@@ -4732,6 +4747,13 @@ def cmd_improvement_daily_pipeline(args: argparse.Namespace) -> None:
                 )
                 continue
             try:
+                hypothesis_snapshot = runtime.hypothesis_lab.get_hypothesis(hypothesis_id)
+                hypothesis_metadata = (
+                    dict(hypothesis_snapshot.get("metadata") or {})
+                    if isinstance(hypothesis_snapshot, dict) and isinstance(hypothesis_snapshot.get("metadata"), dict)
+                    else {}
+                )
+                job_seed_evidence_record_ids = _normalize_record_id_list(raw_job.get("seed_evidence_record_ids"))
                 result = runtime.run_hypothesis_experiment_from_artifact(
                     hypothesis_id=hypothesis_id,
                     artifact_path=str(artifact_path),
@@ -4753,6 +4775,22 @@ def cmd_improvement_daily_pipeline(args: argparse.Namespace) -> None:
                 )
                 evaluation = result.get("evaluation") if isinstance(result.get("evaluation"), dict) else {}
                 run_id = str(result.get("run_id") or "").strip()
+                artifact_block = dict(result.get("artifact") or {}) if isinstance(result.get("artifact"), dict) else {}
+                artifact_metadata = (
+                    dict(artifact_block.get("metadata") or {})
+                    if isinstance(artifact_block.get("metadata"), dict)
+                    else {}
+                )
+                seed_evidence_record_ids: list[str] = []
+                for raw_ids in (
+                    hypothesis_metadata.get("seed_evidence_record_ids"),
+                    artifact_metadata.get("seed_evidence_record_ids"),
+                    job_seed_evidence_record_ids,
+                ):
+                    for item in _normalize_record_id_list(raw_ids):
+                        if item in seed_evidence_record_ids:
+                            continue
+                        seed_evidence_record_ids.append(item)
                 debug_entry: dict[str, Any] = {}
                 compare_entry: dict[str, Any] = {}
                 retest_entry: dict[str, Any] = {}
@@ -4900,10 +4938,15 @@ def cmd_improvement_daily_pipeline(args: argparse.Namespace) -> None:
                             ),
                         )
                         if retest_entry:
+                            retest_entry = {
+                                **dict(retest_entry),
+                                "seed_evidence_record_ids": list(seed_evidence_record_ids),
+                            }
                             retest_runs.append(
                                 {
                                     "index": index,
                                     **dict(retest_entry),
+                                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
                                 }
                             )
                     except Exception as retest_exc:
@@ -4928,6 +4971,7 @@ def cmd_improvement_daily_pipeline(args: argparse.Namespace) -> None:
                         "hypothesis_status": result.get("hypothesis_status"),
                         "verdict": evaluation.get("verdict"),
                         "resolution": resolution_details,
+                        "seed_evidence_record_ids": list(seed_evidence_record_ids),
                         "side_by_side": compare_entry or None,
                         "retest": retest_entry or None,
                         **debug_entry,
@@ -5000,7 +5044,13 @@ def cmd_improvement_execute_retests(args: argparse.Namespace) -> None:
     for index, item in enumerate(raw_retest_runs):
         if not isinstance(item, dict):
             continue
-        normalized_jobs.append({"index": index, **dict(item)})
+        normalized_jobs.append(
+            {
+                "index": index,
+                **dict(item),
+                "seed_evidence_record_ids": _normalize_record_id_list(item.get("seed_evidence_record_ids")),
+            }
+        )
     if not normalized_jobs:
         for index, run in enumerate(list(loaded.get("experiment_runs") or [])):
             if not isinstance(run, dict):
@@ -5010,10 +5060,17 @@ def cmd_improvement_execute_retests(args: argparse.Namespace) -> None:
                 continue
             if not bool(retest.get("queued")):
                 continue
+            merged_seed_evidence_ids: list[str] = []
+            for raw_ids in (run.get("seed_evidence_record_ids"), retest.get("seed_evidence_record_ids")):
+                for item in _normalize_record_id_list(raw_ids):
+                    if item in merged_seed_evidence_ids:
+                        continue
+                    merged_seed_evidence_ids.append(item)
             normalized_jobs.append(
                 {
                     "index": index,
                     **dict(retest),
+                    "seed_evidence_record_ids": merged_seed_evidence_ids,
                 }
             )
 
@@ -5039,6 +5096,7 @@ def cmd_improvement_execute_retests(args: argparse.Namespace) -> None:
         for index, job in enumerate(selected_jobs):
             hypothesis_id = str(job.get("hypothesis_id") or "").strip()
             trigger_run_id = str(job.get("run_id") or job.get("trigger_run_id") or "").strip()
+            seed_evidence_record_ids = _normalize_record_id_list(job.get("seed_evidence_record_ids"))
             if not hypothesis_id:
                 row = {
                     "index": index,
@@ -5089,6 +5147,14 @@ def cmd_improvement_execute_retests(args: argparse.Namespace) -> None:
                     if isinstance(execution.get("artifact_payload"), dict)
                     else {}
                 )
+                if seed_evidence_record_ids:
+                    artifact_metadata = (
+                        dict(artifact_payload.get("metadata") or {})
+                        if isinstance(artifact_payload.get("metadata"), dict)
+                        else {}
+                    )
+                    artifact_metadata["seed_evidence_record_ids"] = list(seed_evidence_record_ids)
+                    artifact_payload["metadata"] = artifact_metadata
                 artifact_path: Path | None = None
                 if artifact_dir is not None:
                     safe_hypothesis = re.sub(r"[^a-zA-Z0-9_-]+", "_", hypothesis_id) or "hypothesis"
@@ -5109,6 +5175,7 @@ def cmd_improvement_execute_retests(args: argparse.Namespace) -> None:
                         "verdict": evaluation.get("verdict"),
                         "side_by_side": execution.get("side_by_side"),
                         "retest_plan": execution.get("retest_plan"),
+                        "seed_evidence_record_ids": list(seed_evidence_record_ids),
                         "artifact_path": str(artifact_path) if artifact_path is not None else None,
                     }
                 )
