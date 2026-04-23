@@ -152,11 +152,21 @@ Active workflow in this repo:
 - `./.github/workflows/reconcile-codeowner-review-gate.yml`
 
 `improvement-knowledge-bootstrap-route.yml` runs on weekdays at `13:25 UTC`
-and fails only when `steps.route.outputs.route_blocking == '1'`.
+and fails when either:
+
+- `steps.route.outputs.route_blocking == '1'`
+- guardrail gate detects `stage_error_count > 0` or `verify_matrix.status != ok`
+
 When initial route is `bootstrap`, it executes one follow-up rerun from
 `next_action_command`, regenerates
 `output/ci/knowledge_bootstrap_route_post_bootstrap.json`, and then branches on
 the effective post-follow-up route payload.
+Before artifact upload, the workflow also collects:
+
+- `configs/improvement_operator_knowledge_stack/output/debug_runs`
+- `analysis/improvement/knowledge_snapshots`
+
+into `output/ci/` for run-level debug traceability.
 
 Copy that file into `.github/workflows/` to run `plans gate-status-all`, read
 `output/ci/gate_status_all_compact.json`, and branch on:

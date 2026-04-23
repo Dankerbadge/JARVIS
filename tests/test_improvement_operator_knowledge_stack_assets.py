@@ -232,6 +232,9 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("Guardrail gate", content)
         self.assertIn("guardrail_gate_stage_error_count", content)
         self.assertIn("operator_guardrail_gate_failed:verify_matrix_status_not_ok", content)
+        self.assertIn("Collect debug trace artifacts", content)
+        self.assertIn("output/ci/debug_runs", content)
+        self.assertIn("output/ci/knowledge_snapshots", content)
 
     def test_codeowner_review_gate_reconciler_script_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -279,6 +282,9 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("Guardrail gate", content)
         self.assertIn("guardrail_gate_stage_error_count", content)
         self.assertIn("operator_guardrail_gate_failed:verify_matrix_status_not_ok", content)
+        self.assertIn("Collect debug trace artifacts", content)
+        self.assertIn("output/ci/debug_runs", content)
+        self.assertIn("output/ci/knowledge_snapshots", content)
 
     def test_active_reconcile_codeowner_workflow_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

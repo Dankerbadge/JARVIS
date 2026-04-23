@@ -318,6 +318,17 @@ jobs:
             )
           PY
 
+      - name: Collect debug trace artifacts
+        if: always()
+        run: |
+          mkdir -p output/ci
+          if [[ -d configs/improvement_operator_knowledge_stack/output/debug_runs ]]; then
+            cp -R configs/improvement_operator_knowledge_stack/output/debug_runs output/ci/debug_runs
+          fi
+          if [[ -d analysis/improvement/knowledge_snapshots ]]; then
+            cp -R analysis/improvement/knowledge_snapshots output/ci/knowledge_snapshots
+          fi
+
       - name: Upload route artifacts
         if: always()
         uses: actions/upload-artifact@v7
