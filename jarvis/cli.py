@@ -6889,11 +6889,14 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
     )
     if knowledge_delta_alert_requested:
         knowledge_brief_requested = True
-    resolved_knowledge_delta_domains = str(
+    resolved_knowledge_delta_domains_raw = (
         getattr(args, "knowledge_delta_domains", None)
         if getattr(args, "knowledge_delta_domains", None) is not None
         else operator_cycle_defaults.get("knowledge_delta_domains")
-    ).strip()
+    )
+    resolved_knowledge_delta_domains = str(resolved_knowledge_delta_domains_raw or "").strip()
+    if str(resolved_knowledge_delta_domains).lower() in {"none", "null"}:
+        resolved_knowledge_delta_domains = ""
     if not resolved_knowledge_delta_domains:
         resolved_knowledge_delta_domains = DEFAULT_IMPROVEMENT_KNOWLEDGE_DOMAINS_CSV
 
@@ -8454,6 +8457,8 @@ def _normalize_improvement_knowledge_domains(raw_value: Any) -> list[str]:
     for item in requested:
         value = str(item or "").strip().lower()
         value = re.sub(r"[^a-z0-9_]+", "_", value).strip("_")
+        if value in {"none", "null"}:
+            continue
         if not value or value in seen:
             continue
         seen.add(value)

@@ -8,13 +8,19 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
+import jarvis.cli as cli_module
 from jarvis.cli import (
     cmd_improvement_benchmark_frustrations,
     cmd_improvement_daily_pipeline,
     cmd_improvement_draft_experiment_jobs,
     cmd_improvement_execute_retests,
     cmd_improvement_fitness_leaderboard,
+    cmd_improvement_knowledge_brief,
+    cmd_improvement_knowledge_bootstrap_route,
+    cmd_improvement_knowledge_brief_delta,
+    cmd_improvement_knowledge_brief_delta_alert,
     cmd_improvement_operator_cycle,
     cmd_improvement_pull_feeds,
     cmd_improvement_run_experiment_artifact,
@@ -23,6 +29,7 @@ from jarvis.cli import (
     cmd_improvement_verify_matrix,
     cmd_improvement_verify_matrix_alert,
 )
+from jarvis.interrupts import InterruptDecision
 from jarvis.runtime import JarvisRuntime
 
 
@@ -2216,12 +2223,17 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(stage_statuses.get("draft_experiment_jobs") or ""), "skipped_not_requested")
             self.assertEqual(str(stage_statuses.get("daily_pipeline") or ""), "ok")
             self.assertEqual(str(stage_statuses.get("execute_retests") or ""), "ok")
+            self.assertEqual(str(stage_statuses.get("benchmark_frustrations") or ""), "skipped_not_requested")
+            self.assertEqual(str(stage_statuses.get("verify_matrix") or ""), "skipped_not_requested")
+            self.assertEqual(str(stage_statuses.get("verify_matrix_alert") or ""), "skipped_not_requested")
             self.assertEqual(int(payload.get("stage_error_count") or 0), 0)
 
+            operator_report_path = Path(str(payload.get("operator_report_path") or ""))
             pull_report_path = Path(str(payload.get("pull_report_path") or ""))
             daily_report_path = Path(str(payload.get("daily_report_path") or ""))
             retest_report_path = Path(str(payload.get("retest_report_path") or ""))
             inbox_summary_path = Path(str(payload.get("inbox_summary_path") or ""))
+            self.assertTrue(operator_report_path.exists())
             self.assertTrue(pull_report_path.exists())
             self.assertTrue(daily_report_path.exists())
             self.assertTrue(retest_report_path.exists())
@@ -2233,7 +2245,1826 @@ class CliImprovementPipelineTests(unittest.TestCase):
             summary = json.loads(inbox_summary_path.read_text(encoding="utf-8"))
             self.assertEqual(str((summary.get("stage_statuses") or {}).get("daily_pipeline") or ""), "ok")
             self.assertGreaterEqual(int((summary.get("metrics") or {}).get("retest_delta_count") or 0), 1)
+            self.assertFalse(bool((summary.get("promotion_lock") or {}).get("active")))
+            self.assertEqual(int((summary.get("metrics") or {}).get("blocked_promotion_count") or 0), 0)
+            self.assertEqual(len(list(summary.get("blocked_promotions") or [])), 0)
             self.assertGreaterEqual(len(list(summary.get("suggested_actions") or [])), 1)
+
+    def test_operator_cycle_runs_benchmark_stage_with_cli_top_limit_override(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Operator benchmark stage hypothesis",
+                    statement="Operator cycle benchmark stage should run and persist ranked outputs.",
+                    proposed_change="Capture benchmark synthesis after controlled retest loops.",
+                    friction_key="false_positive_drift",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+            finally:
+                runtime.close()
+
+            raw_input_path = root / "inputs" / "fitness_reviews.json"
+            raw_input_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_input_path.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "id": "feed-benchmark-1",
+                                "title": "Paywall appears too early",
+                                "text": "Paywall appears before I can try any workout.",
+                                "rating": 2,
+                            }
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            blocked_artifact_path = root / "artifacts" / "blocked_eval.json"
+            blocked_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            blocked_artifact_path.write_text(
+                json.dumps(
+                    {
+                        "environment": "offline_backtest",
+                        "baseline": {
+                            "metrics": {
+                                "precision_at_k": 0.30,
+                                "false_positive_rate": 0.18,
+                                "inference_latency_ms_p95": 210,
+                            }
+                        },
+                        "candidate": {
+                            "metrics": {
+                                "precision_at_k": 0.38,
+                                "false_positive_rate": 0.32,
+                                "inference_latency_ms_p95": 215,
+                            },
+                            "sample_size": 500,
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "operator_cycle_benchmark_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "min_cluster_count": 1,
+                            "proposal_limit": 5,
+                            "auto_retest_lane": True,
+                            "guardrail_sample_multiplier": 1.1,
+                            "min_sample_increment": 50,
+                            "guardrail_safety_factor": 0.9,
+                            "include_decision_timeline": False,
+                            "collect_experiment_debug": True,
+                            "benchmark_top_limit": 9,
+                        },
+                        "feed_jobs": [
+                            {
+                                "name": "fitness_reviews",
+                                "url": "inputs/fitness_reviews.json",
+                                "format": "json",
+                                "records_path": "reviews",
+                                "mapping": {
+                                    "id": "id",
+                                    "title": "title",
+                                    "summary": "text",
+                                    "review": "text",
+                                    "rating": "rating",
+                                },
+                                "output_path": "analysis/fitness_feedback.jsonl",
+                            }
+                        ],
+                        "feedback_jobs": [
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "analysis/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ],
+                        "experiment_jobs": [
+                            {
+                                "hypothesis_id": hypothesis_id,
+                                "artifact_path": "artifacts/blocked_eval.json",
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_benchmark"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                operator_report_path=None,
+                benchmark_enable=True,
+                benchmark_top_limit=4,
+                benchmark_report_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("benchmark_frustrations") or ""), "warning")
+            self.assertEqual(str(stage_statuses.get("verify_matrix") or ""), "skipped_not_requested")
+            self.assertEqual(str(stage_statuses.get("verify_matrix_alert") or ""), "skipped_not_requested")
+
+            benchmark_payload = dict(payload.get("benchmark") or {})
+            self.assertEqual(str(benchmark_payload.get("status") or ""), "warning")
+            self.assertEqual(int(benchmark_payload.get("top_limit") or 0), 4)
+            self.assertEqual(str(benchmark_payload.get("top_limit_source") or ""), "cli_override")
+            self.assertGreaterEqual(len(list(benchmark_payload.get("suggested_actions") or [])), 1)
+
+            benchmark_report_path = Path(str(payload.get("benchmark_report_path") or ""))
+            operator_report_path = Path(str(payload.get("operator_report_path") or ""))
+            inbox_summary_path = Path(str(payload.get("inbox_summary_path") or ""))
+            self.assertTrue(benchmark_report_path.exists())
+            self.assertTrue(operator_report_path.exists())
+            self.assertTrue(inbox_summary_path.exists())
+
+            benchmark_report = json.loads(benchmark_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(int(benchmark_report.get("top_limit") or 0), 4)
+            self.assertEqual(str(benchmark_report.get("status") or ""), "warning")
+
+            summary = json.loads(inbox_summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                str(((summary.get("benchmark") or {}).get("top_limit_source") or "")),
+                "cli_override",
+            )
+            self.assertEqual(
+                str(((summary.get("stage_statuses") or {}).get("benchmark_frustrations") or "")),
+                "warning",
+            )
+            self.assertEqual(
+                str(((summary.get("stage_statuses") or {}).get("verify_matrix") or "")),
+                "skipped_not_requested",
+            )
+            self.assertEqual(
+                str(((summary.get("stage_statuses") or {}).get("verify_matrix_alert") or "")),
+                "skipped_not_requested",
+            )
+
+    def test_operator_cycle_runs_verify_matrix_stage_and_gates_status(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Operator verify matrix stage hypothesis",
+                    statement="Operator cycle should run verify-matrix and gate overall status on drift.",
+                    proposed_change="Block advancement when expected verdicts mismatch.",
+                    friction_key="false_positive_drift_in_high_volatility_windows",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+            finally:
+                runtime.close()
+
+            raw_input_path = root / "inputs" / "fitness_reviews.json"
+            raw_input_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_input_path.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "id": "feed-verify-1",
+                                "title": "No free trial path",
+                                "text": "No way to test features before paying.",
+                                "rating": 2,
+                            }
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            blocked_artifact_path = root / "artifacts" / "blocked_eval.json"
+            blocked_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            blocked_artifact_path.write_text(
+                json.dumps(
+                    {
+                        "environment": "offline_backtest",
+                        "baseline": {
+                            "metrics": {
+                                "precision_at_k": 0.30,
+                                "false_positive_rate": 0.18,
+                                "inference_latency_ms_p95": 210,
+                            }
+                        },
+                        "candidate": {
+                            "metrics": {
+                                "precision_at_k": 0.36,
+                                "false_positive_rate": 0.16,
+                                "inference_latency_ms_p95": 205,
+                            },
+                            "sample_size": 520,
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            matrix_path = root / "matrix.json"
+            matrix_path.write_text(
+                json.dumps(
+                    {
+                        "scenarios": [
+                            {
+                                "scenario_id": "market_ml_expected_promote",
+                                "domain": "market_ml",
+                                "friction_key": "false_positive_drift_in_high_volatility_windows",
+                                "artifact_path": "artifacts/blocked_eval.json",
+                                "expected_verdict": "blocked_guardrail",
+                            }
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "operator_cycle_verify_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "min_cluster_count": 1,
+                            "proposal_limit": 4,
+                            "auto_retest_lane": True,
+                            "guardrail_sample_multiplier": 1.1,
+                            "min_sample_increment": 50,
+                            "guardrail_safety_factor": 0.9,
+                            "include_decision_timeline": False,
+                            "collect_experiment_debug": True,
+                        },
+                        "feed_jobs": [
+                            {
+                                "name": "fitness_reviews",
+                                "url": "inputs/fitness_reviews.json",
+                                "format": "json",
+                                "records_path": "reviews",
+                                "mapping": {
+                                    "id": "id",
+                                    "title": "title",
+                                    "summary": "text",
+                                    "review": "text",
+                                    "rating": "rating",
+                                },
+                                "output_path": "analysis/fitness_feedback.jsonl",
+                            }
+                        ],
+                        "feedback_jobs": [
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "analysis/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ],
+                        "experiment_jobs": [
+                            {
+                                "hypothesis_id": hypothesis_id,
+                                "artifact_path": "artifacts/blocked_eval.json",
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_verify"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                operator_report_path=None,
+                benchmark_enable=False,
+                benchmark_top_limit=None,
+                benchmark_report_path=None,
+                verify_matrix_enable=True,
+                verify_matrix_path=matrix_path,
+                verify_matrix_report_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(int(payload.get("stage_error_count") or 0), 0)
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("benchmark_frustrations") or ""), "skipped_not_requested")
+            self.assertEqual(str(stage_statuses.get("verify_matrix") or ""), "warning")
+            self.assertEqual(str(stage_statuses.get("verify_matrix_alert") or ""), "skipped_not_requested")
+
+            verify_payload = dict(payload.get("verify_matrix") or {})
+            self.assertEqual(str(verify_payload.get("status") or ""), "warning")
+            self.assertEqual(str(verify_payload.get("matrix_path_source") or ""), "cli_override")
+            self.assertEqual(str(verify_payload.get("drift_severity") or ""), "warn")
+
+            verify_report_path = Path(str(payload.get("verify_matrix_report_path") or ""))
+            self.assertTrue(verify_report_path.exists())
+            verify_report = json.loads(verify_report_path.read_text(encoding="utf-8"))
+            summary = dict(verify_report.get("summary") or {})
+            self.assertGreaterEqual(
+                int(summary.get("mismatch_count") or 0) + int(summary.get("missing_count") or 0),
+                1,
+            )
+
+            inbox_summary_path = Path(str(payload.get("inbox_summary_path") or ""))
+            self.assertTrue(inbox_summary_path.exists())
+            inbox_summary = json.loads(inbox_summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                str(((inbox_summary.get("stage_statuses") or {}).get("verify_matrix") or "")),
+                "warning",
+            )
+            self.assertEqual(
+                str((((inbox_summary.get("verify_matrix") or {}).get("matrix_path_source")) or "")),
+                "cli_override",
+            )
+            self.assertEqual(
+                str(((inbox_summary.get("stage_statuses") or {}).get("verify_matrix_alert") or "")),
+                "skipped_not_requested",
+            )
+
+    def test_operator_cycle_runs_verify_matrix_alert_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Operator verify matrix alert stage hypothesis",
+                    statement="Operator cycle should raise a verify-matrix alert when drift is detected.",
+                    proposed_change="Escalate controlled-experiment matrix drift into interrupts.",
+                    friction_key="false_positive_drift_in_high_volatility_windows",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+            finally:
+                runtime.close()
+
+            raw_input_path = root / "inputs" / "fitness_reviews.json"
+            raw_input_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_input_path.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "id": "feed-verify-alert-1",
+                                "title": "No free trial path",
+                                "text": "No way to test features before paying.",
+                                "rating": 2,
+                            }
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            blocked_artifact_path = root / "artifacts" / "blocked_eval.json"
+            blocked_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            blocked_artifact_path.write_text(
+                json.dumps(
+                    {
+                        "environment": "offline_backtest",
+                        "baseline": {
+                            "metrics": {
+                                "precision_at_k": 0.30,
+                                "false_positive_rate": 0.18,
+                                "inference_latency_ms_p95": 210,
+                            }
+                        },
+                        "candidate": {
+                            "metrics": {
+                                "precision_at_k": 0.36,
+                                "false_positive_rate": 0.16,
+                                "inference_latency_ms_p95": 205,
+                            },
+                            "sample_size": 520,
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            matrix_path = root / "matrix.json"
+            matrix_path.write_text(
+                json.dumps(
+                    {
+                        "scenarios": [
+                            {
+                                "scenario_id": "market_ml_expected_promote",
+                                "domain": "market_ml",
+                                "friction_key": "false_positive_drift_in_high_volatility_windows",
+                                "artifact_path": "artifacts/blocked_eval.json",
+                                "expected_verdict": "blocked_guardrail",
+                            }
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "operator_cycle_verify_alert_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "min_cluster_count": 1,
+                            "proposal_limit": 4,
+                            "auto_retest_lane": True,
+                            "guardrail_sample_multiplier": 1.1,
+                            "min_sample_increment": 50,
+                            "guardrail_safety_factor": 0.9,
+                            "include_decision_timeline": False,
+                            "collect_experiment_debug": True,
+                        },
+                        "feed_jobs": [
+                            {
+                                "name": "fitness_reviews",
+                                "url": "inputs/fitness_reviews.json",
+                                "format": "json",
+                                "records_path": "reviews",
+                                "mapping": {
+                                    "id": "id",
+                                    "title": "title",
+                                    "summary": "text",
+                                    "review": "text",
+                                    "rating": "rating",
+                                },
+                                "output_path": "analysis/fitness_feedback.jsonl",
+                            }
+                        ],
+                        "feedback_jobs": [
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "analysis/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ],
+                        "experiment_jobs": [
+                            {
+                                "hypothesis_id": hypothesis_id,
+                                "artifact_path": "artifacts/blocked_eval.json",
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_verify_alert"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                operator_report_path=None,
+                benchmark_enable=False,
+                benchmark_top_limit=None,
+                benchmark_report_path=None,
+                verify_matrix_enable=True,
+                verify_matrix_path=matrix_path,
+                verify_matrix_report_path=None,
+                verify_matrix_alert_enable=True,
+                verify_matrix_alert_domain="market_ml",
+                verify_matrix_alert_max_items=2,
+                verify_matrix_alert_urgency=None,
+                verify_matrix_alert_confidence=None,
+                verify_matrix_alert_report_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(int(payload.get("stage_error_count") or 0), 0)
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("verify_matrix") or ""), "warning")
+            self.assertEqual(str(stage_statuses.get("verify_matrix_alert") or ""), "warning")
+
+            verify_alert_payload = dict(payload.get("verify_matrix_alert") or {})
+            self.assertEqual(str(verify_alert_payload.get("status") or ""), "warning")
+            self.assertTrue(bool(verify_alert_payload.get("alert_created")))
+            self.assertEqual(str(verify_alert_payload.get("alert_domain_source") or ""), "cli_override")
+            self.assertEqual(str(verify_alert_payload.get("alert_max_items_source") or ""), "cli_override")
+            alert = dict(verify_alert_payload.get("alert") or {})
+            alert_interrupt_id = str(alert.get("interrupt_id") or "")
+            self.assertTrue(bool(alert_interrupt_id))
+
+            promotion_lock = dict(payload.get("promotion_lock") or {})
+            self.assertTrue(bool(promotion_lock.get("active")))
+            self.assertTrue(bool(promotion_lock.get("requires_acknowledgement")))
+            self.assertIn(alert_interrupt_id, list(promotion_lock.get("blocking_interrupt_ids") or []))
+            acknowledge_commands = [str(item) for item in list(promotion_lock.get("acknowledge_commands") or [])]
+            self.assertTrue(any(alert_interrupt_id in item for item in acknowledge_commands))
+            self.assertFalse(bool(promotion_lock.get("unlock_ready")))
+            self.assertEqual(
+                str((promotion_lock.get("blocking_interrupt_statuses") or {}).get(alert_interrupt_id) or ""),
+                "delivered",
+            )
+            self.assertEqual(int(promotion_lock.get("blocked_promotion_count") or 0), 1)
+            self.assertEqual(int(promotion_lock.get("promotion_candidates_count") or 0), 1)
+            recheck_command = str(promotion_lock.get("recheck_command") or "")
+            self.assertTrue(recheck_command.startswith("python3 -m jarvis.cli improvement operator-cycle"))
+            self.assertIn("--verify-matrix-enable", recheck_command)
+            self.assertIn("--verify-matrix-alert-enable", recheck_command)
+            self.assertIn("--verify-matrix-path", recheck_command)
+
+            self.assertEqual(list(payload.get("promotions") or []), [])
+            blocked_promotions = [dict(item) for item in list(payload.get("blocked_promotions") or []) if isinstance(item, dict)]
+            self.assertEqual(len(blocked_promotions), 1)
+            self.assertEqual(str(blocked_promotions[0].get("blocked_by") or ""), "verify_matrix_alert")
+            unlock_readiness = dict(blocked_promotions[0].get("unlock_readiness") or {})
+            self.assertFalse(bool(unlock_readiness.get("unlock_ready")))
+            self.assertTrue(bool(unlock_readiness.get("requires_acknowledgement")))
+            self.assertIn(alert_interrupt_id, list(unlock_readiness.get("blocking_interrupt_ids") or []))
+            self.assertEqual(
+                str((unlock_readiness.get("blocking_interrupt_statuses") or {}).get(alert_interrupt_id) or ""),
+                "delivered",
+            )
+            unlock_ack_commands = [str(item) for item in list(unlock_readiness.get("acknowledge_commands") or [])]
+            self.assertTrue(any(alert_interrupt_id in item for item in unlock_ack_commands))
+            self.assertEqual(str(unlock_readiness.get("recheck_command") or ""), recheck_command)
+            self.assertEqual(int((payload.get("metrics") or {}).get("blocked_promotion_count") or 0), 1)
+            self.assertEqual(int((payload.get("metrics") or {}).get("promotion_count") or 0), 0)
+
+            verify_alert_report_path = Path(str(payload.get("verify_matrix_alert_report_path") or ""))
+            self.assertTrue(verify_alert_report_path.exists())
+            verify_alert_report = json.loads(verify_alert_report_path.read_text(encoding="utf-8"))
+            self.assertTrue(bool(verify_alert_report.get("alert_created")))
+
+            inbox_summary_path = Path(str(payload.get("inbox_summary_path") or ""))
+            self.assertTrue(inbox_summary_path.exists())
+            inbox_summary = json.loads(inbox_summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                str(((inbox_summary.get("stage_statuses") or {}).get("verify_matrix_alert") or "")),
+                "warning",
+            )
+            self.assertTrue(bool(((inbox_summary.get("verify_matrix_alert") or {}).get("alert_created"))))
+            self.assertTrue(bool(((inbox_summary.get("promotion_lock") or {}).get("active"))))
+            self.assertEqual(list(inbox_summary.get("promotions") or []), [])
+            summary_blocked_promotions = [
+                dict(item) for item in list(inbox_summary.get("blocked_promotions") or []) if isinstance(item, dict)
+            ]
+            self.assertEqual(len(summary_blocked_promotions), 1)
+            summary_unlock = dict(summary_blocked_promotions[0].get("unlock_readiness") or {})
+            self.assertEqual(str(summary_unlock.get("recheck_command") or ""), recheck_command)
+            self.assertFalse(bool(summary_unlock.get("unlock_ready")))
+
+    def test_operator_cycle_runs_knowledge_brief_delta_alert_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Operator knowledge delta alert hypothesis",
+                    statement="Operator cycle should surface knowledge-delta alert stage results when enabled.",
+                    proposed_change="Escalate knowledge brief drift regressions into interrupts.",
+                    friction_key="fitness_onboarding_paywall_fatigue",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+            finally:
+                runtime.close()
+
+            raw_input_path = root / "inputs" / "fitness_reviews.json"
+            raw_input_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_input_path.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "id": "feed-knowledge-alert-1",
+                                "title": "No free trial path",
+                                "text": "No way to test features before paying.",
+                                "rating": 2,
+                            }
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            blocked_artifact_path = root / "artifacts" / "blocked_eval.json"
+            blocked_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            blocked_artifact_path.write_text(
+                json.dumps(
+                    {
+                        "environment": "offline_backtest",
+                        "baseline": {
+                            "metrics": {
+                                "precision_at_k": 0.30,
+                                "false_positive_rate": 0.18,
+                                "inference_latency_ms_p95": 210,
+                            }
+                        },
+                        "candidate": {
+                            "metrics": {
+                                "precision_at_k": 0.36,
+                                "false_positive_rate": 0.16,
+                                "inference_latency_ms_p95": 205,
+                            },
+                            "sample_size": 520,
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "operator_cycle_knowledge_alert_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "min_cluster_count": 1,
+                            "proposal_limit": 4,
+                            "auto_retest_lane": True,
+                            "guardrail_sample_multiplier": 1.1,
+                            "min_sample_increment": 50,
+                            "guardrail_safety_factor": 0.9,
+                            "include_decision_timeline": False,
+                            "collect_experiment_debug": True,
+                        },
+                        "feed_jobs": [
+                            {
+                                "name": "fitness_reviews",
+                                "url": "inputs/fitness_reviews.json",
+                                "format": "json",
+                                "records_path": "reviews",
+                                "mapping": {
+                                    "id": "id",
+                                    "title": "title",
+                                    "summary": "text",
+                                    "review": "text",
+                                    "rating": "rating",
+                                },
+                                "output_path": "analysis/fitness_feedback.jsonl",
+                            }
+                        ],
+                        "feedback_jobs": [
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "analysis/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ],
+                        "experiment_jobs": [
+                            {
+                                "hypothesis_id": hypothesis_id,
+                                "artifact_path": "artifacts/blocked_eval.json",
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            expected_knowledge_brief_report_path = root / "reports" / "knowledge_brief_report.json"
+            expected_delta_alert_report_path = root / "reports" / "knowledge_brief_delta_alert_report.json"
+            output_dir = root / "output" / "operator_knowledge_delta_alert"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                operator_report_path=None,
+                benchmark_enable=False,
+                benchmark_top_limit=None,
+                benchmark_report_path=None,
+                verify_matrix_enable=False,
+                verify_matrix_path=None,
+                verify_matrix_report_path=None,
+                verify_matrix_alert_enable=False,
+                verify_matrix_alert_domain=None,
+                verify_matrix_alert_max_items=None,
+                verify_matrix_alert_urgency=None,
+                verify_matrix_alert_confidence=None,
+                verify_matrix_alert_report_path=None,
+                knowledge_brief_enable=True,
+                knowledge_brief_query=None,
+                knowledge_brief_snapshot_label=None,
+                knowledge_brief_report_path=expected_knowledge_brief_report_path,
+                knowledge_delta_alert_enable=True,
+                knowledge_delta_alert_domain="operations",
+                knowledge_delta_alert_max_items=3,
+                knowledge_delta_alert_urgency=None,
+                knowledge_delta_alert_confidence=None,
+                knowledge_delta_alert_report_path=expected_delta_alert_report_path,
+                knowledge_brief_delta_alert_enable=True,
+                knowledge_brief_delta_alert_domain="operations",
+                knowledge_brief_delta_alert_max_items=3,
+                knowledge_brief_delta_alert_urgency=None,
+                knowledge_brief_delta_alert_confidence=None,
+                knowledge_brief_delta_alert_report_path=expected_delta_alert_report_path,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            original_invoke = cli_module._invoke_cli_json_command
+            stage_call_order: list[str] = []
+
+            def patched_invoke(command_fn: Any, *, args: argparse.Namespace) -> dict[str, Any]:
+                if getattr(command_fn, "__name__", "") == "cmd_improvement_knowledge_brief":
+                    stage_call_order.append("knowledge_brief")
+                    staged_output_path = Path(str(getattr(args, "output_path", expected_knowledge_brief_report_path)))
+                    payload = {
+                        "status": "ok",
+                        "suggested_actions": ["Continue ingesting cross-domain signals."],
+                        "knowledge_snapshot": {
+                            "status": "ok",
+                            "path": str(root / "analysis" / "improvement" / "knowledge_snapshots" / "stub_snapshot.json"),
+                        },
+                        "output_path": str(staged_output_path),
+                    }
+                    staged_output_path.parent.mkdir(parents=True, exist_ok=True)
+                    staged_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                    return payload
+                if getattr(command_fn, "__name__", "") == "cmd_improvement_knowledge_brief_delta_alert":
+                    stage_call_order.append("knowledge_brief_delta_alert")
+                    staged_output_path = Path(str(getattr(args, "output_path", expected_delta_alert_report_path)))
+                    payload = {
+                        "status": "warning",
+                        "alert_created": True,
+                        "drift_severity": "warn",
+                        "mitigation_actions": ["Mitigate X"],
+                        "acknowledge_commands": [
+                            "python3 -m jarvis.cli interrupts acknowledge int_x --actor operator"
+                        ],
+                        "output_path": str(staged_output_path),
+                    }
+                    staged_output_path.parent.mkdir(parents=True, exist_ok=True)
+                    staged_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                    return payload
+                return original_invoke(command_fn, args=args)
+
+            out = io.StringIO()
+            with patch("jarvis.cli._invoke_cli_json_command", side_effect=patched_invoke):
+                with redirect_stdout(out):
+                    cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("knowledge_brief") or ""), "ok")
+            self.assertEqual(str(stage_statuses.get("knowledge_brief_delta_alert") or ""), "warning")
+            self.assertEqual(stage_call_order[:2], ["knowledge_brief", "knowledge_brief_delta_alert"])
+
+            knowledge_brief_payload = dict(payload.get("knowledge_brief") or {})
+            self.assertEqual(str(knowledge_brief_payload.get("status") or ""), "ok")
+            knowledge_brief_report_path = Path(str(payload.get("knowledge_brief_report_path") or ""))
+            self.assertTrue(knowledge_brief_report_path.exists())
+            knowledge_brief_report = json.loads(knowledge_brief_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(knowledge_brief_report.get("status") or ""), "ok")
+
+            knowledge_alert_payload = dict(payload.get("knowledge_brief_delta_alert") or {})
+            self.assertEqual(str(knowledge_alert_payload.get("status") or ""), "warning")
+            self.assertTrue(bool(knowledge_alert_payload.get("alert_created")))
+            self.assertEqual(str(knowledge_alert_payload.get("drift_severity") or ""), "warn")
+
+            knowledge_alert_report_path = Path(str(payload.get("knowledge_brief_delta_alert_report_path") or ""))
+            self.assertTrue(knowledge_alert_report_path.exists())
+            report_payload = json.loads(knowledge_alert_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(report_payload.get("status") or ""), "warning")
+            self.assertTrue(bool(report_payload.get("alert_created")))
+            self.assertEqual(
+                Path(str(report_payload.get("output_path") or "")).resolve(),
+                expected_delta_alert_report_path.resolve(),
+            )
+
+            inbox_summary_path = Path(str(payload.get("inbox_summary_path") or ""))
+            self.assertTrue(inbox_summary_path.exists())
+            inbox_summary = json.loads(inbox_summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                str(((inbox_summary.get("stage_statuses") or {}).get("knowledge_brief") or "")),
+                "ok",
+            )
+            self.assertEqual(
+                str((((inbox_summary.get("knowledge_brief") or {}).get("status")) or "")),
+                "ok",
+            )
+            self.assertEqual(
+                str(((inbox_summary.get("stage_statuses") or {}).get("knowledge_brief_delta_alert") or "")),
+                "warning",
+            )
+            self.assertEqual(
+                str((((inbox_summary.get("knowledge_brief_delta_alert") or {}).get("status")) or "")),
+                "warning",
+            )
+
+    def test_operator_cycle_keeps_status_ok_when_knowledge_delta_alert_is_bootstrap_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Operator knowledge bootstrap-skip hypothesis",
+                    statement=(
+                        "Operator cycle should not escalate overall status when knowledge-delta alert is bootstrap-skipped."
+                    ),
+                    proposed_change="Treat bootstrap skip as a non-regression state while knowledge snapshots warm up.",
+                    friction_key="fitness_onboarding_paywall_fatigue",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+            finally:
+                runtime.close()
+
+            raw_input_path = root / "inputs" / "fitness_reviews.json"
+            raw_input_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_input_path.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "id": "feed-knowledge-bootstrap-1",
+                                "title": "Trial path still confusing",
+                                "text": "I still hit pricing before understanding the flow.",
+                                "rating": 2,
+                            }
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            blocked_artifact_path = root / "artifacts" / "blocked_eval.json"
+            blocked_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            blocked_artifact_path.write_text(
+                json.dumps(
+                    {
+                        "environment": "offline_backtest",
+                        "baseline": {
+                            "metrics": {
+                                "precision_at_k": 0.30,
+                                "false_positive_rate": 0.18,
+                                "inference_latency_ms_p95": 210,
+                            }
+                        },
+                        "candidate": {
+                            "metrics": {
+                                "precision_at_k": 0.36,
+                                "false_positive_rate": 0.16,
+                                "inference_latency_ms_p95": 205,
+                            },
+                            "sample_size": 520,
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "operator_cycle_knowledge_bootstrap_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "min_cluster_count": 1,
+                            "proposal_limit": 4,
+                            "auto_retest_lane": True,
+                            "guardrail_sample_multiplier": 1.1,
+                            "min_sample_increment": 50,
+                            "guardrail_safety_factor": 0.9,
+                            "include_decision_timeline": False,
+                            "collect_experiment_debug": True,
+                        },
+                        "feed_jobs": [
+                            {
+                                "name": "fitness_reviews",
+                                "url": "inputs/fitness_reviews.json",
+                                "format": "json",
+                                "records_path": "reviews",
+                                "mapping": {
+                                    "id": "id",
+                                    "title": "title",
+                                    "summary": "text",
+                                    "review": "text",
+                                    "rating": "rating",
+                                },
+                                "output_path": "analysis/fitness_feedback.jsonl",
+                            }
+                        ],
+                        "feedback_jobs": [
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "analysis/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ],
+                        "experiment_jobs": [
+                            {
+                                "hypothesis_id": hypothesis_id,
+                                "artifact_path": "artifacts/blocked_eval.json",
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            expected_knowledge_brief_report_path = root / "reports" / "knowledge_brief_report.json"
+            expected_delta_alert_report_path = root / "reports" / "knowledge_brief_delta_alert_report.json"
+            output_dir = root / "output" / "operator_knowledge_delta_bootstrap"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                operator_report_path=None,
+                benchmark_enable=False,
+                benchmark_top_limit=None,
+                benchmark_report_path=None,
+                verify_matrix_enable=False,
+                verify_matrix_path=None,
+                verify_matrix_report_path=None,
+                verify_matrix_alert_enable=False,
+                verify_matrix_alert_domain=None,
+                verify_matrix_alert_max_items=None,
+                verify_matrix_alert_urgency=None,
+                verify_matrix_alert_confidence=None,
+                verify_matrix_alert_report_path=None,
+                knowledge_brief_enable=True,
+                knowledge_brief_query=None,
+                knowledge_brief_snapshot_label=None,
+                knowledge_brief_report_path=expected_knowledge_brief_report_path,
+                knowledge_delta_alert_enable=True,
+                knowledge_delta_alert_domain="operations",
+                knowledge_delta_alert_max_items=3,
+                knowledge_delta_alert_urgency=None,
+                knowledge_delta_alert_confidence=None,
+                knowledge_delta_alert_report_path=expected_delta_alert_report_path,
+                knowledge_brief_delta_alert_enable=True,
+                knowledge_brief_delta_alert_domain="operations",
+                knowledge_brief_delta_alert_max_items=3,
+                knowledge_brief_delta_alert_urgency=None,
+                knowledge_brief_delta_alert_confidence=None,
+                knowledge_brief_delta_alert_report_path=expected_delta_alert_report_path,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            original_invoke = cli_module._invoke_cli_json_command
+
+            def patched_invoke(command_fn: Any, *, args: argparse.Namespace) -> dict[str, Any]:
+                if getattr(command_fn, "__name__", "") == "cmd_improvement_knowledge_brief":
+                    staged_output_path = Path(str(getattr(args, "output_path", expected_knowledge_brief_report_path)))
+                    payload = {
+                        "status": "ok",
+                        "suggested_actions": ["Continue ingesting cross-domain signals."],
+                        "knowledge_snapshot": {
+                            "status": "ok",
+                            "path": str(
+                                root / "analysis" / "improvement" / "knowledge_snapshots" / "stub_snapshot.json"
+                            ),
+                        },
+                        "output_path": str(staged_output_path),
+                    }
+                    staged_output_path.parent.mkdir(parents=True, exist_ok=True)
+                    staged_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                    return payload
+                if getattr(command_fn, "__name__", "") == "cmd_improvement_knowledge_brief_delta_alert":
+                    staged_output_path = Path(str(getattr(args, "output_path", expected_delta_alert_report_path)))
+                    payload = {
+                        "status": "skipped_bootstrap",
+                        "alert_created": False,
+                        "alert": None,
+                        "drift_severity": "none",
+                        "mitigation_actions": [
+                            "Bootstrap in progress: collect one more knowledge snapshot before delta alerting."
+                        ],
+                        "delta": {
+                            "status": "skipped_bootstrap",
+                            "bootstrap_required": True,
+                            "domain_deltas": [],
+                        },
+                        "output_path": str(staged_output_path),
+                    }
+                    staged_output_path.parent.mkdir(parents=True, exist_ok=True)
+                    staged_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                    return payload
+                return original_invoke(command_fn, args=args)
+
+            out = io.StringIO()
+            with patch("jarvis.cli._invoke_cli_json_command", side_effect=patched_invoke):
+                with redirect_stdout(out):
+                    cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("knowledge_brief") or ""), "ok")
+            self.assertEqual(str(stage_statuses.get("knowledge_brief_delta_alert") or ""), "skipped_bootstrap")
+
+            knowledge_alert_payload = dict(payload.get("knowledge_brief_delta_alert") or {})
+            self.assertEqual(str(knowledge_alert_payload.get("status") or ""), "skipped_bootstrap")
+            self.assertFalse(bool(knowledge_alert_payload.get("alert_created")))
+            self.assertIsNone(knowledge_alert_payload.get("alert"))
+            bootstrap_state = dict(payload.get("knowledge_bootstrap_state") or {})
+            self.assertTrue(bool(bootstrap_state))
+            self.assertTrue(bool(bootstrap_state.get("active")))
+            self.assertEqual(str(bootstrap_state.get("phase") or ""), "bootstrap_pending")
+            self.assertTrue(bool(bootstrap_state.get("bootstrap_required")))
+            self.assertGreaterEqual(int(bootstrap_state.get("minimum_required_snapshot_count") or 0), 2)
+            self.assertGreaterEqual(int(bootstrap_state.get("versioned_snapshot_count") or 0), 0)
+            self.assertGreaterEqual(int(bootstrap_state.get("indexed_snapshot_count") or 0), 0)
+            next_action_command = str(bootstrap_state.get("next_action_command") or "")
+            self.assertTrue(bool(next_action_command))
+            self.assertIn("improvement operator-cycle", next_action_command)
+            self.assertIn("--knowledge-brief-enable", next_action_command)
+            self.assertIn("--knowledge-delta-alert-enable", next_action_command)
+
+            inbox_summary_path = Path(str(payload.get("inbox_summary_path") or ""))
+            self.assertTrue(inbox_summary_path.exists())
+            inbox_summary = json.loads(inbox_summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                str(((inbox_summary.get("stage_statuses") or {}).get("knowledge_brief_delta_alert") or "")),
+                "skipped_bootstrap",
+            )
+            summary_bootstrap_state = dict(inbox_summary.get("knowledge_bootstrap_state") or {})
+            self.assertTrue(bool(summary_bootstrap_state.get("active")))
+            self.assertEqual(str(summary_bootstrap_state.get("phase") or ""), "bootstrap_pending")
+            self.assertTrue(bool(summary_bootstrap_state.get("bootstrap_required")))
+            self.assertEqual(
+                str(summary_bootstrap_state.get("next_action_command") or ""),
+                next_action_command,
+            )
+            self.assertNotEqual(str(inbox_summary.get("status") or ""), "warning")
+
+    def test_operator_cycle_marks_knowledge_brief_delta_alert_stage_skipped_when_not_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Operator knowledge delta alert skipped hypothesis",
+                    statement="Operator cycle should mark knowledge-delta alert stage skipped when not requested.",
+                    proposed_change="Keep knowledge-delta alert optional by default.",
+                    friction_key="fitness_onboarding_paywall_fatigue",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+            finally:
+                runtime.close()
+
+            raw_input_path = root / "inputs" / "fitness_reviews.json"
+            raw_input_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_input_path.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "id": "feed-knowledge-skipped-1",
+                                "title": "Workout progression is unclear",
+                                "text": "I can't tell how sessions are adapting.",
+                                "rating": 2,
+                            }
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            blocked_artifact_path = root / "artifacts" / "blocked_eval.json"
+            blocked_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            blocked_artifact_path.write_text(
+                json.dumps(
+                    {
+                        "environment": "offline_backtest",
+                        "baseline": {
+                            "metrics": {
+                                "precision_at_k": 0.30,
+                                "false_positive_rate": 0.18,
+                                "inference_latency_ms_p95": 210,
+                            }
+                        },
+                        "candidate": {
+                            "metrics": {
+                                "precision_at_k": 0.36,
+                                "false_positive_rate": 0.16,
+                                "inference_latency_ms_p95": 205,
+                            },
+                            "sample_size": 520,
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "operator_cycle_knowledge_alert_skipped_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "min_cluster_count": 1,
+                            "proposal_limit": 4,
+                            "auto_retest_lane": True,
+                            "guardrail_sample_multiplier": 1.1,
+                            "min_sample_increment": 50,
+                            "guardrail_safety_factor": 0.9,
+                            "include_decision_timeline": False,
+                            "collect_experiment_debug": True,
+                        },
+                        "feed_jobs": [
+                            {
+                                "name": "fitness_reviews",
+                                "url": "inputs/fitness_reviews.json",
+                                "format": "json",
+                                "records_path": "reviews",
+                                "mapping": {
+                                    "id": "id",
+                                    "title": "title",
+                                    "summary": "text",
+                                    "review": "text",
+                                    "rating": "rating",
+                                },
+                                "output_path": "analysis/fitness_feedback.jsonl",
+                            }
+                        ],
+                        "feedback_jobs": [
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "analysis/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ],
+                        "experiment_jobs": [
+                            {
+                                "hypothesis_id": hypothesis_id,
+                                "artifact_path": "artifacts/blocked_eval.json",
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_knowledge_delta_alert_skipped"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                operator_report_path=None,
+                benchmark_enable=False,
+                benchmark_top_limit=None,
+                benchmark_report_path=None,
+                verify_matrix_enable=False,
+                verify_matrix_path=None,
+                verify_matrix_report_path=None,
+                verify_matrix_alert_enable=False,
+                verify_matrix_alert_domain=None,
+                verify_matrix_alert_max_items=None,
+                verify_matrix_alert_urgency=None,
+                verify_matrix_alert_confidence=None,
+                verify_matrix_alert_report_path=None,
+                knowledge_brief_enable=False,
+                knowledge_brief_query=None,
+                knowledge_brief_snapshot_label=None,
+                knowledge_brief_report_path=None,
+                knowledge_delta_alert_enable=False,
+                knowledge_delta_alert_domain=None,
+                knowledge_delta_alert_max_items=None,
+                knowledge_delta_alert_urgency=None,
+                knowledge_delta_alert_confidence=None,
+                knowledge_delta_alert_report_path=None,
+                knowledge_brief_delta_alert_enable=False,
+                knowledge_brief_delta_alert_domain=None,
+                knowledge_brief_delta_alert_max_items=None,
+                knowledge_brief_delta_alert_urgency=None,
+                knowledge_brief_delta_alert_confidence=None,
+                knowledge_brief_delta_alert_report_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("knowledge_brief") or ""), "skipped_not_requested")
+            self.assertEqual(str(stage_statuses.get("knowledge_brief_delta_alert") or ""), "skipped_not_requested")
+            bootstrap_state = dict(payload.get("knowledge_bootstrap_state") or {})
+            self.assertTrue(bool(bootstrap_state))
+            self.assertFalse(bool(bootstrap_state.get("active")))
+            self.assertEqual(str(bootstrap_state.get("phase") or ""), "not_requested")
+            self.assertFalse(bool(bootstrap_state.get("bootstrap_required")))
+            self.assertFalse(bool(bootstrap_state.get("next_action_command")))
+
+            inbox_summary_path = Path(str(payload.get("inbox_summary_path") or ""))
+            self.assertTrue(inbox_summary_path.exists())
+            inbox_summary = json.loads(inbox_summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                str(((inbox_summary.get("stage_statuses") or {}).get("knowledge_brief") or "")),
+                "skipped_not_requested",
+            )
+            self.assertEqual(
+                str(((inbox_summary.get("stage_statuses") or {}).get("knowledge_brief_delta_alert") or "")),
+                "skipped_not_requested",
+            )
+            summary_bootstrap_state = dict(inbox_summary.get("knowledge_bootstrap_state") or {})
+            self.assertFalse(bool(summary_bootstrap_state.get("active")))
+            self.assertEqual(str(summary_bootstrap_state.get("phase") or ""), "not_requested")
+            self.assertFalse(bool(summary_bootstrap_state.get("bootstrap_required")))
+
+    def test_operator_cycle_knowledge_bootstrap_state_reports_ready_phase(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Operator knowledge ready-phase hypothesis",
+                    statement="Operator cycle should report ready phase when knowledge bootstrap is complete.",
+                    proposed_change="Expose ready bootstrap phase when delta alerting is active and non-bootstrap.",
+                    friction_key="fitness_onboarding_paywall_fatigue",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+            finally:
+                runtime.close()
+
+            raw_input_path = root / "inputs" / "fitness_reviews.json"
+            raw_input_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_input_path.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "id": "feed-knowledge-ready-1",
+                                "title": "Adaptation confidence",
+                                "text": "Plans adapt clearly after the first week.",
+                                "rating": 4,
+                            }
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            blocked_artifact_path = root / "artifacts" / "blocked_eval.json"
+            blocked_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            blocked_artifact_path.write_text(
+                json.dumps(
+                    {
+                        "environment": "offline_backtest",
+                        "baseline": {
+                            "metrics": {
+                                "precision_at_k": 0.30,
+                                "false_positive_rate": 0.18,
+                                "inference_latency_ms_p95": 210,
+                            }
+                        },
+                        "candidate": {
+                            "metrics": {
+                                "precision_at_k": 0.36,
+                                "false_positive_rate": 0.16,
+                                "inference_latency_ms_p95": 205,
+                            },
+                            "sample_size": 520,
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "operator_cycle_knowledge_ready_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "min_cluster_count": 1,
+                            "proposal_limit": 4,
+                            "auto_retest_lane": True,
+                            "guardrail_sample_multiplier": 1.1,
+                            "min_sample_increment": 50,
+                            "guardrail_safety_factor": 0.9,
+                            "include_decision_timeline": False,
+                            "collect_experiment_debug": True,
+                        },
+                        "feed_jobs": [
+                            {
+                                "name": "fitness_reviews",
+                                "url": "inputs/fitness_reviews.json",
+                                "format": "json",
+                                "records_path": "reviews",
+                                "mapping": {
+                                    "id": "id",
+                                    "title": "title",
+                                    "summary": "text",
+                                    "review": "text",
+                                    "rating": "rating",
+                                },
+                                "output_path": "analysis/fitness_feedback.jsonl",
+                            }
+                        ],
+                        "feedback_jobs": [
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "analysis/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ],
+                        "experiment_jobs": [
+                            {
+                                "hypothesis_id": hypothesis_id,
+                                "artifact_path": "artifacts/blocked_eval.json",
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            expected_knowledge_brief_report_path = root / "reports" / "knowledge_brief_report.json"
+            expected_delta_alert_report_path = root / "reports" / "knowledge_brief_delta_alert_report.json"
+            output_dir = root / "output" / "operator_knowledge_ready"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                operator_report_path=None,
+                benchmark_enable=False,
+                benchmark_top_limit=None,
+                benchmark_report_path=None,
+                verify_matrix_enable=False,
+                verify_matrix_path=None,
+                verify_matrix_report_path=None,
+                verify_matrix_alert_enable=False,
+                verify_matrix_alert_domain=None,
+                verify_matrix_alert_max_items=None,
+                verify_matrix_alert_urgency=None,
+                verify_matrix_alert_confidence=None,
+                verify_matrix_alert_report_path=None,
+                knowledge_brief_enable=True,
+                knowledge_brief_query=None,
+                knowledge_brief_snapshot_label=None,
+                knowledge_brief_report_path=expected_knowledge_brief_report_path,
+                knowledge_delta_alert_enable=True,
+                knowledge_delta_alert_domain="operations",
+                knowledge_delta_alert_max_items=3,
+                knowledge_delta_alert_urgency=None,
+                knowledge_delta_alert_confidence=None,
+                knowledge_delta_alert_report_path=expected_delta_alert_report_path,
+                knowledge_brief_delta_alert_enable=True,
+                knowledge_brief_delta_alert_domain="operations",
+                knowledge_brief_delta_alert_max_items=3,
+                knowledge_brief_delta_alert_urgency=None,
+                knowledge_brief_delta_alert_confidence=None,
+                knowledge_brief_delta_alert_report_path=expected_delta_alert_report_path,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            original_invoke = cli_module._invoke_cli_json_command
+
+            def patched_invoke(command_fn: Any, *, args: argparse.Namespace) -> dict[str, Any]:
+                if getattr(command_fn, "__name__", "") == "cmd_improvement_knowledge_brief":
+                    staged_output_path = Path(str(getattr(args, "output_path", expected_knowledge_brief_report_path)))
+                    payload = {
+                        "status": "ok",
+                        "suggested_actions": ["Continue ingesting cross-domain signals."],
+                        "knowledge_snapshot": {
+                            "status": "ok",
+                            "path": str(
+                                root / "analysis" / "improvement" / "knowledge_snapshots" / "stub_snapshot.json"
+                            ),
+                        },
+                        "output_path": str(staged_output_path),
+                    }
+                    staged_output_path.parent.mkdir(parents=True, exist_ok=True)
+                    staged_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                    return payload
+                if getattr(command_fn, "__name__", "") == "cmd_improvement_knowledge_brief_delta_alert":
+                    staged_output_path = Path(str(getattr(args, "output_path", expected_delta_alert_report_path)))
+                    payload = {
+                        "status": "ok",
+                        "alert_created": False,
+                        "alert": None,
+                        "drift_severity": "none",
+                        "mitigation_actions": [],
+                        "delta": {
+                            "status": "ok",
+                            "bootstrap_required": False,
+                            "domain_deltas": [],
+                        },
+                        "output_path": str(staged_output_path),
+                    }
+                    staged_output_path.parent.mkdir(parents=True, exist_ok=True)
+                    staged_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                    return payload
+                return original_invoke(command_fn, args=args)
+
+            out = io.StringIO()
+            with patch("jarvis.cli._invoke_cli_json_command", side_effect=patched_invoke):
+                with redirect_stdout(out):
+                    cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            bootstrap_state = dict(payload.get("knowledge_bootstrap_state") or {})
+            self.assertEqual(str(bootstrap_state.get("phase") or ""), "ready")
+            self.assertFalse(bool(bootstrap_state.get("bootstrap_required")))
+
+            inbox_summary_path = Path(str(payload.get("inbox_summary_path") or ""))
+            self.assertTrue(inbox_summary_path.exists())
+            inbox_summary = json.loads(inbox_summary_path.read_text(encoding="utf-8"))
+            summary_bootstrap_state = dict(inbox_summary.get("knowledge_bootstrap_state") or {})
+            self.assertEqual(str(summary_bootstrap_state.get("phase") or ""), "ready")
+            self.assertFalse(bool(summary_bootstrap_state.get("bootstrap_required")))
+
+    def test_operator_cycle_blocked_promotions_unlock_ready_when_interrupts_acknowledged(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Operator unlock-ready hypothesis",
+                    statement="Blocked promotions should become unlock-ready when interrupts are acknowledged.",
+                    proposed_change="Expose unlock readiness from interrupt statuses.",
+                    friction_key="false_positive_drift_in_high_volatility_windows",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+
+                acknowledged_interrupt_id = "int_unlock_ready_ack_1"
+                runtime.interrupt_store.store(
+                    InterruptDecision(
+                        interrupt_id=acknowledged_interrupt_id,
+                        candidate_id="cand_unlock_ready_ack_1",
+                        domain="market_ml",
+                        reason=(
+                            "matrix_drift_detected severity=critical mismatches=1 missing=0 "
+                            "invalid=0 guardrail_mismatches=1 top=market_ml_expected_promote"
+                        ),
+                        urgency_score=0.95,
+                        confidence=0.93,
+                        suppression_window_hit=False,
+                        delivered=True,
+                        why_now="critical drift gate test",
+                        why_not_later="promotion should remain blocked until acknowledged",
+                        status="delivered",
+                    )
+                )
+                runtime.acknowledge_interrupt(acknowledged_interrupt_id, actor="tester")
+            finally:
+                runtime.close()
+
+            raw_input_path = root / "inputs" / "fitness_reviews.json"
+            raw_input_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_input_path.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "id": "feed-unlock-ready-1",
+                                "title": "No free trial path",
+                                "text": "No way to test features before paying.",
+                                "rating": 2,
+                            }
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            blocked_artifact_path = root / "artifacts" / "blocked_eval.json"
+            blocked_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            blocked_artifact_path.write_text(
+                json.dumps(
+                    {
+                        "environment": "offline_backtest",
+                        "baseline": {
+                            "metrics": {
+                                "precision_at_k": 0.30,
+                                "false_positive_rate": 0.18,
+                                "inference_latency_ms_p95": 210,
+                            }
+                        },
+                        "candidate": {
+                            "metrics": {
+                                "precision_at_k": 0.36,
+                                "false_positive_rate": 0.16,
+                                "inference_latency_ms_p95": 205,
+                            },
+                            "sample_size": 520,
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            matrix_path = root / "matrix.json"
+            matrix_path.write_text(
+                json.dumps(
+                    {
+                        "scenarios": [
+                            {
+                                "scenario_id": "market_ml_expected_promote",
+                                "domain": "market_ml",
+                                "friction_key": "false_positive_drift_in_high_volatility_windows",
+                                "artifact_path": "artifacts/blocked_eval.json",
+                                "expected_verdict": "blocked_guardrail",
+                            }
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "operator_cycle_unlock_ready_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "min_cluster_count": 1,
+                            "proposal_limit": 4,
+                            "auto_retest_lane": True,
+                            "guardrail_sample_multiplier": 1.1,
+                            "min_sample_increment": 50,
+                            "guardrail_safety_factor": 0.9,
+                            "include_decision_timeline": False,
+                            "collect_experiment_debug": True,
+                        },
+                        "feed_jobs": [
+                            {
+                                "name": "fitness_reviews",
+                                "url": "inputs/fitness_reviews.json",
+                                "format": "json",
+                                "records_path": "reviews",
+                                "mapping": {
+                                    "id": "id",
+                                    "title": "title",
+                                    "summary": "text",
+                                    "review": "text",
+                                    "rating": "rating",
+                                },
+                                "output_path": "analysis/fitness_feedback.jsonl",
+                            }
+                        ],
+                        "feedback_jobs": [
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "analysis/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ],
+                        "experiment_jobs": [
+                            {
+                                "hypothesis_id": hypothesis_id,
+                                "artifact_path": "artifacts/blocked_eval.json",
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_unlock_ready"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                operator_report_path=None,
+                benchmark_enable=False,
+                benchmark_top_limit=None,
+                benchmark_report_path=None,
+                verify_matrix_enable=True,
+                verify_matrix_path=matrix_path,
+                verify_matrix_report_path=None,
+                verify_matrix_alert_enable=True,
+                verify_matrix_alert_domain="market_ml",
+                verify_matrix_alert_max_items=2,
+                verify_matrix_alert_urgency=None,
+                verify_matrix_alert_confidence=None,
+                verify_matrix_alert_report_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            ack_command = (
+                f"python3 -m jarvis.cli interrupts acknowledge {acknowledged_interrupt_id} --actor operator"
+            )
+            original_invoke = cli_module._invoke_cli_json_command
+
+            def patched_invoke(command_fn: Any, *, args: argparse.Namespace) -> dict[str, Any]:
+                if getattr(command_fn, "__name__", "") == "cmd_improvement_verify_matrix_alert":
+                    return {
+                        "status": "warning",
+                        "alert_created": True,
+                        "error_count": 0,
+                        "alert": {
+                            "interrupt_id": acknowledged_interrupt_id,
+                            "domain": "market_ml",
+                            "status": "acknowledged",
+                            "drift_severity": "critical",
+                        },
+                        "acknowledge_commands": [ack_command],
+                        "mitigation_actions": ["Escalate matrix drift review."],
+                    }
+                return original_invoke(command_fn, args=args)
+
+            out = io.StringIO()
+            with patch("jarvis.cli._invoke_cli_json_command", side_effect=patched_invoke):
+                with redirect_stdout(out):
+                    cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            promotion_lock = dict(payload.get("promotion_lock") or {})
+            self.assertTrue(bool(promotion_lock.get("active")))
+            self.assertTrue(bool(promotion_lock.get("unlock_ready")))
+            self.assertEqual(
+                str((promotion_lock.get("blocking_interrupt_statuses") or {}).get(acknowledged_interrupt_id) or ""),
+                "acknowledged",
+            )
+
+            blocked_promotions = [dict(item) for item in list(payload.get("blocked_promotions") or []) if isinstance(item, dict)]
+            self.assertEqual(len(blocked_promotions), 1)
+            unlock_readiness = dict(blocked_promotions[0].get("unlock_readiness") or {})
+            self.assertTrue(bool(unlock_readiness.get("unlock_ready")))
+            self.assertEqual(str(unlock_readiness.get("status") or ""), "ready_to_recheck")
+            self.assertFalse(bool(unlock_readiness.get("requires_acknowledgement")))
+            self.assertEqual(
+                str((unlock_readiness.get("blocking_interrupt_statuses") or {}).get(acknowledged_interrupt_id) or ""),
+                "acknowledged",
+            )
+            self.assertIn(ack_command, list(unlock_readiness.get("acknowledge_commands") or []))
+
+            self.assertEqual(list(payload.get("promotions") or []), [])
+            self.assertEqual(int((payload.get("metrics") or {}).get("blocked_promotion_count") or 0), 1)
 
     def test_operator_cycle_resolves_relative_output_dir_from_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -2501,6 +4332,332 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(int(daily_payload.get("experiment_runs_count") or 0), 1)
             experiment_runs = [row for row in list(daily_payload.get("experiment_runs") or []) if isinstance(row, dict)]
             self.assertTrue(any(str(row.get("hypothesis_id") or "") == hypothesis_id for row in experiment_runs))
+
+    def test_operator_cycle_draft_uses_domain_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Domain default draft selection should include testing lane",
+                    statement="Operator cycle should resolve draft defaults from config per domain.",
+                    proposed_change="Use domain defaults for statuses, limits, and environment.",
+                    success_criteria={
+                        "metric": "precision_at_k",
+                        "direction": "increase",
+                        "min_effect": 0.03,
+                    },
+                    friction_key="feature_store_latency_spike_near_open",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+                runtime.hypothesis_lab.set_hypothesis_status(
+                    hypothesis_id=hypothesis_id,
+                    status="testing",
+                )
+            finally:
+                runtime.close()
+
+            raw_input_path = root / "inputs" / "fitness_reviews.json"
+            raw_input_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_input_path.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "id": "feed-draft-defaults-1",
+                                "title": "Onboarding friction",
+                                "text": "Onboarding still feels rigid for beginners.",
+                                "rating": 2,
+                            }
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "operator_cycle_draft_domain_defaults_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "allow_missing_inputs": False,
+                            "draft_statuses": "queued",
+                            "draft_statuses_by_domain": {
+                                "market_ml": "testing",
+                            },
+                            "draft_limit": 8,
+                            "draft_limit_by_domain": {
+                                "market_ml": 3,
+                            },
+                            "draft_lookup_limit": 400,
+                            "draft_lookup_limit_by_domain": {
+                                "market_ml": 80,
+                            },
+                            "draft_environment_by_domain": {
+                                "market_ml": "controlled_backtest",
+                            },
+                            "draft_default_sample_size": 100,
+                            "draft_default_sample_size_by_domain": {
+                                "market_ml": 175,
+                            },
+                        },
+                        "feed_jobs": [
+                            {
+                                "name": "fitness_reviews",
+                                "url": "inputs/fitness_reviews.json",
+                                "format": "json",
+                                "records_path": "reviews",
+                                "mapping": {
+                                    "id": "id",
+                                    "title": "title",
+                                    "summary": "text",
+                                    "review": "text",
+                                    "rating": "rating",
+                                },
+                                "output_path": "analysis/fitness_feedback.jsonl",
+                            }
+                        ],
+                        "feedback_jobs": [],
+                        "experiment_jobs": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_draft_domain_defaults"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                draft_enable=True,
+                draft_seed_report_path=None,
+                draft_config_path=None,
+                draft_output_config_path=None,
+                draft_report_path=None,
+                draft_artifacts_dir=None,
+                draft_domain="market_ml",
+                draft_statuses=None,
+                draft_limit=None,
+                draft_lookup_limit=None,
+                draft_include_existing=False,
+                draft_overwrite_artifacts=True,
+                draft_environment=None,
+                draft_default_sample_size=None,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("draft_experiment_jobs") or ""), "ok")
+
+            draft_payload = dict(payload.get("draft") or {})
+            self.assertEqual(str(draft_payload.get("requested_statuses") or ""), "testing")
+            self.assertEqual(str(draft_payload.get("statuses_source") or ""), "config_by_domain")
+            self.assertEqual(int(draft_payload.get("resolved_limit") or 0), 3)
+            self.assertEqual(str(draft_payload.get("limit_source") or ""), "config_by_domain")
+            self.assertEqual(int(draft_payload.get("resolved_lookup_limit") or 0), 80)
+            self.assertEqual(str(draft_payload.get("lookup_limit_source") or ""), "config_by_domain")
+            self.assertEqual(str(draft_payload.get("resolved_environment") or ""), "controlled_backtest")
+            self.assertEqual(str(draft_payload.get("environment_source") or ""), "config_by_domain")
+            self.assertEqual(int(draft_payload.get("resolved_default_sample_size") or 0), 175)
+            self.assertEqual(str(draft_payload.get("default_sample_size_source") or ""), "config_by_domain")
+            self.assertGreaterEqual(int(draft_payload.get("drafted_count") or 0), 1)
+
+            draft_report_path = Path(str(payload.get("draft_report_path") or ""))
+            self.assertTrue(draft_report_path.exists())
+            draft_report = json.loads(draft_report_path.read_text(encoding="utf-8"))
+            drafts = [dict(item) for item in list(draft_report.get("drafts") or []) if isinstance(item, dict)]
+            self.assertEqual(len(drafts), 1)
+            self.assertEqual(str(drafts[0].get("hypothesis_id") or ""), hypothesis_id)
+            artifact_path = Path(str(drafts[0].get("artifact_path") or ""))
+            self.assertTrue(artifact_path.exists())
+            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(artifact_payload.get("environment") or ""), "controlled_backtest")
+            self.assertEqual(int(artifact_payload.get("sample_size") or 0), 175)
+
+    def test_operator_cycle_draft_cli_overrides_domain_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="CLI override draft selection should take precedence",
+                    statement="Operator cycle should prioritize explicit draft overrides.",
+                    proposed_change="Use CLI values for draft thresholds and environment.",
+                    success_criteria={
+                        "metric": "precision_at_k",
+                        "direction": "increase",
+                        "min_effect": 0.03,
+                    },
+                    friction_key="feature_store_latency_spike_near_open",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+            finally:
+                runtime.close()
+
+            raw_input_path = root / "inputs" / "fitness_reviews.json"
+            raw_input_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_input_path.write_text(
+                json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "id": "feed-draft-overrides-1",
+                                "title": "Onboarding friction",
+                                "text": "Onboarding still feels rigid for beginners.",
+                                "rating": 2,
+                            }
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "operator_cycle_draft_cli_override_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "allow_missing_inputs": False,
+                            "draft_statuses_by_domain": {
+                                "market_ml": "testing",
+                            },
+                            "draft_limit_by_domain": {
+                                "market_ml": 3,
+                            },
+                            "draft_lookup_limit_by_domain": {
+                                "market_ml": 80,
+                            },
+                            "draft_environment_by_domain": {
+                                "market_ml": "controlled_backtest",
+                            },
+                            "draft_default_sample_size_by_domain": {
+                                "market_ml": 175,
+                            },
+                        },
+                        "feed_jobs": [
+                            {
+                                "name": "fitness_reviews",
+                                "url": "inputs/fitness_reviews.json",
+                                "format": "json",
+                                "records_path": "reviews",
+                                "mapping": {
+                                    "id": "id",
+                                    "title": "title",
+                                    "summary": "text",
+                                    "review": "text",
+                                    "rating": "rating",
+                                },
+                                "output_path": "analysis/fitness_feedback.jsonl",
+                            }
+                        ],
+                        "feedback_jobs": [],
+                        "experiment_jobs": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_draft_cli_overrides"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                draft_enable=True,
+                draft_seed_report_path=None,
+                draft_config_path=None,
+                draft_output_config_path=None,
+                draft_report_path=None,
+                draft_artifacts_dir=None,
+                draft_domain="market_ml",
+                draft_statuses="queued",
+                draft_limit=5,
+                draft_lookup_limit=50,
+                draft_include_existing=False,
+                draft_overwrite_artifacts=True,
+                draft_environment="sandbox",
+                draft_default_sample_size=90,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("draft_experiment_jobs") or ""), "ok")
+
+            draft_payload = dict(payload.get("draft") or {})
+            self.assertEqual(str(draft_payload.get("requested_statuses") or ""), "queued")
+            self.assertEqual(str(draft_payload.get("statuses_source") or ""), "cli_override")
+            self.assertEqual(int(draft_payload.get("resolved_limit") or 0), 5)
+            self.assertEqual(str(draft_payload.get("limit_source") or ""), "cli_override")
+            self.assertEqual(int(draft_payload.get("resolved_lookup_limit") or 0), 50)
+            self.assertEqual(str(draft_payload.get("lookup_limit_source") or ""), "cli_override")
+            self.assertEqual(str(draft_payload.get("resolved_environment") or ""), "sandbox")
+            self.assertEqual(str(draft_payload.get("environment_source") or ""), "cli_override")
+            self.assertEqual(int(draft_payload.get("resolved_default_sample_size") or 0), 90)
+            self.assertEqual(str(draft_payload.get("default_sample_size_source") or ""), "cli_override")
+            self.assertGreaterEqual(int(draft_payload.get("drafted_count") or 0), 1)
+
+            draft_report_path = Path(str(payload.get("draft_report_path") or ""))
+            self.assertTrue(draft_report_path.exists())
+            draft_report = json.loads(draft_report_path.read_text(encoding="utf-8"))
+            drafts = [dict(item) for item in list(draft_report.get("drafts") or []) if isinstance(item, dict)]
+            self.assertEqual(len(drafts), 1)
+            self.assertEqual(str(drafts[0].get("hypothesis_id") or ""), hypothesis_id)
+            artifact_path = Path(str(drafts[0].get("artifact_path") or ""))
+            self.assertTrue(artifact_path.exists())
+            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(artifact_payload.get("environment") or ""), "sandbox")
+            self.assertEqual(int(artifact_payload.get("sample_size") or 0), 90)
 
     def test_operator_cycle_seed_stage_resolves_explicit_input_path_from_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -4567,6 +6724,326 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(only_run.get("seed_lookup_limit") or 0), 2)
             self.assertEqual(str(only_run.get("seed_lookup_limit_source") or ""), "cli_override")
 
+    def test_operator_cycle_seed_uses_domain_leaderboard_window_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            market_input_path = root / "configs" / "inputs" / "market_ml_feedback.jsonl"
+            market_input_path.parent.mkdir(parents=True, exist_ok=True)
+            market_input_path.write_text(
+                json.dumps(
+                    {
+                        "id": "market-1",
+                        "title": "Classifier false positives spike",
+                        "summary": "Classifier false positives spike during volatility windows.",
+                        "review": "Classifier false positives spike during volatility windows.",
+                        "severity": 4,
+                        "created_at": "2026-04-21T10:00:00Z",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            fitness_input_path = root / "configs" / "inputs" / "fitness_feedback.jsonl"
+            fitness_input_path.parent.mkdir(parents=True, exist_ok=True)
+            fitness_input_path.write_text(
+                json.dumps(
+                    {
+                        "id": "fitness-1",
+                        "title": "Paywall appears before workout completion",
+                        "summary": "Users hit paywall before completing their first workout.",
+                        "review": "Users hit paywall before completing their first workout.",
+                        "rating": 2,
+                        "app_name": "FitNova",
+                        "created_at": "2026-04-21T11:00:00Z",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config_path = root / "configs" / "operator_cycle_leaderboard_window_defaults.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "seed_lookback_days": 7,
+                            "seed_lookback_days_by_domain": {
+                                "market_ml": 14,
+                            },
+                            "seed_leaderboard_limit": 12,
+                            "seed_leaderboard_limit_by_domain": {
+                                "fitness_apps": 5,
+                            },
+                            "seed_trend_threshold": 0.25,
+                            "seed_trend_threshold_by_domain": {
+                                "market_ml": 0.4,
+                            },
+                            "seed_min_cross_app_count": 1,
+                            "seed_min_signal_count_current": 1,
+                        },
+                        "feed_jobs": [],
+                        "feedback_jobs": [
+                            {
+                                "domain": "market_ml",
+                                "source": "incident_log",
+                                "input_path": "inputs/market_ml_feedback.jsonl",
+                                "input_format": "jsonl",
+                            },
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "inputs/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            },
+                        ],
+                        "experiment_jobs": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_leaderboard_window_defaults"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                seed_enable=True,
+                seed_domains="market_ml,fitness_apps",
+                seed_leaderboard_input_path=None,
+                seed_leaderboard_input_format=None,
+                seed_leaderboard_report_path=None,
+                seed_report_path=None,
+                seed_domain="fitness_apps",
+                seed_source=None,
+                seed_hypothesis_source=None,
+                seed_trends=None,
+                seed_limit=None,
+                seed_min_impact_score=None,
+                seed_min_impact_delta=None,
+                seed_entry_source=None,
+                seed_fallback_entry_source=None,
+                seed_owner="operator",
+                seed_lookup_limit=None,
+                seed_as_of="2026-04-22T12:00:00Z",
+                seed_lookback_days=None,
+                seed_min_cluster_count=1,
+                seed_cluster_limit=20,
+                seed_leaderboard_limit=None,
+                seed_cooling_limit=10,
+                seed_app_fields="app_name,source_context.app",
+                seed_top_apps_per_cluster=3,
+                seed_min_cross_app_count=None,
+                seed_min_signal_count_current=None,
+                seed_own_app_aliases=None,
+                seed_trend_threshold=None,
+                seed_timestamp_fields="created_at",
+                seed_include_untimed_current=False,
+                draft_enable=False,
+                draft_seed_report_path=None,
+                draft_config_path=None,
+                draft_output_config_path=None,
+                draft_report_path=None,
+                draft_artifacts_dir=None,
+                draft_domain=None,
+                draft_statuses="queued",
+                draft_limit=8,
+                draft_lookup_limit=400,
+                draft_include_existing=False,
+                draft_overwrite_artifacts=False,
+                draft_environment=None,
+                draft_default_sample_size=100,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("seed_from_leaderboard") or ""), "ok")
+
+            seed_domain_runs = [row for row in list(payload.get("seed_domain_runs") or []) if isinstance(row, dict)]
+            self.assertEqual(len(seed_domain_runs), 2)
+            runs_by_domain = {str(row.get("domain") or ""): row for row in seed_domain_runs}
+
+            market_run = dict(runs_by_domain.get("market_ml") or {})
+            self.assertEqual(int(market_run.get("seed_lookback_days") or 0), 14)
+            self.assertEqual(str(market_run.get("seed_lookback_days_source") or ""), "config_by_domain")
+            self.assertEqual(int(market_run.get("seed_leaderboard_limit") or 0), 12)
+            self.assertEqual(str(market_run.get("seed_leaderboard_limit_source") or ""), "config_global")
+            self.assertEqual(float(market_run.get("seed_trend_threshold") or 0.0), 0.4)
+            self.assertEqual(str(market_run.get("seed_trend_threshold_source") or ""), "config_by_domain")
+
+            fitness_run = dict(runs_by_domain.get("fitness_apps") or {})
+            self.assertEqual(int(fitness_run.get("seed_lookback_days") or 0), 7)
+            self.assertEqual(str(fitness_run.get("seed_lookback_days_source") or ""), "config_global")
+            self.assertEqual(int(fitness_run.get("seed_leaderboard_limit") or 0), 5)
+            self.assertEqual(str(fitness_run.get("seed_leaderboard_limit_source") or ""), "config_by_domain")
+            self.assertEqual(float(fitness_run.get("seed_trend_threshold") or 0.0), 0.25)
+            self.assertEqual(str(fitness_run.get("seed_trend_threshold_source") or ""), "config_global")
+
+    def test_operator_cycle_seed_cli_leaderboard_window_overrides_config_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            market_input_path = root / "configs" / "inputs" / "market_ml_feedback.jsonl"
+            market_input_path.parent.mkdir(parents=True, exist_ok=True)
+            market_input_path.write_text(
+                json.dumps(
+                    {
+                        "id": "market-1",
+                        "title": "Classifier false positives spike",
+                        "summary": "Classifier false positives spike during volatility windows.",
+                        "review": "Classifier false positives spike during volatility windows.",
+                        "severity": 4,
+                        "created_at": "2026-04-21T10:00:00Z",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config_path = root / "configs" / "operator_cycle_leaderboard_window_override.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "seed_lookback_days_by_domain": {
+                                "market_ml": 14,
+                            },
+                            "seed_leaderboard_limit_by_domain": {
+                                "market_ml": 15,
+                            },
+                            "seed_trend_threshold_by_domain": {
+                                "market_ml": 0.4,
+                            },
+                            "seed_min_cross_app_count": 1,
+                            "seed_min_signal_count_current": 1,
+                        },
+                        "feed_jobs": [],
+                        "feedback_jobs": [
+                            {
+                                "domain": "market_ml",
+                                "source": "incident_log",
+                                "input_path": "inputs/market_ml_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ],
+                        "experiment_jobs": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_leaderboard_window_override"
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                seed_enable=True,
+                seed_domains="market_ml",
+                seed_leaderboard_input_path=None,
+                seed_leaderboard_input_format=None,
+                seed_leaderboard_report_path=None,
+                seed_report_path=None,
+                seed_domain="market_ml",
+                seed_source=None,
+                seed_hypothesis_source=None,
+                seed_trends=None,
+                seed_limit=None,
+                seed_min_impact_score=None,
+                seed_min_impact_delta=None,
+                seed_entry_source=None,
+                seed_fallback_entry_source=None,
+                seed_owner="operator",
+                seed_lookup_limit=None,
+                seed_as_of="2026-04-22T12:00:00Z",
+                seed_lookback_days=3,
+                seed_min_cluster_count=1,
+                seed_cluster_limit=20,
+                seed_leaderboard_limit=4,
+                seed_cooling_limit=10,
+                seed_app_fields="app_name,source_context.app",
+                seed_top_apps_per_cluster=3,
+                seed_min_cross_app_count=None,
+                seed_min_signal_count_current=None,
+                seed_own_app_aliases=None,
+                seed_trend_threshold=0.1,
+                seed_timestamp_fields="created_at",
+                seed_include_untimed_current=False,
+                draft_enable=False,
+                draft_seed_report_path=None,
+                draft_config_path=None,
+                draft_output_config_path=None,
+                draft_report_path=None,
+                draft_artifacts_dir=None,
+                draft_domain=None,
+                draft_statuses="queued",
+                draft_limit=8,
+                draft_lookup_limit=400,
+                draft_include_existing=False,
+                draft_overwrite_artifacts=False,
+                draft_environment=None,
+                draft_default_sample_size=100,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("seed_from_leaderboard") or ""), "ok")
+
+            seed_domain_runs = [row for row in list(payload.get("seed_domain_runs") or []) if isinstance(row, dict)]
+            self.assertEqual(len(seed_domain_runs), 1)
+            only_run = dict(seed_domain_runs[0] or {})
+            self.assertEqual(int(only_run.get("seed_lookback_days") or 0), 3)
+            self.assertEqual(str(only_run.get("seed_lookback_days_source") or ""), "cli_override")
+            self.assertEqual(int(only_run.get("seed_leaderboard_limit") or 0), 4)
+            self.assertEqual(str(only_run.get("seed_leaderboard_limit_source") or ""), "cli_override")
+            self.assertEqual(float(only_run.get("seed_trend_threshold") or 0.0), 0.1)
+            self.assertEqual(str(only_run.get("seed_trend_threshold_source") or ""), "cli_override")
+
     def test_operator_cycle_runs_seed_and_draft_stages_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -5548,6 +8025,1494 @@ class CliImprovementPipelineTests(unittest.TestCase):
             alert = dict(payload.get("alert") or {})
             self.assertEqual(float(alert.get("urgency_score") or 0.0), 0.9)
             self.assertEqual(float(alert.get("confidence") or 0.0), 0.86)
+
+    def test_improvement_knowledge_bootstrap_route_reports_bootstrap_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "knowledge_bootstrap_state": {
+                            "phase": "bootstrap_pending",
+                            "bootstrap_required": True,
+                            "next_action_command": "python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable --knowledge-delta-alert-enable",
+                            "next_action": "Bootstrap in progress. Collect one more snapshot before delta alerting.",
+                        },
+                        "stage_statuses": {
+                            "knowledge_brief": "ok",
+                            "knowledge_brief_delta_alert": "skipped_bootstrap",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_knowledge_bootstrap_route(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("phase") or ""), "bootstrap_pending")
+            self.assertEqual(str(payload.get("route") or ""), "bootstrap")
+            self.assertTrue(bool(payload.get("bootstrap_required")))
+            self.assertTrue(bool(str(payload.get("next_action_command") or "").strip()))
+
+    def test_improvement_knowledge_bootstrap_route_reports_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "knowledge_bootstrap_state": {
+                            "phase": "ready",
+                            "bootstrap_required": False,
+                            "next_action_command": "python3 -m jarvis.cli improvement operator-cycle --knowledge-delta-alert-enable",
+                            "next_action": "Run monitoring and respond to regression alerts.",
+                        },
+                        "stage_statuses": {
+                            "knowledge_brief": "ok",
+                            "knowledge_brief_delta_alert": "ok",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_knowledge_bootstrap_route(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("phase") or ""), "ready")
+            self.assertEqual(str(payload.get("route") or ""), "run_cycle")
+            self.assertFalse(bool(payload.get("bootstrap_required")))
+
+    def test_improvement_knowledge_bootstrap_route_infers_phase_from_stage_status_when_state_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "stage_statuses": {
+                            "knowledge_brief_delta_alert": "skipped_not_requested",
+                        }
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_knowledge_bootstrap_route(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("phase") or ""), "not_requested")
+            self.assertEqual(str(payload.get("route") or ""), "noop")
+
+    def test_improvement_knowledge_bootstrap_route_warns_when_state_and_stage_status_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            non_strict_args = argparse.Namespace(
+                report_path=report_path,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+            non_strict_out = io.StringIO()
+            with redirect_stdout(non_strict_out):
+                cmd_improvement_knowledge_bootstrap_route(non_strict_args)
+            payload = json.loads(non_strict_out.getvalue())
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+
+            strict_args = argparse.Namespace(
+                report_path=report_path,
+                output_path=None,
+                strict=True,
+                json_compact=False,
+            )
+            strict_out = io.StringIO()
+            with self.assertRaises(SystemExit) as raised:
+                with redirect_stdout(strict_out):
+                    cmd_improvement_knowledge_bootstrap_route(strict_args)
+            self.assertEqual(int(getattr(raised.exception, "code", 0) or 0), 2)
+
+    def test_improvement_knowledge_bootstrap_route_defaults_domains_when_report_contains_none(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            config_path = root / "configs" / "operator_config.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps({"defaults": {}}, indent=2), encoding="utf-8")
+
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "config_path": str(config_path),
+                        "output_dir": str(root / "output" / "operator"),
+                        "knowledge_bootstrap_state": {
+                            "phase": "bootstrap_pending",
+                            "bootstrap_required": True,
+                        },
+                        "knowledge_brief_delta_alert": {
+                            "domains": "None",
+                        },
+                        "stage_statuses": {
+                            "knowledge_brief_delta_alert": "skipped_bootstrap",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_knowledge_bootstrap_route(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("route") or ""), "bootstrap")
+            next_action_command = str(payload.get("next_action_command") or "")
+            self.assertIn("--knowledge-delta-domains", next_action_command)
+            self.assertNotIn("--knowledge-delta-domains none", next_action_command.lower())
+            self.assertIn(
+                "--knowledge-delta-domains quant_finance,kalshi_weather,fitness_apps,market_ml",
+                next_action_command,
+            )
+
+    def test_improvement_knowledge_brief_summarizes_seeded_domain_knowledge(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                fitness_friction = runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="app_store_reviews",
+                    summary="Paywall appears before trying a workout trial.",
+                    severity=5,
+                    symptom_tags=["paywall", "trial", "pricing"],
+                )
+                runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="support_tickets",
+                    summary="Paywall blocks first workout until subscription.",
+                    severity=4,
+                    symptom_tags=["paywall", "onboarding"],
+                )
+                runtime.record_domain_friction(
+                    domain="quant_finance",
+                    source="desk_notes",
+                    summary="Execution slippage worsens during regime drift.",
+                    severity=4,
+                    symptom_tags=["slippage", "regime", "latency"],
+                )
+                runtime.record_domain_friction(
+                    domain="kalshi_weather",
+                    source="market_notes",
+                    summary="Weather market calibration lags after forecast updates.",
+                    severity=3,
+                    symptom_tags=["calibration", "weather", "pricing"],
+                )
+                runtime.record_domain_friction(
+                    domain="market_ml",
+                    source="model_review",
+                    summary="False positives drift higher in volatile windows.",
+                    severity=4,
+                    symptom_tags=["drift", "false_positive", "volatility"],
+                )
+
+                fitness_hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Reduce paywall friction",
+                    statement="Removing early paywall exposure should improve trial-to-retention conversion.",
+                    proposed_change="Move the paywall after the first meaningful workout trial.",
+                    friction_key="paywall_before_core_workout_trial",
+                    friction_ids=[str(fitness_friction.get("friction_id") or "")],
+                )
+                quant_hypothesis = runtime.register_hypothesis(
+                    domain="quant_finance",
+                    title="Cut regime slippage",
+                    statement="Regime-aware execution should lower slippage in volatile sessions.",
+                    proposed_change="Route orders with regime-aware execution controls.",
+                    friction_key="execution_slippage_regime_drift",
+                )
+                kalshi_hypothesis = runtime.register_hypothesis(
+                    domain="kalshi_weather",
+                    title="Improve weather calibration",
+                    statement="Calibrated probability bands should improve weather-market pricing.",
+                    proposed_change="Add forecast ensemble calibration before order generation.",
+                    friction_key="weather_probability_calibration_drift",
+                )
+                market_ml_hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Reduce false positives",
+                    statement="Better volatility-aware calibration should suppress false positives.",
+                    proposed_change="Tighten the model threshold under volatile conditions.",
+                    friction_key="false_positive_drift_in_high_volatility_windows",
+                )
+
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(fitness_hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "retention_d30": 0.12,
+                        "conversion_rate": 0.08,
+                        "support_ticket_rate": 0.17,
+                    },
+                    candidate_metrics={
+                        "retention_d30": 0.18,
+                        "conversion_rate": 0.13,
+                        "support_ticket_rate": 0.11,
+                    },
+                    sample_size=240,
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(quant_hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "slippage_bps": 12.0,
+                        "fill_rate": 0.91,
+                        "execution_latency_ms_p95": 180.0,
+                    },
+                    candidate_metrics={
+                        "slippage_bps": 15.0,
+                        "fill_rate": 0.88,
+                        "execution_latency_ms_p95": 190.0,
+                    },
+                    sample_size=180,
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(kalshi_hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "brier_skill": 0.01,
+                        "probability_calibration_error": 0.22,
+                        "edge_capture": 0.07,
+                    },
+                    candidate_metrics={
+                        "brier_skill": 0.04,
+                        "probability_calibration_error": 0.14,
+                        "edge_capture": 0.11,
+                    },
+                    sample_size=190,
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(market_ml_hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "precision_at_k": 0.31,
+                        "false_positive_rate": 0.18,
+                        "inference_latency_ms_p95": 220.0,
+                    },
+                    candidate_metrics={
+                        "precision_at_k": 0.36,
+                        "false_positive_rate": 0.26,
+                        "inference_latency_ms_p95": 228.0,
+                    },
+                    sample_size=260,
+                )
+
+                args = argparse.Namespace(
+                    domains="fitness_apps,kalshi_weather,quant_finance,market_ml",
+                    query="",
+                    displeasure_limit=6,
+                    hypothesis_limit=6,
+                    experiment_limit=6,
+                    controlled_test_limit=6,
+                    min_cluster_count=1,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    cmd_improvement_knowledge_brief(args)
+                payload = json.loads(out.getvalue())
+
+                self.assertEqual(str(payload.get("status") or ""), "ok")
+
+                domains = list(payload.get("domains") or [])
+                domain_names = {
+                    str(item.get("domain") or item.get("name") or item) if isinstance(item, dict) else str(item)
+                    for item in domains
+                }
+                self.assertTrue({"fitness_apps", "kalshi_weather", "quant_finance", "market_ml"}.issubset(domain_names))
+
+                domain_briefs = [dict(item) for item in list(payload.get("domain_briefs") or []) if isinstance(item, dict)]
+                self.assertGreaterEqual(len(domain_briefs), 4)
+                fitness_brief = next(
+                    (row for row in domain_briefs if str(row.get("domain") or "") == "fitness_apps"),
+                    {},
+                )
+                self.assertTrue(bool(fitness_brief))
+                self.assertIn("paywall", json.dumps(fitness_brief, sort_keys=True).lower())
+
+                priority_board = [dict(item) for item in list(payload.get("cross_domain_priority_board") or []) if isinstance(item, dict)]
+                self.assertTrue(bool(priority_board))
+                top_priority = priority_board[0]
+                self.assertTrue(bool(str(top_priority.get("domain") or "").strip()))
+                self.assertTrue(bool(str(top_priority.get("title") or top_priority.get("summary") or "").strip()))
+
+                debug_hotspots = [dict(item) for item in list(payload.get("debug_hotspots") or []) if isinstance(item, dict)]
+                self.assertTrue(bool(debug_hotspots))
+                self.assertTrue(
+                    any(
+                        str(row.get("domain") or "") in {"fitness_apps", "quant_finance", "kalshi_weather", "market_ml"}
+                        for row in debug_hotspots
+                    )
+                )
+
+                controlled_test_candidates = [dict(item) for item in list(payload.get("controlled_test_candidates") or []) if isinstance(item, dict)]
+                self.assertTrue(bool(controlled_test_candidates))
+                self.assertTrue(
+                    any(
+                        str(row.get("hypothesis_id") or "").strip()
+                        for row in controlled_test_candidates
+                    )
+                )
+                self.assertTrue(
+                    any(
+                        "fitness_apps" == str(row.get("domain") or "")
+                        or "paywall" in json.dumps(row, sort_keys=True).lower()
+                        for row in controlled_test_candidates
+                    )
+                )
+            finally:
+                runtime.close()
+
+    def test_improvement_knowledge_brief_query_prioritizes_paywall_items(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="app_store_reviews",
+                    summary="Paywall appears before the first workout trial.",
+                    severity=5,
+                    symptom_tags=["paywall", "trial"],
+                )
+                runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="support_tickets",
+                    summary="Paywall blocks workout plan setup.",
+                    severity=4,
+                    symptom_tags=["paywall", "pricing"],
+                )
+                runtime.record_domain_friction(
+                    domain="quant_finance",
+                    source="desk_notes",
+                    summary="Execution latency spikes under volatility.",
+                    severity=3,
+                    symptom_tags=["latency", "volatility"],
+                )
+                runtime.record_domain_friction(
+                    domain="market_ml",
+                    source="model_review",
+                    summary="False positives increase during noisy periods.",
+                    severity=3,
+                    symptom_tags=["false_positive", "noise"],
+                )
+
+                fitness_hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Shift the paywall later",
+                    statement="Delaying the paywall should improve workout trial completion.",
+                    proposed_change="Expose the paywall after core utility is demonstrated.",
+                    friction_key="paywall_before_core_workout_trial",
+                )
+                runtime.register_hypothesis(
+                    domain="quant_finance",
+                    title="Reduce slippage noise",
+                    statement="Execution tuning should mitigate latency spikes.",
+                    proposed_change="Add routing safeguards for volatile conditions.",
+                    friction_key="execution_latency_spike",
+                )
+                runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Tame false positives",
+                    statement="Volatility-aware thresholds should suppress false positives.",
+                    proposed_change="Calibrate the classifier under noisy windows.",
+                    friction_key="false_positive_drift",
+                )
+
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(fitness_hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "retention_d30": 0.10,
+                        "conversion_rate": 0.07,
+                    },
+                    candidate_metrics={
+                        "retention_d30": 0.16,
+                        "conversion_rate": 0.12,
+                    },
+                    sample_size=120,
+                )
+
+                args = argparse.Namespace(
+                    domains="fitness_apps,quant_finance,market_ml",
+                    query="paywall",
+                    displeasure_limit=4,
+                    hypothesis_limit=4,
+                    experiment_limit=4,
+                    controlled_test_limit=4,
+                    min_cluster_count=1,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    cmd_improvement_knowledge_brief(args)
+                payload = json.loads(out.getvalue())
+
+                self.assertEqual(str(payload.get("status") or ""), "ok")
+
+                domain_briefs = [dict(item) for item in list(payload.get("domain_briefs") or []) if isinstance(item, dict)]
+                self.assertTrue(bool(domain_briefs))
+                top_domain_brief = domain_briefs[0]
+                self.assertEqual(str(top_domain_brief.get("domain") or ""), "fitness_apps")
+                self.assertIn("paywall", json.dumps(top_domain_brief, sort_keys=True).lower())
+
+                priority_board = [dict(item) for item in list(payload.get("cross_domain_priority_board") or []) if isinstance(item, dict)]
+                self.assertTrue(bool(priority_board))
+                self.assertEqual(str(priority_board[0].get("domain") or ""), "fitness_apps")
+                self.assertIn("paywall", json.dumps(priority_board[0], sort_keys=True).lower())
+
+                debug_hotspots = [dict(item) for item in list(payload.get("debug_hotspots") or []) if isinstance(item, dict)]
+                self.assertTrue(bool(debug_hotspots))
+                self.assertEqual(str(debug_hotspots[0].get("domain") or ""), "fitness_apps")
+                self.assertIn("paywall", json.dumps(debug_hotspots[0], sort_keys=True).lower())
+
+                controlled_test_candidates = [dict(item) for item in list(payload.get("controlled_test_candidates") or []) if isinstance(item, dict)]
+                self.assertTrue(bool(controlled_test_candidates))
+                self.assertEqual(str(controlled_test_candidates[0].get("domain") or ""), "fitness_apps")
+                self.assertIn("paywall", json.dumps(controlled_test_candidates[0], sort_keys=True).lower())
+                self.assertTrue(
+                    any(
+                        str(row.get("hypothesis_id") or "") == str(fitness_hypothesis.get("hypothesis_id") or "")
+                        for row in controlled_test_candidates
+                    )
+                )
+            finally:
+                runtime.close()
+
+    def test_improvement_knowledge_brief_writes_snapshot_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                friction = runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="app_store_reviews",
+                    summary="Paywall appears before trying workouts.",
+                    severity=5,
+                    symptom_tags=["paywall", "trial"],
+                )
+                hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Delay the paywall",
+                    statement="Delaying the paywall should improve trial completion.",
+                    proposed_change="Show the paywall after the first core workout.",
+                    friction_key="paywall_before_core_workout_trial",
+                    friction_ids=[str(friction.get("friction_id") or "")],
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "retention_d30": 0.1,
+                        "conversion_rate": 0.07,
+                    },
+                    candidate_metrics={
+                        "retention_d30": 0.15,
+                        "conversion_rate": 0.12,
+                    },
+                    sample_size=120,
+                )
+
+                args = argparse.Namespace(
+                    domains="fitness_apps",
+                    query="",
+                    displeasure_limit=4,
+                    hypothesis_limit=4,
+                    experiment_limit=4,
+                    controlled_test_limit=4,
+                    min_cluster_count=1,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    cmd_improvement_knowledge_brief(args)
+                payload = json.loads(out.getvalue())
+
+                snapshot = dict(payload.get("knowledge_snapshot") or {})
+                self.assertTrue(bool(snapshot))
+                self.assertTrue(bool(snapshot.get("enabled")))
+
+                snapshot_path = Path(str(snapshot.get("path") or "")).resolve()
+                self.assertTrue(snapshot_path.exists())
+                expected_dir = (repo / "analysis" / "improvement" / "knowledge_snapshots").resolve()
+                self.assertEqual(snapshot_path.parent, expected_dir)
+
+                snapshot_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                self.assertIn("generated_at", snapshot_payload)
+                self.assertIn("domains", snapshot_payload)
+                self.assertIn("domain_briefs", snapshot_payload)
+                self.assertEqual(str(snapshot_payload.get("status") or ""), str(payload.get("status") or ""))
+                self.assertEqual(
+                    list(snapshot_payload.get("domains") or []),
+                    list(payload.get("domains") or []),
+                )
+            finally:
+                runtime.close()
+
+    def test_improvement_knowledge_brief_can_disable_snapshot_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="app_store_reviews",
+                    summary="Paywall appears before trying workouts.",
+                    severity=5,
+                    symptom_tags=["paywall", "trial"],
+                )
+                runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Delay the paywall",
+                    statement="Delaying the paywall should improve trial completion.",
+                    proposed_change="Show the paywall after the first core workout.",
+                    friction_key="paywall_before_core_workout_trial",
+                )
+
+                args = argparse.Namespace(
+                    domains="fitness_apps",
+                    query="",
+                    displeasure_limit=4,
+                    hypothesis_limit=4,
+                    experiment_limit=4,
+                    controlled_test_limit=4,
+                    min_cluster_count=1,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    write_snapshot=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    cmd_improvement_knowledge_brief(args)
+                payload = json.loads(out.getvalue())
+
+                snapshot = dict(payload.get("knowledge_snapshot") or {})
+                self.assertTrue(bool(snapshot))
+                self.assertFalse(bool(snapshot.get("enabled")))
+                self.assertTrue(bool(snapshot.get("reason") or snapshot.get("disabled_reason") or snapshot.get("flag")))
+                self.assertFalse(bool(snapshot.get("path")))
+                self.assertFalse(
+                    (repo / "analysis" / "improvement" / "knowledge_snapshots").exists()
+                )
+            finally:
+                runtime.close()
+
+    def test_improvement_knowledge_brief_delta_returns_skipped_bootstrap_with_single_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                friction = runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="app_store_reviews",
+                    summary="Paywall appears before first workout completion.",
+                    severity=4,
+                    symptom_tags=["paywall", "trial"],
+                )
+                hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Delay paywall to post-workout",
+                    statement="Delaying paywall should improve activation.",
+                    proposed_change="Move paywall gating after first core workout.",
+                    friction_key="paywall_before_core_workout_trial",
+                    friction_ids=[str(friction.get("friction_id") or "")],
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "retention_d30": 0.1,
+                        "crash_rate": 0.006,
+                        "unsubscribe_rate": 0.06,
+                    },
+                    candidate_metrics={
+                        "retention_d30": 0.14,
+                        "crash_rate": 0.007,
+                        "unsubscribe_rate": 0.065,
+                    },
+                    sample_size=240,
+                )
+
+                brief_args = argparse.Namespace(
+                    domains="fitness_apps",
+                    query="",
+                    displeasure_limit=6,
+                    hypothesis_limit=6,
+                    experiment_limit=6,
+                    controlled_test_limit=6,
+                    min_cluster_count=1,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                brief_out = io.StringIO()
+                with redirect_stdout(brief_out):
+                    cmd_improvement_knowledge_brief(brief_args)
+                brief_payload = json.loads(brief_out.getvalue())
+                snapshot = dict(brief_payload.get("knowledge_snapshot") or {})
+                snapshot_path = Path(str(snapshot.get("path") or "")).resolve()
+                latest_path = Path(str(snapshot.get("latest_path") or "")).resolve()
+                self.assertTrue(snapshot_path.exists())
+                self.assertTrue(latest_path.exists())
+                snapshot_path.unlink()
+                self.assertFalse(snapshot_path.exists())
+                self.assertTrue(latest_path.exists())
+
+                delta_args = argparse.Namespace(
+                    domains=None,
+                    current_snapshot_path=None,
+                    previous_snapshot_path=None,
+                    snapshot_dir=None,
+                    top_limit=10,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                delta_out = io.StringIO()
+                with redirect_stdout(delta_out):
+                    cmd_improvement_knowledge_brief_delta(delta_args)
+                payload = json.loads(delta_out.getvalue())
+
+                self.assertEqual(str(payload.get("status") or ""), "skipped_bootstrap")
+                self.assertTrue(bool(payload.get("bootstrap_required")))
+                self.assertEqual(list(payload.get("domain_deltas") or []), [])
+                suggested_actions = [
+                    str(item)
+                    for item in list(payload.get("suggested_actions") or [])
+                    if str(item or "").strip()
+                ]
+                self.assertTrue(bool(suggested_actions))
+                self.assertTrue(
+                    any(
+                        "second snapshot" in action.lower()
+                        or "bootstrap" in action.lower()
+                        for action in suggested_actions
+                    )
+                )
+            finally:
+                runtime.close()
+
+    def test_improvement_knowledge_brief_delta_alert_returns_skipped_bootstrap_without_interrupt(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                friction = runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="app_store_reviews",
+                    summary="Paywall appears before first workout completion.",
+                    severity=4,
+                    symptom_tags=["paywall", "trial"],
+                )
+                hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Delay paywall to post-workout",
+                    statement="Delaying paywall should improve activation.",
+                    proposed_change="Move paywall gating after first core workout.",
+                    friction_key="paywall_before_core_workout_trial",
+                    friction_ids=[str(friction.get("friction_id") or "")],
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "retention_d30": 0.1,
+                        "crash_rate": 0.006,
+                        "unsubscribe_rate": 0.06,
+                    },
+                    candidate_metrics={
+                        "retention_d30": 0.14,
+                        "crash_rate": 0.007,
+                        "unsubscribe_rate": 0.065,
+                    },
+                    sample_size=240,
+                )
+
+                brief_args = argparse.Namespace(
+                    domains="fitness_apps",
+                    query="",
+                    displeasure_limit=6,
+                    hypothesis_limit=6,
+                    experiment_limit=6,
+                    controlled_test_limit=6,
+                    min_cluster_count=1,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                brief_out = io.StringIO()
+                with redirect_stdout(brief_out):
+                    cmd_improvement_knowledge_brief(brief_args)
+                brief_payload = json.loads(brief_out.getvalue())
+                snapshot = dict(brief_payload.get("knowledge_snapshot") or {})
+                snapshot_path = Path(str(snapshot.get("path") or "")).resolve()
+                latest_path = Path(str(snapshot.get("latest_path") or "")).resolve()
+                self.assertTrue(snapshot_path.exists())
+                self.assertTrue(latest_path.exists())
+                snapshot_path.unlink()
+                self.assertFalse(snapshot_path.exists())
+                self.assertTrue(latest_path.exists())
+
+                delta_alert_args = argparse.Namespace(
+                    domains=None,
+                    current_snapshot_path=None,
+                    previous_snapshot_path=None,
+                    snapshot_dir=None,
+                    top_limit=10,
+                    alert_domain="operations",
+                    alert_urgency=None,
+                    alert_confidence=None,
+                    alert_max_items=3,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                delta_alert_out = io.StringIO()
+                with redirect_stdout(delta_alert_out):
+                    cmd_improvement_knowledge_brief_delta_alert(delta_alert_args)
+                payload = json.loads(delta_alert_out.getvalue())
+
+                self.assertEqual(str(payload.get("status") or ""), "skipped_bootstrap")
+                self.assertFalse(bool(payload.get("alert_created")))
+                self.assertIsNone(payload.get("alert"))
+                delta_payload = dict(payload.get("delta") or {})
+                self.assertTrue(bool(delta_payload.get("bootstrap_required")))
+
+                runtime_verify = JarvisRuntime(db_path=db, repo_path=repo)
+                try:
+                    interrupts = runtime_verify.list_interrupts(status="all", limit=20)
+                    self.assertEqual(len(interrupts), 0)
+                finally:
+                    runtime_verify.close()
+            finally:
+                runtime.close()
+
+    def test_improvement_knowledge_brief_delta_compares_latest_vs_previous_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                initial_friction = runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="app_store_reviews",
+                    summary="Paywall appears before the first workout trial.",
+                    severity=4,
+                    symptom_tags=["paywall", "trial"],
+                )
+                initial_hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Delay paywall until first value moment",
+                    statement="Delaying paywall exposure should improve trial retention.",
+                    proposed_change="Show paywall after the first meaningful workout completion.",
+                    friction_key="paywall_before_core_workout_trial",
+                    friction_ids=[str(initial_friction.get("friction_id") or "")],
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(initial_hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "retention_d30": 0.11,
+                        "crash_rate": 0.006,
+                        "unsubscribe_rate": 0.06,
+                    },
+                    candidate_metrics={
+                        "retention_d30": 0.16,
+                        "crash_rate": 0.007,
+                        "unsubscribe_rate": 0.065,
+                    },
+                    sample_size=260,
+                )
+
+                brief_args = argparse.Namespace(
+                    domains="fitness_apps",
+                    query="",
+                    displeasure_limit=6,
+                    hypothesis_limit=6,
+                    experiment_limit=6,
+                    controlled_test_limit=6,
+                    min_cluster_count=1,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                first_out = io.StringIO()
+                with redirect_stdout(first_out):
+                    cmd_improvement_knowledge_brief(brief_args)
+                first_payload = json.loads(first_out.getvalue())
+                first_snapshot = dict(first_payload.get("knowledge_snapshot") or {})
+                first_snapshot_path = Path(str(first_snapshot.get("path") or "")).resolve()
+                self.assertTrue(first_snapshot_path.exists())
+
+                runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="support_tickets",
+                    summary="New onboarding path keeps the paywall in front of first workout.",
+                    severity=5,
+                    symptom_tags=["paywall", "onboarding", "blocking"],
+                )
+                runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="support_tickets",
+                    summary="Workout start flow now triggers extra pricing friction before setup.",
+                    severity=5,
+                    symptom_tags=["paywall", "pricing", "friction"],
+                )
+                worsening_hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Aggressive upsell gate on onboarding",
+                    statement="An aggressive upsell gate may increase revenue at the cost of trust.",
+                    proposed_change="Require subscription gate before plan customization.",
+                    friction_key="paywall_before_core_workout_trial",
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(worsening_hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "retention_d30": 0.11,
+                        "crash_rate": 0.009,
+                        "unsubscribe_rate": 0.07,
+                    },
+                    candidate_metrics={
+                        "retention_d30": 0.17,
+                        "crash_rate": 0.03,
+                        "unsubscribe_rate": 0.12,
+                    },
+                    sample_size=280,
+                )
+
+                second_out = io.StringIO()
+                with redirect_stdout(second_out):
+                    cmd_improvement_knowledge_brief(brief_args)
+                second_payload = json.loads(second_out.getvalue())
+                second_snapshot = dict(second_payload.get("knowledge_snapshot") or {})
+                second_snapshot_path = Path(str(second_snapshot.get("path") or "")).resolve()
+                self.assertTrue(second_snapshot_path.exists())
+
+                delta_args = argparse.Namespace(
+                    domains=None,
+                    current_snapshot_path=None,
+                    previous_snapshot_path=None,
+                    snapshot_dir=None,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                delta_out = io.StringIO()
+                with redirect_stdout(delta_out):
+                    cmd_improvement_knowledge_brief_delta(delta_args)
+                payload = json.loads(delta_out.getvalue())
+
+                self.assertEqual(str(payload.get("status") or ""), "ok")
+
+                resolved_current_raw = str(payload.get("current_snapshot_path") or "")
+                resolved_previous_raw = str(payload.get("previous_snapshot_path") or "")
+                self.assertTrue(bool(resolved_current_raw))
+                self.assertTrue(bool(resolved_previous_raw))
+
+                resolved_current_path = Path(resolved_current_raw).resolve()
+                resolved_previous_path = Path(resolved_previous_raw).resolve()
+                self.assertTrue(resolved_current_path.exists())
+                self.assertTrue(resolved_previous_path.exists())
+                self.assertEqual(resolved_current_path, second_snapshot_path)
+                self.assertEqual(resolved_previous_path, first_snapshot_path)
+
+                domain_deltas = [dict(item) for item in list(payload.get("domain_deltas") or []) if isinstance(item, dict)]
+                self.assertTrue(bool(domain_deltas))
+                fitness_delta = next((row for row in domain_deltas if str(row.get("domain") or "") == "fitness_apps"), {})
+                self.assertTrue(bool(fitness_delta))
+
+                worsening_score = float(fitness_delta.get("worsening_score") or 0.0)
+                domain_friction_rows = [
+                    dict(item)
+                    for item in list(
+                        fitness_delta.get("friction_acceleration_rows")
+                        or fitness_delta.get("friction_accelerations")
+                        or fitness_delta.get("friction_deltas")
+                        or []
+                    )
+                    if isinstance(item, dict)
+                ]
+                global_friction_rows = [
+                    dict(item)
+                    for item in list(
+                        payload.get("friction_acceleration_rows")
+                        or payload.get("friction_accelerations")
+                        or payload.get("friction_deltas")
+                        or []
+                    )
+                    if isinstance(item, dict)
+                ]
+                fitness_friction_rows = [
+                    row
+                    for row in [*domain_friction_rows, *global_friction_rows]
+                    if str(row.get("domain") or "") == "fitness_apps"
+                ]
+                self.assertTrue(
+                    worsening_score > 0.0
+                    or any(
+                        float(
+                            row.get("acceleration")
+                            or row.get("impact_score_delta")
+                            or row.get("signal_count_delta")
+                            or row.get("worsening_score")
+                            or 0.0
+                        )
+                        > 0.0
+                        for row in fitness_friction_rows
+                    )
+                )
+            finally:
+                runtime.close()
+
+    def test_improvement_knowledge_brief_delta_supports_explicit_snapshot_paths_and_domain_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                fitness_friction = runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="app_store_reviews",
+                    summary="Users see paywall before first workout trial.",
+                    severity=4,
+                    symptom_tags=["paywall", "trial"],
+                )
+                fitness_hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Delay paywall to post-workout",
+                    statement="Delaying paywall should improve activation.",
+                    proposed_change="Move paywall gating after first core workout.",
+                    friction_key="paywall_before_core_workout_trial",
+                    friction_ids=[str(fitness_friction.get("friction_id") or "")],
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(fitness_hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "retention_d30": 0.1,
+                        "crash_rate": 0.006,
+                        "unsubscribe_rate": 0.06,
+                    },
+                    candidate_metrics={
+                        "retention_d30": 0.14,
+                        "crash_rate": 0.007,
+                        "unsubscribe_rate": 0.065,
+                    },
+                    sample_size=240,
+                )
+
+                quant_friction = runtime.record_domain_friction(
+                    domain="quant_finance",
+                    source="desk_notes",
+                    summary="Execution slippage widens in volatility spikes.",
+                    severity=3,
+                    symptom_tags=["slippage", "volatility"],
+                )
+                quant_hypothesis = runtime.register_hypothesis(
+                    domain="quant_finance",
+                    title="Improve volatility routing",
+                    statement="Volatility routing should reduce slippage.",
+                    proposed_change="Route orders through regime-aware controls.",
+                    friction_key="execution_slippage_regime_drift",
+                    friction_ids=[str(quant_friction.get("friction_id") or "")],
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(quant_hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "sharpe_ratio": 0.82,
+                        "max_drawdown": 0.08,
+                        "turnover": 3.2,
+                    },
+                    candidate_metrics={
+                        "sharpe_ratio": 1.04,
+                        "max_drawdown": 0.08,
+                        "turnover": 3.5,
+                    },
+                    sample_size=80,
+                )
+
+                brief_args = argparse.Namespace(
+                    domains="fitness_apps,quant_finance",
+                    query="",
+                    displeasure_limit=6,
+                    hypothesis_limit=6,
+                    experiment_limit=6,
+                    controlled_test_limit=6,
+                    min_cluster_count=1,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+
+                first_out = io.StringIO()
+                with redirect_stdout(first_out):
+                    cmd_improvement_knowledge_brief(brief_args)
+                first_payload = json.loads(first_out.getvalue())
+                first_snapshot = dict(first_payload.get("knowledge_snapshot") or {})
+                first_snapshot_path = Path(str(first_snapshot.get("path") or "")).resolve()
+                self.assertTrue(first_snapshot_path.exists())
+
+                runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="support_tickets",
+                    summary="New flow increases onboarding paywall complaints and drop-off.",
+                    severity=5,
+                    symptom_tags=["paywall", "dropoff", "onboarding"],
+                )
+                worsening_hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Introduce hard subscription gate",
+                    statement="A hard gate may monetize quickly but raises risk.",
+                    proposed_change="Require subscription before workout plan setup.",
+                    friction_key="paywall_before_core_workout_trial",
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(worsening_hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "retention_d30": 0.1,
+                        "crash_rate": 0.008,
+                        "unsubscribe_rate": 0.07,
+                    },
+                    candidate_metrics={
+                        "retention_d30": 0.15,
+                        "crash_rate": 0.025,
+                        "unsubscribe_rate": 0.1,
+                    },
+                    sample_size=260,
+                )
+
+                second_out = io.StringIO()
+                with redirect_stdout(second_out):
+                    cmd_improvement_knowledge_brief(brief_args)
+                second_payload = json.loads(second_out.getvalue())
+                second_snapshot = dict(second_payload.get("knowledge_snapshot") or {})
+                second_snapshot_path = Path(str(second_snapshot.get("path") or "")).resolve()
+                self.assertTrue(second_snapshot_path.exists())
+
+                delta_args = argparse.Namespace(
+                    domains="fitness_apps",
+                    current_snapshot_path=second_snapshot_path,
+                    previous_snapshot_path=first_snapshot_path,
+                    snapshot_dir=None,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                delta_out = io.StringIO()
+                with redirect_stdout(delta_out):
+                    cmd_improvement_knowledge_brief_delta(delta_args)
+                payload = json.loads(delta_out.getvalue())
+
+                self.assertEqual(str(payload.get("status") or ""), "ok")
+                self.assertEqual(
+                    Path(str(payload.get("current_snapshot_path") or "")).resolve(),
+                    second_snapshot_path,
+                )
+                self.assertEqual(
+                    Path(str(payload.get("previous_snapshot_path") or "")).resolve(),
+                    first_snapshot_path,
+                )
+
+                domain_deltas = [dict(item) for item in list(payload.get("domain_deltas") or []) if isinstance(item, dict)]
+                self.assertTrue(bool(domain_deltas))
+                filtered_domains = {
+                    str(row.get("domain") or row.get("name") or row.get("domain_key") or "").strip()
+                    for row in domain_deltas
+                }
+                self.assertEqual(filtered_domains, {"fitness_apps"})
+
+                selection_sources = [
+                    str(payload.get("current_snapshot_selection_source") or ""),
+                    str(payload.get("previous_snapshot_selection_source") or ""),
+                    str(payload.get("current_snapshot_path_source") or ""),
+                    str(payload.get("previous_snapshot_path_source") or ""),
+                    str(payload.get("snapshot_selection_source") or ""),
+                ]
+                snapshot_selection = payload.get("snapshot_selection")
+                if isinstance(snapshot_selection, dict):
+                    selection_sources.extend(
+                        [
+                            str(snapshot_selection.get("current_source") or ""),
+                            str(snapshot_selection.get("previous_source") or ""),
+                            str(snapshot_selection.get("source") or ""),
+                        ]
+                    )
+                normalized_sources = [value.strip().lower() for value in selection_sources if value.strip()]
+                self.assertTrue(bool(normalized_sources))
+                self.assertTrue(
+                    any("explicit" in source or "arg" in source or "cli" in source for source in normalized_sources)
+                )
+            finally:
+                runtime.close()
+
+    def test_improvement_knowledge_brief_delta_alert_creates_delivered_interrupt_on_regression(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                initial_friction = runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="app_store_reviews",
+                    summary="Paywall appears before first workout completion.",
+                    severity=4,
+                    symptom_tags=["paywall", "trial"],
+                )
+                initial_hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Delay paywall until first value moment",
+                    statement="Delaying paywall should improve trial retention.",
+                    proposed_change="Show paywall after the first meaningful workout completion.",
+                    friction_key="paywall_before_core_workout_trial",
+                    friction_ids=[str(initial_friction.get("friction_id") or "")],
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(initial_hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "retention_d30": 0.11,
+                        "crash_rate": 0.006,
+                        "unsubscribe_rate": 0.06,
+                    },
+                    candidate_metrics={
+                        "retention_d30": 0.16,
+                        "crash_rate": 0.007,
+                        "unsubscribe_rate": 0.065,
+                    },
+                    sample_size=260,
+                )
+
+                brief_args = argparse.Namespace(
+                    domains="fitness_apps",
+                    query="",
+                    displeasure_limit=6,
+                    hypothesis_limit=6,
+                    experiment_limit=6,
+                    controlled_test_limit=6,
+                    min_cluster_count=1,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                first_out = io.StringIO()
+                with redirect_stdout(first_out):
+                    cmd_improvement_knowledge_brief(brief_args)
+                first_payload = json.loads(first_out.getvalue())
+                first_snapshot = dict(first_payload.get("knowledge_snapshot") or {})
+                first_snapshot_path = Path(str(first_snapshot.get("path") or "")).resolve()
+                self.assertTrue(first_snapshot_path.exists())
+
+                runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="support_tickets",
+                    summary="New onboarding path keeps paywall in front of first workout.",
+                    severity=5,
+                    symptom_tags=["paywall", "onboarding", "blocking"],
+                )
+                runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="support_tickets",
+                    summary="Workout start flow now triggers extra pricing friction before setup.",
+                    severity=5,
+                    symptom_tags=["paywall", "pricing", "friction"],
+                )
+                worsening_hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Aggressive upsell gate on onboarding",
+                    statement="A hard upsell gate may increase revenue at the cost of trust.",
+                    proposed_change="Require subscription gate before plan customization.",
+                    friction_key="paywall_before_core_workout_trial",
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(worsening_hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "retention_d30": 0.11,
+                        "crash_rate": 0.009,
+                        "unsubscribe_rate": 0.07,
+                    },
+                    candidate_metrics={
+                        "retention_d30": 0.17,
+                        "crash_rate": 0.03,
+                        "unsubscribe_rate": 0.12,
+                    },
+                    sample_size=280,
+                )
+
+                second_out = io.StringIO()
+                with redirect_stdout(second_out):
+                    cmd_improvement_knowledge_brief(brief_args)
+                second_payload = json.loads(second_out.getvalue())
+                second_snapshot = dict(second_payload.get("knowledge_snapshot") or {})
+                second_snapshot_path = Path(str(second_snapshot.get("path") or "")).resolve()
+                self.assertTrue(second_snapshot_path.exists())
+
+                delta_alert_args = argparse.Namespace(
+                    domains="fitness_apps",
+                    current_snapshot_path=None,
+                    previous_snapshot_path=None,
+                    snapshot_dir=None,
+                    top_limit=10,
+                    alert_domain="markets",
+                    alert_urgency=None,
+                    alert_confidence=None,
+                    alert_max_items=3,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                delta_alert_out = io.StringIO()
+                with redirect_stdout(delta_alert_out):
+                    cmd_improvement_knowledge_brief_delta_alert(delta_alert_args)
+                payload = json.loads(delta_alert_out.getvalue())
+
+                status = str(payload.get("status") or "").strip().lower()
+                self.assertTrue(bool(status))
+                self.assertNotEqual(status, "ok")
+                self.assertTrue(bool(payload.get("alert_created")))
+
+                alert = dict(payload.get("alert") or {})
+                alert_interrupt_id = str(alert.get("interrupt_id") or "")
+                self.assertTrue(bool(alert_interrupt_id))
+                self.assertEqual(str(alert.get("status") or ""), "delivered")
+
+                acknowledge_command = str(alert.get("acknowledge_command") or "")
+                acknowledge_commands = [str(item) for item in list(payload.get("acknowledge_commands") or [])]
+                self.assertTrue(bool(acknowledge_command) or bool(acknowledge_commands))
+                if acknowledge_command:
+                    self.assertIn(alert_interrupt_id, acknowledge_command)
+                if acknowledge_commands:
+                    self.assertTrue(any(alert_interrupt_id in item for item in acknowledge_commands))
+
+                runtime_verify = JarvisRuntime(db_path=db, repo_path=repo)
+                try:
+                    interrupts = runtime_verify.list_interrupts(status="all", limit=20)
+                    self.assertEqual(len(interrupts), 1)
+                    self.assertEqual(str((interrupts[0] or {}).get("status") or ""), "delivered")
+                    self.assertEqual(
+                        str((interrupts[0] or {}).get("interrupt_id") or ""),
+                        alert_interrupt_id,
+                    )
+                finally:
+                    runtime_verify.close()
+            finally:
+                runtime.close()
+
+    def test_improvement_knowledge_brief_delta_alert_skips_interrupt_when_delta_stable(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                friction = runtime.record_domain_friction(
+                    domain="fitness_apps",
+                    source="app_store_reviews",
+                    summary="Paywall appears before first workout completion.",
+                    severity=4,
+                    symptom_tags=["paywall", "trial"],
+                )
+                hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Delay paywall to post-workout",
+                    statement="Delaying paywall should improve activation.",
+                    proposed_change="Move paywall gating after first core workout.",
+                    friction_key="paywall_before_core_workout_trial",
+                    friction_ids=[str(friction.get("friction_id") or "")],
+                )
+                runtime.run_hypothesis_experiment(
+                    hypothesis_id=str(hypothesis.get("hypothesis_id") or ""),
+                    environment="sandbox",
+                    baseline_metrics={
+                        "retention_d30": 0.1,
+                        "crash_rate": 0.006,
+                        "unsubscribe_rate": 0.06,
+                    },
+                    candidate_metrics={
+                        "retention_d30": 0.14,
+                        "crash_rate": 0.007,
+                        "unsubscribe_rate": 0.065,
+                    },
+                    sample_size=240,
+                )
+
+                brief_args = argparse.Namespace(
+                    domains="fitness_apps",
+                    query="",
+                    displeasure_limit=6,
+                    hypothesis_limit=6,
+                    experiment_limit=6,
+                    controlled_test_limit=6,
+                    min_cluster_count=1,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                first_out = io.StringIO()
+                with redirect_stdout(first_out):
+                    cmd_improvement_knowledge_brief(brief_args)
+                first_payload = json.loads(first_out.getvalue())
+                first_snapshot = dict(first_payload.get("knowledge_snapshot") or {})
+                self.assertTrue(Path(str(first_snapshot.get("path") or "")).resolve().exists())
+
+                second_out = io.StringIO()
+                with redirect_stdout(second_out):
+                    cmd_improvement_knowledge_brief(brief_args)
+                second_payload = json.loads(second_out.getvalue())
+                second_snapshot = dict(second_payload.get("knowledge_snapshot") or {})
+                self.assertTrue(Path(str(second_snapshot.get("path") or "")).resolve().exists())
+
+                delta_alert_args = argparse.Namespace(
+                    domains=None,
+                    current_snapshot_path=None,
+                    previous_snapshot_path=None,
+                    snapshot_dir=None,
+                    top_limit=10,
+                    alert_domain="markets",
+                    alert_urgency=None,
+                    alert_confidence=None,
+                    alert_max_items=3,
+                    output_path=None,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=repo,
+                    db_path=db,
+                )
+                delta_alert_out = io.StringIO()
+                with redirect_stdout(delta_alert_out):
+                    cmd_improvement_knowledge_brief_delta_alert(delta_alert_args)
+                payload = json.loads(delta_alert_out.getvalue())
+
+                self.assertFalse(bool(payload.get("alert_created")))
+                self.assertIsNone(payload.get("alert"))
+
+                runtime_verify = JarvisRuntime(db_path=db, repo_path=repo)
+                try:
+                    interrupts = runtime_verify.list_interrupts(status="all", limit=20)
+                    self.assertEqual(len(interrupts), 0)
+                finally:
+                    runtime_verify.close()
+            finally:
+                runtime.close()
 
 
 if __name__ == "__main__":
