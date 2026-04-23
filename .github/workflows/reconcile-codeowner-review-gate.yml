@@ -21,6 +21,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Guard reconcile trigger event
+        run: |
+          EVENT_NAME="${{ github.event_name }}"
+          if [[ "${EVENT_NAME}" != "workflow_run" ]]; then
+            echo "::error title=Unexpected reconcile trigger event::reconcile-codeowner-review-gate must run only from workflow_run, got ${EVENT_NAME}."
+            exit 1
+          fi
+          echo "Reconcile trigger event verified (${EVENT_NAME})."
+
       - name: Reconcile code-owner review gate
         id: reconcile
         env:
