@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-usage: reconcile_codeowner_review_gate.sh [--repo-slug <owner/repo>] [--branch <name>] [--min-collaborators <int>] [--required-status-check <context>]... [--source-workflow-run-id <id>] [--source-workflow-run-conclusion <value>] [--source-workflow-name <name>] [--source-workflow-event <event>] [--source-workflow-run-url <url>] [--apply]
+usage: reconcile_codeowner_review_gate.sh [--repo-slug <owner/repo>] [--branch <name>] [--min-collaborators <int>] [--required-status-check <context>]... [--required-status-check-strict <true|false|preserve>] [--source-workflow-run-id <id>] [--source-workflow-run-conclusion <value>] [--source-workflow-name <name>] [--source-workflow-event <event>] [--source-workflow-run-url <url>] [--apply]
 
 Reconciles GitHub branch-protection review requirements against collaborator count:
 - enable when collaborator_count >= min_collaborators
@@ -14,6 +14,7 @@ Defaults:
 - branch: main
 - min collaborators: 2
 - required status checks: unchanged (unless one or more `--required-status-check` values are provided)
+- required status-check strict mode: preserve current branch-protection strict mode (`--required-status-check-strict` overrides)
 - source workflow provenance: none (unless explicitly provided)
 - mode: dry-run (set --apply to patch branch protection)
 USAGE
@@ -23,6 +24,7 @@ REPO_SLUG=""
 BRANCH="main"
 MIN_COLLABORATORS=2
 REQUIRED_STATUS_CHECKS=()
+REQUIRED_STATUS_CHECK_STRICT_MODE="preserve"
 SOURCE_WORKFLOW_RUN_ID=""
 SOURCE_WORKFLOW_RUN_CONCLUSION=""
 SOURCE_WORKFLOW_NAME=""
@@ -62,6 +64,14 @@ while [[ $# -gt 0 ]]; do
         exit 2
       fi
       REQUIRED_STATUS_CHECKS+=("$2")
+      shift 2
+      ;;
+    --required-status-check-strict)
+      if [[ $# -lt 2 ]]; then
+        echo "error: --required-status-check-strict requires a value"
+        exit 2
+      fi
+      REQUIRED_STATUS_CHECK_STRICT_MODE="$2"
       shift 2
       ;;
     --source-workflow-run-id)
@@ -161,7 +171,7 @@ PY
 )"
 
 SUMMARY_JSON="$(
-  python3 - <<'PY' "$COLLABORATORS_JSON" "$PROTECTION_JSON" "$REPO_SLUG" "$BRANCH" "$MIN_COLLABORATORS" "$REQUIRED_STATUS_CHECKS_JSON" "$SOURCE_WORKFLOW_RUN_ID" "$SOURCE_WORKFLOW_RUN_CONCLUSION" "$SOURCE_WORKFLOW_NAME" "$SOURCE_WORKFLOW_EVENT" "$SOURCE_WORKFLOW_RUN_URL"
+  python3 - <<'PY' "$COLLABORATORS_JSON" "$PROTECTION_JSON" "$REPO_SLUG" "$BRANCH" "$MIN_COLLABORATORS" "$REQUIRED_STATUS_CHECKS_JSON" "$REQUIRED_STATUS_CHECK_STRICT_MODE" "$SOURCE_WORKFLOW_RUN_ID" "$SOURCE_WORKFLOW_RUN_CONCLUSION" "$SOURCE_WORKFLOW_NAME" "$SOURCE_WORKFLOW_EVENT" "$SOURCE_WORKFLOW_RUN_URL"
 import json
 import sys
 
@@ -171,11 +181,12 @@ repo_slug = str(sys.argv[3] or "")
 branch = str(sys.argv[4] or "main")
 min_collaborators = max(1, int(sys.argv[5] or 2))
 required_status_checks = json.loads(sys.argv[6] or "[]")
-source_workflow_run_id = str(sys.argv[7] or "").strip()
-source_workflow_run_conclusion = str(sys.argv[8] or "").strip()
-source_workflow_name = str(sys.argv[9] or "").strip()
-source_workflow_event = str(sys.argv[10] or "").strip()
-source_workflow_run_url = str(sys.argv[11] or "").strip()
+required_status_check_strict_mode = str(sys.argv[7] or "preserve").strip().lower() or "preserve"
+source_workflow_run_id = str(sys.argv[8] or "").strip()
+source_workflow_run_conclusion = str(sys.argv[9] or "").strip()
+source_workflow_name = str(sys.argv[10] or "").strip()
+source_workflow_event = str(sys.argv[11] or "").strip()
+source_workflow_run_url = str(sys.argv[12] or "").strip()
 if not isinstance(required_status_checks, list):
     required_status_checks = []
 
@@ -227,8 +238,21 @@ current_status_check_strict = bool(status_checks.get("strict"))
 desired_status_check_contexts = sorted(
     set(current_status_check_contexts) | set(required_status_check_contexts)
 )
-desired_status_check_strict = bool(current_status_check_strict)
-status_checks_change_needed = current_status_check_contexts != desired_status_check_contexts
+if required_status_check_strict_mode in {"true", "1", "yes", "y", "on"}:
+    desired_status_check_strict = True
+elif required_status_check_strict_mode in {"false", "0", "no", "n", "off"}:
+    desired_status_check_strict = False
+elif required_status_check_strict_mode in {"preserve", "current", "inherit"}:
+    desired_status_check_strict = bool(current_status_check_strict)
+else:
+    raise SystemExit(
+        "invalid_required_status_check_strict_mode:"
+        + str(required_status_check_strict_mode)
+    )
+status_checks_change_needed = (
+    current_status_check_contexts != desired_status_check_contexts
+    or bool(current_status_check_strict) != bool(desired_status_check_strict)
+)
 change_needed = bool(review_change_needed or status_checks_change_needed)
 
 summary = {
@@ -249,6 +273,7 @@ summary = {
     },
     "required_status_checks": {
         "required_contexts": required_status_check_contexts,
+        "strict_mode": required_status_check_strict_mode,
         "current_contexts": current_status_check_contexts,
         "desired_contexts": desired_status_check_contexts,
         "current_strict": bool(current_status_check_strict),

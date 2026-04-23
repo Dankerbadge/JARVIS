@@ -1242,6 +1242,7 @@ Single-maintainer safety reconciler (auto-toggle code-owner review gate by colla
   --required-status-check gate-status \
   --required-status-check evidence-lane-smoke \
   --required-status-check release-hygiene \
+  --required-status-check-strict true \
   --apply
 ```
 
@@ -1261,6 +1262,7 @@ reconciliation for this baseline set:
 `gate-status`,
 `evidence-lane-smoke`,
 `release-hygiene`.
+That reconcile baseline also enforces `required_status_checks.strict=true`.
 For manual operation, trigger the drift-check workflow (`workflow_dispatch`);
 the mutating reconcile run follows only after a successful drift-check.
 Mutating reconcile artifacts now include provenance fields from that source

@@ -501,6 +501,7 @@ Single-maintainer safety reconciler (auto-toggle code-owner review gate by colla
   --required-status-check gate-status \
   --required-status-check evidence-lane-smoke \
   --required-status-check release-hygiene \
+  --required-status-check-strict true \
   --apply
 ```
 
@@ -520,6 +521,7 @@ reconciliation for baseline improvement checks:
 `gate-status`,
 `evidence-lane-smoke`,
 `release-hygiene`.
+That baseline also enforces `required_status_checks.strict=true`.
 The mutating reconcile workflow intentionally has no direct
 `workflow_dispatch`; manual runs start from the drift-check workflow.
 It also has a runtime trigger-event guard that fails if

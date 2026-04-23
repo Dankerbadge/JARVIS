@@ -10256,6 +10256,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 "--required-status-check gate-status "
                 "--required-status-check evidence-lane-smoke "
                 "--required-status-check release-hygiene "
+                "--required-status-check-strict true "
                 "--apply > output/ci/codeowner_review_reconcile.json"
             )
 
