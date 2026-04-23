@@ -369,6 +369,8 @@ jobs:
               "output/ci/operator_cycle/daily_pipeline_report.json "
               "--output-path output/ci/operator_cycle/verify_matrix_alert_report.json --json-compact"
             )
+          unlock_ready_commands = [recheck_command] if recheck_command and recheck_command != "none" else []
+          first_unlock_ready_command = unlock_ready_commands[0] if unlock_ready_commands else "none"
           repair_commands = list(acknowledge_commands)
           if recheck_command and recheck_command != "none":
             _append_unique(repair_commands, recheck_command)
@@ -447,6 +449,8 @@ jobs:
             "acknowledge_command_count": acknowledge_command_count,
             "first_acknowledge_command": first_acknowledge_command,
             "recheck_command": recheck_command,
+            "unlock_ready_commands": unlock_ready_commands,
+            "first_unlock_ready_command": first_unlock_ready_command,
             "repair_commands": repair_commands,
             "repair_command_count": repair_command_count,
             "first_repair_command": first_repair_command,
@@ -480,6 +484,7 @@ jobs:
             f"- acknowledge_command_count: `{acknowledge_command_count}`",
             f"- first_acknowledge_command: `{first_acknowledge_command}`",
             f"- recheck_command: `{recheck_command}`",
+            f"- first_unlock_ready_command: `{first_unlock_ready_command}`",
             f"- repair_command_count: `{repair_command_count}`",
             f"- first_repair_command: `{first_repair_command}`",
             f"- suggested_action_count: `{suggested_action_count}`",
@@ -512,6 +517,8 @@ jobs:
           print(f"acknowledge_command_count={acknowledge_command_count}")
           print(f"first_acknowledge_command={first_acknowledge_command}")
           print(f"verify_matrix_recheck_command={recheck_command}")
+          print(f"verify_matrix_first_unlock_ready_command={first_unlock_ready_command}")
+          print(f"first_unlock_ready_command={first_unlock_ready_command}")
           print(f"recheck_command={recheck_command}")
           print(f"repair_command_count={repair_command_count}")
           print(f"first_repair_command={first_repair_command}")
@@ -538,6 +545,8 @@ jobs:
             handle.write(f"acknowledge_command_count={acknowledge_command_count}\n")
             handle.write(f"first_acknowledge_command={first_acknowledge_command}\n")
             handle.write(f"verify_matrix_recheck_command={recheck_command}\n")
+            handle.write(f"verify_matrix_first_unlock_ready_command={first_unlock_ready_command}\n")
+            handle.write(f"first_unlock_ready_command={first_unlock_ready_command}\n")
             handle.write(f"recheck_command={recheck_command}\n")
             handle.write(f"repair_command_count={repair_command_count}\n")
             handle.write(f"first_repair_command={first_repair_command}\n")
@@ -566,6 +575,7 @@ jobs:
               f"- acknowledge_command_count: `{acknowledge_command_count}`",
               f"- first_acknowledge_command: `{first_acknowledge_command}`",
               f"- recheck_command: `{recheck_command}`",
+              f"- first_unlock_ready_command: `{first_unlock_ready_command}`",
               f"- repair_command_count: `{repair_command_count}`",
               f"- first_repair_command: `{first_repair_command}`",
               f"- suggested_action_count: `{suggested_action_count}`",
@@ -588,6 +598,7 @@ jobs:
           MISSING_DOMAINS_CSV: ${{ steps.verify_matrix_compact.outputs.missing_domains_csv }}
           FIRST_MISSING_DOMAIN: ${{ steps.verify_matrix_compact.outputs.verify_matrix_first_missing_domain }}
           VERIFY_MATRIX_RECHECK_COMMAND: ${{ steps.verify_matrix_compact.outputs.verify_matrix_recheck_command }}
+          VERIFY_MATRIX_FIRST_UNLOCK_READY_COMMAND: ${{ steps.verify_matrix_compact.outputs.verify_matrix_first_unlock_ready_command }}
         run: |
           python3 - <<'PY'
           import json
@@ -631,7 +642,9 @@ jobs:
           ).strip() or "none"
           recheck_command = str(
             os.getenv("VERIFY_MATRIX_RECHECK_COMMAND")
+            or os.getenv("VERIFY_MATRIX_FIRST_UNLOCK_READY_COMMAND")
             or compact_payload.get("recheck_command")
+            or compact_payload.get("first_unlock_ready_command")
             or "none"
           ).strip() or "none"
           compact_status = str(
@@ -722,6 +735,7 @@ jobs:
             "interrupt_db_path": str(db_path),
             "acknowledge_command": None if acknowledge_command == "none" else acknowledge_command,
             "recheck_command": None if recheck_command == "none" else recheck_command,
+            "first_unlock_ready_command": None if recheck_command == "none" else recheck_command,
             "first_repair_command": None,
             "reason": reason,
             "why_now": why_now,
@@ -782,6 +796,8 @@ jobs:
             compact_payload["first_acknowledge_command"] = (
               acknowledge_commands[0] if acknowledge_commands else "none"
             )
+            compact_payload["unlock_ready_commands"] = [recheck_command] if recheck_command != "none" else []
+            compact_payload["first_unlock_ready_command"] = recheck_command if recheck_command != "none" else "none"
             compact_payload["repair_commands"] = repair_commands
             compact_payload["repair_command_count"] = repair_command_count
             compact_payload["first_repair_command"] = first_repair_command

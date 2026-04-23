@@ -255,7 +255,8 @@ The compact payload includes per-domain `domain_statuses` for
 `required_domain_count`, `covered_domain_count`, `missing_domain_count`,
 `missing_domains_csv`, `required_domain_missing_count`, `first_missing_domain`,
 `acknowledge_command_count`, `first_acknowledge_command`,
-`verify_matrix_recheck_command` / `recheck_command`, compact
+`verify_matrix_recheck_command` / `recheck_command`,
+`verify_matrix_first_unlock_ready_command` / `first_unlock_ready_command`, compact
 `operator_ack_bundle` (`command_count`, `first_command`, `command_sequence`),
 `suggested_actions` (`suggested_action_count`, `first_suggested_action`), and
 `first_repair_command`.
