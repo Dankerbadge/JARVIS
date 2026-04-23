@@ -27,6 +27,7 @@ from jarvis.cli import (
     cmd_improvement_seed_from_leaderboard,
     cmd_improvement_seed_hypotheses,
     cmd_improvement_verify_matrix,
+    cmd_improvement_verify_matrix_compact,
     cmd_improvement_verify_matrix_alert,
 )
 from jarvis.interrupts import InterruptDecision
@@ -7855,6 +7856,212 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(summary.get("matched_count") or 0), 1)
             self.assertEqual(int(summary.get("mismatch_count") or 0), 0)
             self.assertEqual(int(summary.get("missing_count") or 0), 0)
+
+    def test_verify_matrix_compact_warns_when_required_domains_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+
+            recheck_command = (
+                "python3 -m jarvis.cli improvement verify-matrix-alert "
+                "--matrix-path matrix.json --report-path reports/daily_pipeline_report.json"
+            )
+            acknowledge_command = "python3 -m jarvis.cli interrupts acknowledge intr_verify_warn --actor operator"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "verify_matrix": {
+                            "status": "warning",
+                            "drift_severity": "critical",
+                            "summary": {
+                                "mismatch_count": 1,
+                                "missing_count": 1,
+                                "invalid_count": 0,
+                            },
+                            "comparisons": [
+                                {
+                                    "scenario_id": "quant_expected_promote",
+                                    "domain": "quant_finance",
+                                    "status": "matched",
+                                },
+                                {
+                                    "scenario_id": "market_ml_expected_promote",
+                                    "domain": "market_ml",
+                                    "status": "mismatch",
+                                },
+                            ],
+                        },
+                        "verify_matrix_alert": {
+                            "status": "warning",
+                            "drift_severity": "critical",
+                            "acknowledge_commands": [
+                                acknowledge_command,
+                            ],
+                            "alert": {
+                                "top_scenarios": [
+                                    "market_ml_expected_promote",
+                                ],
+                            },
+                        },
+                        "promotion_lock": {
+                            "acknowledge_commands": [
+                                acknowledge_command,
+                            ],
+                            "recheck_command": recheck_command,
+                        },
+                        "verify_matrix_report_path": str((root / "reports" / "verify_matrix_report.json").resolve()),
+                        "verify_matrix_alert_report_path": str((root / "reports" / "verify_matrix_alert_report.json").resolve()),
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            compact_path = root / "artifacts" / "verify_matrix_compact.json"
+            markdown_path = root / "artifacts" / "verify_matrix_compact.md"
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=compact_path,
+                markdown_path=markdown_path,
+                strict=False,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_verify_matrix_compact(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertGreater(int(payload.get("missing_domain_count") or 0), 0)
+            required_domains = [str(item) for item in list(payload.get("required_domains") or [])]
+            self.assertEqual(
+                required_domains,
+                ["quant_finance", "kalshi_weather", "fitness_apps", "market_ml"],
+            )
+            unlock_ready_commands = [
+                str(item).strip()
+                for item in list(payload.get("unlock_ready_commands") or [])
+                if str(item).strip()
+            ]
+            first_unlock_ready_command = str(payload.get("first_unlock_ready_command") or "")
+            self.assertEqual(first_unlock_ready_command, unlock_ready_commands[0] if unlock_ready_commands else "none")
+
+            self.assertTrue(compact_path.exists())
+            compact_payload = json.loads(compact_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(compact_payload.get("status") or ""), "warning")
+            self.assertEqual(int(compact_payload.get("missing_domain_count") or 0), int(payload.get("missing_domain_count") or 0))
+            self.assertEqual(
+                str(compact_payload.get("first_unlock_ready_command") or ""),
+                first_unlock_ready_command,
+            )
+
+            self.assertTrue(markdown_path.exists())
+            markdown = markdown_path.read_text(encoding="utf-8")
+            self.assertIn("first_unlock_ready_command", markdown)
+            self.assertIn(first_unlock_ready_command, markdown)
+
+    def test_verify_matrix_compact_ok_when_all_required_domains_present(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+
+            recheck_command = (
+                "python3 -m jarvis.cli improvement verify-matrix-alert "
+                "--matrix-path matrix.json --report-path reports/daily_pipeline_report.json"
+            )
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "verify_matrix": {
+                            "status": "ok",
+                            "drift_severity": "none",
+                            "summary": {
+                                "mismatch_count": 0,
+                                "missing_count": 0,
+                                "invalid_count": 0,
+                            },
+                            "comparisons": [
+                                {
+                                    "scenario_id": "quant_expected_promote",
+                                    "domain": "quant_finance",
+                                    "status": "matched",
+                                },
+                                {
+                                    "scenario_id": "kalshi_expected_promote",
+                                    "domain": "kalshi_weather",
+                                    "status": "matched",
+                                },
+                                {
+                                    "scenario_id": "fitness_expected_promote",
+                                    "domain": "fitness_apps",
+                                    "status": "matched",
+                                },
+                                {
+                                    "scenario_id": "market_expected_promote",
+                                    "domain": "market_ml",
+                                    "status": "matched",
+                                },
+                            ],
+                        },
+                        "verify_matrix_alert": {
+                            "status": "ok",
+                            "drift_severity": "none",
+                            "acknowledge_commands": [],
+                            "alert": {},
+                        },
+                        "promotion_lock": {
+                            "acknowledge_commands": [],
+                            "recheck_command": recheck_command,
+                        },
+                        "verify_matrix_report_path": str((root / "reports" / "verify_matrix_report.json").resolve()),
+                        "verify_matrix_alert_report_path": str((root / "reports" / "verify_matrix_alert_report.json").resolve()),
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            compact_path = root / "artifacts" / "verify_matrix_compact.json"
+            markdown_path = root / "artifacts" / "verify_matrix_compact.md"
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=compact_path,
+                markdown_path=markdown_path,
+                strict=False,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_verify_matrix_compact(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(int(payload.get("missing_domain_count") or 0), 0)
+            self.assertEqual(str(payload.get("first_missing_domain") or ""), "none")
+            required_domains = [str(item) for item in list(payload.get("required_domains") or [])]
+            self.assertEqual(
+                required_domains,
+                ["quant_finance", "kalshi_weather", "fitness_apps", "market_ml"],
+            )
+
+            unlock_ready_commands = [
+                str(item).strip()
+                for item in list(payload.get("unlock_ready_commands") or [])
+                if str(item).strip()
+            ]
+            first_unlock_ready_command = str(payload.get("first_unlock_ready_command") or "")
+            self.assertEqual(first_unlock_ready_command, unlock_ready_commands[0] if unlock_ready_commands else "none")
+
+            self.assertTrue(compact_path.exists())
+            compact_payload = json.loads(compact_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(compact_payload.get("status") or ""), "ok")
+            self.assertEqual(int(compact_payload.get("missing_domain_count") or 0), 0)
+            self.assertEqual(str(compact_payload.get("first_missing_domain") or ""), "none")
+            self.assertTrue(markdown_path.exists())
 
     def test_verify_matrix_alert_creates_delivered_interrupt_on_warning(self) -> None:
         with tempfile.TemporaryDirectory() as td:
