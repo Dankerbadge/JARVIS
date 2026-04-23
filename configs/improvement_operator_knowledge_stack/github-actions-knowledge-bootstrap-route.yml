@@ -368,6 +368,7 @@ jobs:
           exit 1
 
       - name: Guardrail gate
+        id: guardrail
         run: |
           set -euo pipefail
 
@@ -381,6 +382,47 @@ jobs:
             --summary-heading "Operator Guardrail Gate" \
             --strict \
             --json-compact > /dev/null
+
+      - name: Guardrail diagnostics
+        if: ${{ failure() && steps.guardrail.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+
+          GATE_PATH="$(pwd)/output/ci/operator_cycle/verify_matrix_guardrail_gate.json"
+          REPORT_PATH="$(pwd)/output/ci/operator_cycle/operator_cycle_report.json"
+          DAILY_PATH="$(pwd)/output/ci/operator_cycle/daily_pipeline_report.json"
+
+          if [[ -f "${GATE_PATH}" ]]; then
+            echo "Guardrail gate payload:"
+            jq '{status, failure_reason, stage_error_count, verify_matrix_status, guardrail_gate_stage_error_count, guardrail_gate_verify_matrix_status}' "${GATE_PATH}"
+          else
+            echo "Guardrail gate payload missing at ${GATE_PATH}."
+          fi
+
+          if [[ -f "${REPORT_PATH}" ]]; then
+            echo "Operator cycle stage status summary:"
+            jq '{status, stage_error_count, stage_statuses}' "${REPORT_PATH}"
+          else
+            echo "Operator cycle report missing at ${REPORT_PATH}."
+          fi
+
+          if [[ -f "${DAILY_PATH}" ]]; then
+            echo "Top daily pipeline errors (first 5):"
+            jq '{
+              status,
+              error_count,
+              first_errors: ((.errors // [])[:5] | map({
+                index,
+                error,
+                hypothesis_id: (.hypothesis_id // "none"),
+                strategy: ((.resolution // {}).strategy // "none"),
+                domain: ((.resolution // {}).domain // "none"),
+                friction_key: ((.resolution // {}).friction_key // "none")
+              }))
+            }' "${DAILY_PATH}"
+          else
+            echo "Daily pipeline report missing at ${DAILY_PATH}."
+          fi
 
       - name: Collect debug trace artifacts
         if: always()
