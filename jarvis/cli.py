@@ -8479,6 +8479,266 @@ def cmd_improvement_verify_matrix_compact(args: argparse.Namespace) -> None:
         raise SystemExit(2)
 
 
+def cmd_improvement_verify_matrix_coverage_alert(args: argparse.Namespace) -> None:
+    compact_path = args.compact_path.resolve()
+    compact_payload: dict[str, Any] = {}
+    if compact_path.exists():
+        loaded = json.loads(compact_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            compact_payload = dict(loaded)
+        else:
+            raise ValueError("invalid_verify_matrix_compact_file:expected_json_object")
+
+    missing_domain_count_override = getattr(args, "missing_domain_count", None)
+    missing_domain_count = (
+        _coerce_int(missing_domain_count_override, default=0)
+        if missing_domain_count_override is not None
+        else _coerce_int(compact_payload.get("missing_domain_count"), default=0)
+    )
+    missing_domains_csv = (
+        str(getattr(args, "missing_domains_csv", None)).strip()
+        if getattr(args, "missing_domains_csv", None) is not None
+        else str(compact_payload.get("missing_domains_csv") or "").strip()
+    ) or "none"
+    first_missing_domain = (
+        str(getattr(args, "first_missing_domain", None)).strip()
+        if getattr(args, "first_missing_domain", None) is not None
+        else str(compact_payload.get("first_missing_domain") or "").strip()
+    ) or "none"
+    recheck_command = (
+        str(getattr(args, "recheck_command", None)).strip()
+        if getattr(args, "recheck_command", None) is not None
+        else ""
+    )
+    if not recheck_command:
+        recheck_command = (
+            str(getattr(args, "first_unlock_ready_command", None)).strip()
+            if getattr(args, "first_unlock_ready_command", None) is not None
+            else ""
+        )
+    if not recheck_command:
+        recheck_command = str(compact_payload.get("recheck_command") or "").strip()
+    if not recheck_command:
+        recheck_command = str(compact_payload.get("first_unlock_ready_command") or "").strip()
+    if not recheck_command:
+        recheck_command = "none"
+
+    compact_status = (
+        str(getattr(args, "compact_status", None)).strip().lower()
+        if getattr(args, "compact_status", None) is not None
+        else str(compact_payload.get("status") or "").strip().lower()
+    ) or "warning"
+
+    alert_path = (
+        args.output_path.resolve()
+        if args.output_path is not None
+        else (compact_path.parent / "verify_matrix_coverage_alert.json").resolve()
+    )
+    alert_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path = (
+        args.db_path.resolve()
+        if getattr(args, "db_path", None) is not None
+        else (alert_path.parent / "jarvis.db").resolve()
+    )
+
+    reason = (
+        "verify_matrix_required_domain_coverage_gap"
+        + f" missing_domain_count={missing_domain_count}"
+        + f" missing_domains={missing_domains_csv}"
+        + f" compact_status={compact_status}"
+    )
+    why_now = (
+        "required domain coverage in controlled verify-matrix is incomplete and blocks "
+        "reliable cross-domain promotion decisions."
+    )
+    why_not_later = (
+        "delayed remediation of missing domain coverage can hide blind spots across quant, "
+        "Kalshi weather, fitness, and market-ml loops."
+    )
+
+    interrupt_id = ""
+    acknowledge_command = "none"
+    runtime_error = "none"
+    runtime = None
+    try:
+        if missing_domain_count > 0:
+            runtime = JarvisRuntime(
+                db_path=db_path,
+                repo_path=args.repo_path.resolve(),
+            )
+            urgency_score = 0.96 if missing_domain_count >= 2 else 0.92
+            confidence = 0.93 if missing_domain_count >= 2 else 0.9
+            decision = InterruptDecision(
+                interrupt_id=new_id("int"),
+                candidate_id=new_id("cand"),
+                domain="operations",
+                reason=reason,
+                urgency_score=urgency_score,
+                confidence=confidence,
+                suppression_window_hit=False,
+                delivered=True,
+                why_now=why_now,
+                why_not_later=why_not_later,
+                status="delivered",
+            )
+            runtime.interrupt_store.store(decision)
+            interrupt = runtime.interrupt_store.get(decision.interrupt_id) or decision.to_dict()
+            interrupt_id = str(interrupt.get("interrupt_id") or "").strip()
+            if interrupt_id:
+                acknowledge_command = (
+                    "python3 -m jarvis.cli interrupts acknowledge "
+                    f"{interrupt_id} --actor operator --db-path {db_path}"
+                )
+            runtime.memory.append_event(
+                "improvement.verify_matrix_coverage_alert_created",
+                {
+                    "interrupt_id": interrupt_id or None,
+                    "compact_path": str(compact_path),
+                    "compact_status": compact_status,
+                    "missing_domain_count": missing_domain_count,
+                    "missing_domains_csv": missing_domains_csv,
+                    "first_missing_domain": first_missing_domain,
+                    "recheck_command": recheck_command,
+                },
+            )
+    except Exception as exc:
+        runtime_error = str(exc).strip() or "unknown_runtime_error"
+    finally:
+        if runtime is not None:
+            runtime.close()
+
+    status = "warning" if missing_domain_count > 0 else "ok"
+    payload: dict[str, Any] = {
+        "generated_at": utc_now_iso(),
+        "status": status,
+        "compact_path": str(compact_path),
+        "compact_status": compact_status,
+        "missing_domain_count": missing_domain_count,
+        "missing_domains_csv": missing_domains_csv,
+        "first_missing_domain": first_missing_domain,
+        "alert_created": bool(interrupt_id),
+        "interrupt_id": interrupt_id or None,
+        "interrupt_db_path": str(db_path),
+        "acknowledge_command": None if acknowledge_command == "none" else acknowledge_command,
+        "recheck_command": None if recheck_command == "none" else recheck_command,
+        "first_unlock_ready_command": None if recheck_command == "none" else recheck_command,
+        "first_repair_command": None,
+        "reason": reason,
+        "why_now": why_now,
+        "why_not_later": why_not_later,
+        "runtime_error": None if runtime_error == "none" else runtime_error,
+    }
+
+    first_repair_command = "none"
+    if compact_payload:
+        acknowledge_commands = [
+            str(command).strip()
+            for command in list(compact_payload.get("acknowledge_commands") or [])
+            if str(command).strip()
+        ]
+        if acknowledge_command != "none" and acknowledge_command not in acknowledge_commands:
+            acknowledge_commands.append(acknowledge_command)
+
+        repair_commands = [
+            str(command).strip()
+            for command in list(compact_payload.get("repair_commands") or [])
+            if str(command).strip()
+        ]
+        if not repair_commands:
+            repair_commands = list(acknowledge_commands)
+            if recheck_command != "none":
+                repair_commands.append(recheck_command)
+        else:
+            if acknowledge_command != "none" and acknowledge_command not in repair_commands:
+                repair_commands.append(acknowledge_command)
+            if recheck_command != "none" and recheck_command not in repair_commands:
+                repair_commands.append(recheck_command)
+        repair_command_count = len(repair_commands)
+        first_repair_command = repair_commands[0] if repair_commands else "none"
+        repair_command_sequence = " && ".join(repair_commands) if repair_commands else "none"
+
+        suggested_actions = [
+            str(action).strip()
+            for action in list(compact_payload.get("suggested_actions") or [])
+            if str(action).strip()
+        ]
+        coverage_ack_action = (
+            f"[coverage] acknowledge interrupt: {acknowledge_command}"
+            if acknowledge_command != "none"
+            else ""
+        )
+        coverage_recheck_action = (
+            f"[coverage] rerun verify-matrix recheck: {recheck_command}"
+            if recheck_command != "none"
+            else ""
+        )
+        if coverage_ack_action and coverage_ack_action not in suggested_actions:
+            suggested_actions.append(coverage_ack_action)
+        if coverage_recheck_action and coverage_recheck_action not in suggested_actions:
+            suggested_actions.append(coverage_recheck_action)
+        suggested_action_count = len(suggested_actions)
+        first_suggested_action = suggested_actions[0] if suggested_actions else "none"
+
+        compact_payload["acknowledge_commands"] = acknowledge_commands
+        compact_payload["acknowledge_command_count"] = len(acknowledge_commands)
+        compact_payload["first_acknowledge_command"] = (
+            acknowledge_commands[0] if acknowledge_commands else "none"
+        )
+        compact_payload["unlock_ready_commands"] = [recheck_command] if recheck_command != "none" else []
+        compact_payload["first_unlock_ready_command"] = (
+            recheck_command if recheck_command != "none" else "none"
+        )
+        compact_payload["repair_commands"] = repair_commands
+        compact_payload["repair_command_count"] = repair_command_count
+        compact_payload["first_repair_command"] = first_repair_command
+        compact_payload["repair_command_sequence"] = repair_command_sequence
+        compact_payload["operator_ack_bundle"] = {
+            "status": "ready" if repair_commands else "empty",
+            "command_count": repair_command_count,
+            "commands": repair_commands,
+            "command_sequence": repair_command_sequence,
+            "first_command": None if first_repair_command == "none" else first_repair_command,
+        }
+        compact_payload["suggested_actions"] = suggested_actions
+        compact_payload["suggested_action_count"] = suggested_action_count
+        compact_payload["first_suggested_action"] = first_suggested_action
+        compact_payload["coverage_alert_path"] = str(alert_path)
+        compact_payload["coverage_interrupt_id"] = interrupt_id or None
+        compact_payload["coverage_acknowledge_command"] = (
+            None if acknowledge_command == "none" else acknowledge_command
+        )
+        compact_payload["coverage_alert_created"] = bool(interrupt_id)
+        compact_payload["coverage_runtime_error"] = (
+            None if runtime_error == "none" else runtime_error
+        )
+        compact_path.write_text(json.dumps(compact_payload, indent=2), encoding="utf-8")
+    else:
+        first_repair_command = acknowledge_command if acknowledge_command != "none" else recheck_command
+    payload["first_repair_command"] = (
+        None if first_repair_command in {"", "none"} else first_repair_command
+    )
+
+    alert_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    payload["verify_matrix_coverage_alert_path"] = str(alert_path)
+    payload["verify_matrix_coverage_interrupt_id"] = interrupt_id or "none"
+    payload["verify_matrix_coverage_alert_created"] = 1 if interrupt_id else 0
+    payload["verify_matrix_coverage_acknowledge_command"] = acknowledge_command
+    payload["verify_matrix_coverage_recheck_command"] = recheck_command
+    payload["verify_matrix_coverage_first_repair_command"] = (
+        first_repair_command if first_repair_command else "none"
+    )
+    payload["verify_matrix_coverage_runtime_error"] = runtime_error
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    strict_requested = bool(getattr(args, "strict", False))
+    if strict_requested and missing_domain_count > 0:
+        if runtime_error != "none" or not bool(interrupt_id):
+            raise SystemExit(2)
+
+
 def _resolve_daily_report_from_improvement_report(
     *,
     report_path: Path,
@@ -13209,6 +13469,33 @@ def main() -> None:
     improvement_verify_matrix_compact.add_argument("--strict", action="store_true")
     improvement_verify_matrix_compact.add_argument("--json-compact", action="store_true")
 
+    improvement_verify_matrix_coverage_alert = improvement_sub.add_parser(
+        "verify-matrix-coverage-alert",
+        help="Create or refresh verify-matrix coverage interrupt alert artifacts from compact coverage payload",
+    )
+    improvement_verify_matrix_coverage_alert.add_argument(
+        "--compact-path",
+        type=Path,
+        default=Path("output/ci/operator_cycle/verify_matrix_compact.json"),
+        help="Path to verify-matrix compact JSON payload",
+    )
+    improvement_verify_matrix_coverage_alert.add_argument(
+        "--output-path",
+        type=Path,
+        default=Path("output/ci/operator_cycle/verify_matrix_coverage_alert.json"),
+        help="Path for verify-matrix coverage alert artifact",
+    )
+    improvement_verify_matrix_coverage_alert.add_argument("--missing-domain-count", type=int, default=None)
+    improvement_verify_matrix_coverage_alert.add_argument("--missing-domains-csv", type=str, default=None)
+    improvement_verify_matrix_coverage_alert.add_argument("--first-missing-domain", type=str, default=None)
+    improvement_verify_matrix_coverage_alert.add_argument("--compact-status", type=str, default=None)
+    improvement_verify_matrix_coverage_alert.add_argument("--recheck-command", type=str, default=None)
+    improvement_verify_matrix_coverage_alert.add_argument("--first-unlock-ready-command", type=str, default=None)
+    improvement_verify_matrix_coverage_alert.add_argument("--strict", action="store_true")
+    improvement_verify_matrix_coverage_alert.add_argument("--json-compact", action="store_true")
+    improvement_verify_matrix_coverage_alert.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_verify_matrix_coverage_alert.add_argument("--db-path", type=Path, default=None)
+
     improvement_benchmark_frustrations = improvement_sub.add_parser(
         "benchmark-frustrations",
         help="Rank recurring pains, trend acceleration, and implementation win-rates from operator-cycle outputs",
@@ -13603,6 +13890,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "verify-matrix-compact":
         cmd_improvement_verify_matrix_compact(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "verify-matrix-coverage-alert":
+        cmd_improvement_verify_matrix_coverage_alert(args)
         return
     if args.cmd == "improvement" and args.improvement_cmd == "benchmark-frustrations":
         cmd_improvement_benchmark_frustrations(args)

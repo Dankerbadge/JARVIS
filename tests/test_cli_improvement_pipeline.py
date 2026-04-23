@@ -28,6 +28,7 @@ from jarvis.cli import (
     cmd_improvement_seed_hypotheses,
     cmd_improvement_verify_matrix,
     cmd_improvement_verify_matrix_compact,
+    cmd_improvement_verify_matrix_coverage_alert,
     cmd_improvement_verify_matrix_alert,
 )
 from jarvis.interrupts import InterruptDecision
@@ -8062,6 +8063,145 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(compact_payload.get("missing_domain_count") or 0), 0)
             self.assertEqual(str(compact_payload.get("first_missing_domain") or ""), "none")
             self.assertTrue(markdown_path.exists())
+
+    def test_verify_matrix_coverage_alert_creates_interrupt_and_updates_compact_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            compact_path = root / "artifacts" / "verify_matrix_compact.json"
+            compact_path.parent.mkdir(parents=True, exist_ok=True)
+            recheck_command = (
+                "python3 -m jarvis.cli improvement verify-matrix "
+                "--matrix-path matrix.json --report-path reports/daily_pipeline_report.json"
+            )
+            compact_path.write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "missing_domain_count": 2,
+                        "missing_domains_csv": "kalshi_weather,fitness_apps",
+                        "first_missing_domain": "kalshi_weather",
+                        "acknowledge_commands": [],
+                        "recheck_command": recheck_command,
+                        "repair_commands": [],
+                        "suggested_actions": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            alert_path = root / "artifacts" / "verify_matrix_coverage_alert.json"
+            args = argparse.Namespace(
+                compact_path=compact_path,
+                output_path=alert_path,
+                missing_domain_count=None,
+                missing_domains_csv=None,
+                first_missing_domain=None,
+                compact_status=None,
+                recheck_command=None,
+                first_unlock_ready_command=None,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_verify_matrix_coverage_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertTrue(bool(payload.get("alert_created")))
+            interrupt_id = str(payload.get("interrupt_id") or "").strip()
+            self.assertTrue(bool(interrupt_id))
+            acknowledge_command = str(payload.get("acknowledge_command") or "").strip()
+            self.assertIn(interrupt_id, acknowledge_command)
+            self.assertEqual(str(payload.get("recheck_command") or ""), recheck_command)
+            self.assertEqual(str(payload.get("first_unlock_ready_command") or ""), recheck_command)
+            self.assertEqual(str(payload.get("first_repair_command") or ""), acknowledge_command)
+            self.assertEqual(str(payload.get("verify_matrix_coverage_recheck_command") or ""), recheck_command)
+            self.assertEqual(
+                str(payload.get("verify_matrix_coverage_first_repair_command") or ""),
+                acknowledge_command,
+            )
+            self.assertTrue(alert_path.exists())
+
+            compact_payload = json.loads(compact_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                str(Path(str(compact_payload.get("coverage_alert_path") or "")).resolve()),
+                str(alert_path.resolve()),
+            )
+            self.assertEqual(str(compact_payload.get("coverage_interrupt_id") or ""), interrupt_id)
+            self.assertEqual(str(compact_payload.get("first_unlock_ready_command") or ""), recheck_command)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                interrupts = runtime.list_interrupts(status="all", limit=20)
+                self.assertEqual(len(interrupts), 1)
+                self.assertEqual(str((interrupts[0] or {}).get("status") or ""), "delivered")
+                self.assertEqual(str((interrupts[0] or {}).get("interrupt_id") or ""), interrupt_id)
+            finally:
+                runtime.close()
+
+    def test_verify_matrix_coverage_alert_skips_interrupt_when_missing_domain_count_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            compact_path = root / "artifacts" / "verify_matrix_compact.json"
+            compact_path.parent.mkdir(parents=True, exist_ok=True)
+            compact_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "missing_domain_count": 0,
+                        "missing_domains_csv": "none",
+                        "first_missing_domain": "none",
+                        "acknowledge_commands": [],
+                        "recheck_command": "python3 -m jarvis.cli improvement verify-matrix --matrix-path matrix.json",
+                        "repair_commands": [],
+                        "suggested_actions": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            alert_path = root / "artifacts" / "verify_matrix_coverage_alert.json"
+            args = argparse.Namespace(
+                compact_path=compact_path,
+                output_path=alert_path,
+                missing_domain_count=None,
+                missing_domains_csv=None,
+                first_missing_domain=None,
+                compact_status=None,
+                recheck_command=None,
+                first_unlock_ready_command=None,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_verify_matrix_coverage_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertFalse(bool(payload.get("alert_created")))
+            self.assertIsNone(payload.get("interrupt_id"))
+            self.assertEqual(str(payload.get("verify_matrix_coverage_interrupt_id") or ""), "none")
+            self.assertEqual(int(payload.get("verify_matrix_coverage_alert_created") or 0), 0)
+            self.assertTrue(alert_path.exists())
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                interrupts = runtime.list_interrupts(status="all", limit=20)
+                self.assertEqual(len(interrupts), 0)
+            finally:
+                runtime.close()
 
     def test_verify_matrix_alert_creates_delivered_interrupt_on_warning(self) -> None:
         with tempfile.TemporaryDirectory() as td:
