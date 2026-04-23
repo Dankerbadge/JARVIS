@@ -12531,6 +12531,72 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(history_summary.get("trend") or ""), "missing_history")
             self.assertEqual(int(history_summary.get("row_count") or 0), 0)
 
+    def test_summarize_evidence_runtime_history_treats_seed_only_previous_as_insufficient(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            history_path = root / "reports" / "evidence_lookup_runtime_history.jsonl"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            history_rows = [
+                {
+                    "generated_at": "2026-04-23T00:00:00+00:00",
+                    "lookup_status": "ok",
+                    "missing_count": 0,
+                    "source": "operator_cycle_noop_batch_seed",
+                },
+                {
+                    "generated_at": "2026-04-23T01:00:00+00:00",
+                    "lookup_status": "warning",
+                    "missing_count": 2,
+                    "missing_record_ids": ["rec-1", "rec-2"],
+                },
+            ]
+            history_path.write_text(
+                "\n".join(json.dumps(row, sort_keys=True) for row in history_rows) + "\n",
+                encoding="utf-8",
+            )
+
+            summary = cli_module._summarize_evidence_runtime_history(
+                history_path=history_path,
+                window=1,
+            )
+            self.assertEqual(str(summary.get("status") or ""), "ok")
+            self.assertEqual(str(summary.get("trend") or ""), "insufficient_history")
+            self.assertTrue(bool(summary.get("previous_rows_seed_only")))
+            self.assertEqual(int(summary.get("previous_effective_row_count") or 0), 0)
+
+    def test_summarize_evidence_runtime_history_keeps_worsening_with_real_previous_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            history_path = root / "reports" / "evidence_lookup_runtime_history.jsonl"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            history_rows = [
+                {
+                    "generated_at": "2026-04-23T00:00:00+00:00",
+                    "lookup_status": "ok",
+                    "missing_count": 0,
+                    "source": "runtime_alert",
+                },
+                {
+                    "generated_at": "2026-04-23T01:00:00+00:00",
+                    "lookup_status": "warning",
+                    "missing_count": 2,
+                    "missing_record_ids": ["rec-1", "rec-2"],
+                },
+            ]
+            history_path.write_text(
+                "\n".join(json.dumps(row, sort_keys=True) for row in history_rows) + "\n",
+                encoding="utf-8",
+            )
+
+            summary = cli_module._summarize_evidence_runtime_history(
+                history_path=history_path,
+                window=1,
+            )
+            self.assertEqual(str(summary.get("status") or ""), "ok")
+            self.assertEqual(str(summary.get("trend") or ""), "worsening")
+            self.assertFalse(bool(summary.get("previous_rows_seed_only")))
+            self.assertEqual(int(summary.get("previous_effective_row_count") or 0), 1)
+
     def test_evidence_lookup_runtime_alert_creates_interrupt_and_emits_repair_commands(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
