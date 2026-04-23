@@ -439,6 +439,9 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("desired_contexts", content)
         self.assertIn("strict_mode", content)
         self.assertIn("reconcile_provenance", content)
+        self.assertIn('REQUIRED_STATUS_CHECKS[@]+"${REQUIRED_STATUS_CHECKS[@]}"', content)
+        self.assertIn("SUMMARY_JSON_PATH", content)
+        self.assertIn("trap cleanup EXIT", content)
 
     def test_codeowner_review_gate_audit_script_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -454,6 +457,9 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("reconcile_trigger_non_workflow_run_count", content)
         self.assertIn("reconcile_trigger_non_workflow_events_csv", content)
         self.assertIn("reconcile_trigger_non_workflow_run_ids_csv", content)
+        self.assertIn("RECONCILE_REPORT_JSON_PATH", content)
+        self.assertIn("WORKFLOW_RUNS_JSON_PATH", content)
+        self.assertIn("trap cleanup EXIT", content)
 
     def test_knowledge_bootstrap_route_wrapper_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
