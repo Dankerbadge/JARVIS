@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "25 13 * * 1-5"
+  push:
+    branches:
+      - codex/stabilize-default-baseline
 
 jobs:
   knowledge-route:
