@@ -18,9 +18,13 @@ from jarvis.cli import (
     cmd_improvement_domain_smoke_cross_domain_compact,
     cmd_improvement_domain_smoke_cross_domain_runtime_alert,
     cmd_improvement_daily_pipeline,
+    cmd_improvement_evidence_lookup,
+    cmd_improvement_evidence_lookup_batch_outputs,
+    cmd_improvement_evidence_lookup_runtime_alert,
     cmd_improvement_domain_smoke_outputs,
     cmd_improvement_domain_smoke_runtime_alert,
     cmd_improvement_reconcile_codeowner_review_gate_outputs,
+    cmd_improvement_reconcile_codeowner_review_gate_runtime_alert,
     cmd_improvement_draft_experiment_jobs,
     cmd_improvement_execute_retests,
     cmd_improvement_fitness_leaderboard,
@@ -28,6 +32,7 @@ from jarvis.cli import (
     cmd_improvement_knowledge_bootstrap_route,
     cmd_improvement_knowledge_bootstrap_followup_rerun,
     cmd_improvement_knowledge_bootstrap_route_outputs,
+    cmd_improvement_benchmark_stale_fallback_runtime_alert,
     cmd_improvement_knowledge_brief_delta,
     cmd_improvement_knowledge_brief_delta_alert,
     cmd_improvement_operator_cycle,
@@ -317,6 +322,205 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str((rows[0] or {}).get("platform") or ""), "ios")
             self.assertEqual(str((rows[0] or {}).get("id") or ""), "ios-r1")
 
+    def test_improvement_evidence_lookup_resolves_record_ids_from_explicit_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            feedback_path = root / "analysis" / "fitness_feedback.jsonl"
+            feedback_path.parent.mkdir(parents=True, exist_ok=True)
+            feedback_rows = [
+                {
+                    "id": "rv-1",
+                    "summary": "Paywall appears before users can finish a workout.",
+                    "created_at": "2026-04-21T12:00:00Z",
+                    "url": "https://example.test/reviews/rv-1",
+                },
+                {
+                    "id": "rv-2",
+                    "summary": "Wearable sync fails after onboarding.",
+                    "created_at": "2026-04-22T13:30:00Z",
+                },
+            ]
+            feedback_path.write_text(
+                "\n".join(json.dumps(row, sort_keys=True) for row in feedback_rows),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                record_ids="rv-1,rv-missing",
+                operator_report_path=None,
+                config_path=None,
+                input_paths=[feedback_path],
+                input_format=None,
+                id_fields="id,record_id",
+                summary_fields="summary,review",
+                timestamp_fields="created_at",
+                context_fields="url,rating",
+                snippet_max_chars=140,
+                limit_per_id=3,
+                include_record=False,
+                allow_missing_inputs=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_evidence_lookup(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(int(payload.get("requested_count") or 0), 2)
+            self.assertEqual(int(payload.get("resolved_record_id_count") or 0), 1)
+            self.assertEqual(list(payload.get("missing_record_ids") or []), ["rv-missing"])
+            self.assertEqual(int(payload.get("input_source_count") or 0), 1)
+            source_row = dict((list(payload.get("input_sources") or []) or [{}])[0] or {})
+            self.assertEqual(int(source_row.get("matched_count") or 0), 1)
+            self.assertEqual(list(source_row.get("matched_record_ids") or []), ["rv-1"])
+
+            matches = [dict(item) for item in list(payload.get("matches") or []) if isinstance(item, dict)]
+            rv1 = next((row for row in matches if str(row.get("record_id") or "") == "rv-1"), {})
+            self.assertEqual(str(rv1.get("status") or ""), "resolved")
+            self.assertEqual(int(rv1.get("match_count") or 0), 1)
+            rv1_rows = [dict(item) for item in list(rv1.get("matches") or []) if isinstance(item, dict)]
+            self.assertEqual(len(rv1_rows), 1)
+            self.assertEqual(str(rv1_rows[0].get("matched_field") or ""), "id")
+            self.assertEqual(str(rv1_rows[0].get("summary") or ""), "Paywall appears before users can finish a workout.")
+            self.assertEqual(str(rv1_rows[0].get("timestamp") or ""), "2026-04-21T12:00:00Z")
+
+    def test_improvement_evidence_lookup_can_extract_ids_from_operator_report_and_config(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            feedback_path = root / "analysis" / "fitness_feedback.jsonl"
+            feedback_path.parent.mkdir(parents=True, exist_ok=True)
+            feedback_path.write_text(
+                json.dumps(
+                    {
+                        "record_id": "seed_lookup_1",
+                        "summary": "Users report that onboarding asks for payment too early.",
+                        "created_at": "2026-04-20T08:00:00Z",
+                        "source_context": {"app_identifier": "fit_competitor", "platform": "ios"},
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config_path = root / "pipeline.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "feedback_jobs": [
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "analysis/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            operator_report_path = root / "reports" / "operator_cycle_report.json"
+            operator_report_path.parent.mkdir(parents=True, exist_ok=True)
+            operator_report_path.write_text(
+                json.dumps(
+                    {
+                        "summary": {
+                            "retest_deltas": [
+                                {
+                                    "seed_evidence_record_ids": ["seed_lookup_1"],
+                                    "evidence_lookup_refs": [
+                                        {
+                                            "lookup_type": "source_record_id",
+                                            "record_id": "seed_lookup_1",
+                                            "lookup_key": "record_id:seed_lookup_1",
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                record_ids=None,
+                operator_report_path=operator_report_path,
+                config_path=config_path,
+                input_paths=None,
+                input_format=None,
+                id_fields=None,
+                summary_fields=None,
+                timestamp_fields=None,
+                context_fields=None,
+                snippet_max_chars=160,
+                limit_per_id=5,
+                include_record=False,
+                allow_missing_inputs=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_evidence_lookup(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(list(payload.get("record_ids") or []), ["seed_lookup_1"])
+            self.assertEqual(list(payload.get("operator_report_extracted_record_ids") or []), ["seed_lookup_1"])
+            self.assertEqual(int(payload.get("resolved_record_id_count") or 0), 1)
+            self.assertEqual(int(payload.get("missing_count") or 0), 0)
+            source_row = dict((list(payload.get("input_sources") or []) or [{}])[0] or {})
+            self.assertEqual(str(source_row.get("domain") or ""), "fitness_apps")
+            self.assertEqual(str(source_row.get("source") or ""), "app_store_reviews")
+            match_rows = [
+                dict(item)
+                for item in list((dict((list(payload.get("matches") or []) or [{}])[0] or {})).get("matches") or [])
+                if isinstance(item, dict)
+            ]
+            self.assertEqual(len(match_rows), 1)
+            self.assertEqual(str(match_rows[0].get("record_id") or ""), "seed_lookup_1")
+            self.assertEqual(str(match_rows[0].get("matched_field") or ""), "record_id")
+
+    def test_improvement_evidence_lookup_strict_fails_when_record_ids_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            feedback_path = root / "analysis" / "fitness_feedback.jsonl"
+            feedback_path.parent.mkdir(parents=True, exist_ok=True)
+            feedback_path.write_text(
+                json.dumps({"id": "rv-1", "summary": "Test row"}, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                record_ids="rv-missing",
+                operator_report_path=None,
+                config_path=None,
+                input_paths=[feedback_path],
+                input_format=None,
+                id_fields=None,
+                summary_fields=None,
+                timestamp_fields=None,
+                context_fields=None,
+                snippet_max_chars=120,
+                limit_per_id=2,
+                include_record=False,
+                allow_missing_inputs=False,
+                strict=True,
+                output_path=None,
+                json_compact=False,
+            )
+            with self.assertRaises(SystemExit) as raised:
+                cmd_improvement_evidence_lookup(args)
+            self.assertEqual(int(getattr(raised.exception, "code", 0) or 0), 2)
+
     def test_fitness_leaderboard_reports_week_over_week_trend_deltas(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -389,6 +593,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 cluster_limit=20,
                 leaderboard_limit=12,
                 cooling_limit=10,
+                evidence_sample_limit=2,
                 trend_threshold=0.25,
                 include_untimed_current=False,
                 strict=False,
@@ -406,6 +611,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(counts.get("current_window_records") or 0), 3)
             self.assertEqual(int(counts.get("previous_window_records") or 0), 2)
             self.assertEqual(int(counts.get("older_records") or 0), 1)
+            self.assertEqual(int(payload.get("evidence_sample_limit") or 0), 2)
 
             leaderboard = list(payload.get("leaderboard") or [])
             self.assertGreaterEqual(len(leaderboard), 2)
@@ -422,6 +628,24 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(paywall_entry.get("signal_count_current") or 0), 2)
             self.assertEqual(int(paywall_entry.get("signal_count_previous") or 0), 1)
             self.assertGreater(float(paywall_entry.get("impact_score_delta") or 0.0), 0.0)
+            current_evidence = [
+                dict(item)
+                for item in list(paywall_entry.get("evidence_samples_current") or [])
+                if isinstance(item, dict)
+            ]
+            previous_evidence = [
+                dict(item)
+                for item in list(paywall_entry.get("evidence_samples_previous") or [])
+                if isinstance(item, dict)
+            ]
+            self.assertEqual(len(current_evidence), 2)
+            self.assertEqual(len(previous_evidence), 1)
+            self.assertTrue(
+                {"cur-1", "cur-2"}.issubset(
+                    {str(item.get("record_id") or "") for item in current_evidence}
+                )
+            )
+            self.assertIn("prev-1", {str(item.get("record_id") or "") for item in previous_evidence})
 
             cooling = list(payload.get("cooling_clusters") or [])
             self.assertTrue(
@@ -649,6 +873,20 @@ class CliImprovementPipelineTests(unittest.TestCase):
                                 ],
                                 "example_summary": "Users hit paywall before completing a meaningful workout.",
                                 "top_tags": [{"tag": "paywall", "count": 12}],
+                                "evidence_samples_current": [
+                                    {
+                                        "record_id": "rv_paywall_1",
+                                        "record_id_field": "id",
+                                        "signal_id": "frc_paywall_1",
+                                        "app_identifier": "fitnova",
+                                    },
+                                    {
+                                        "record_id": "rv_paywall_2",
+                                        "record_id_field": "id",
+                                        "signal_id": "frc_paywall_2",
+                                        "app_identifier": "pulsepro",
+                                    },
+                                ],
                             },
                             {
                                 "rank": 2,
@@ -666,6 +904,14 @@ class CliImprovementPipelineTests(unittest.TestCase):
                                 ],
                                 "example_summary": "Beginner plan intensity causes early drop-off.",
                                 "top_tags": [{"tag": "onboarding", "count": 6}],
+                                "evidence_samples_current": [
+                                    {
+                                        "record_id": "rv_onboard_1",
+                                        "record_id_field": "id",
+                                        "signal_id": "frc_onboard_1",
+                                        "app_identifier": "fitnova",
+                                    }
+                                ],
                             },
                             {
                                 "rank": 3,
@@ -729,10 +975,24 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 keys = {str((item or {}).get("friction_key") or "") for item in hypotheses}
                 self.assertIn("paywall_before_core_workout_trial", keys)
                 self.assertIn("onboarding_plan_too_rigid_for_beginner_adherence", keys)
-                metadata = dict((hypotheses[0] or {}).get("metadata") or {})
-                self.assertEqual(str(metadata.get("seed_source") or ""), "fitness_leaderboard")
-                self.assertGreaterEqual(int(metadata.get("seed_cross_app_count_current") or 0), 2)
-                self.assertTrue(bool(list(metadata.get("seed_top_apps_current") or [])))
+                metadata_by_key = {
+                    str((row or {}).get("friction_key") or ""): dict((row or {}).get("metadata") or {})
+                    for row in hypotheses
+                    if isinstance(row, dict)
+                }
+                paywall_metadata = dict(metadata_by_key.get("paywall_before_core_workout_trial") or {})
+                onboarding_metadata = dict(metadata_by_key.get("onboarding_plan_too_rigid_for_beginner_adherence") or {})
+                self.assertEqual(str(paywall_metadata.get("seed_source") or ""), "fitness_leaderboard")
+                self.assertGreaterEqual(int(paywall_metadata.get("seed_cross_app_count_current") or 0), 2)
+                self.assertTrue(bool(list(paywall_metadata.get("seed_top_apps_current") or [])))
+                self.assertEqual(
+                    list(paywall_metadata.get("seed_evidence_record_ids") or []),
+                    ["rv_paywall_1", "rv_paywall_2"],
+                )
+                self.assertEqual(
+                    list(onboarding_metadata.get("seed_evidence_record_ids") or []),
+                    ["rv_onboard_1"],
+                )
             finally:
                 runtime.close()
 
@@ -1007,6 +1267,10 @@ class CliImprovementPipelineTests(unittest.TestCase):
                                 "impact_score_delta": 2.5,
                                 "signal_count_current": 12,
                                 "signal_count_previous": 7,
+                                "evidence_samples_current": [
+                                    {"record_id": "seed_paywall_1"},
+                                    {"record_id": "seed_paywall_2"},
+                                ],
                             },
                             {
                                 "rank": 2,
@@ -1017,6 +1281,9 @@ class CliImprovementPipelineTests(unittest.TestCase):
                                 "impact_score_delta": 7.8,
                                 "signal_count_current": 6,
                                 "signal_count_previous": 0,
+                                "evidence_samples_current": [
+                                    {"record_id": "seed_onboarding_1"},
+                                ],
                             },
                         ],
                     },
@@ -1111,10 +1378,19 @@ class CliImprovementPipelineTests(unittest.TestCase):
 
             drafts = [dict(item) for item in list(draft_payload.get("drafts") or []) if isinstance(item, dict)]
             self.assertEqual(len(drafts), 2)
+            expected_evidence_ids_by_friction = {
+                "paywall_before_core_workout_trial": ["seed_paywall_1", "seed_paywall_2"],
+                "onboarding_plan_too_rigid_for_beginner_adherence": ["seed_onboarding_1"],
+            }
             for row in drafts:
                 self.assertEqual(int(row.get("target_sample_size") or 0), 200)
                 self.assertEqual(str(row.get("primary_metric") or ""), "retention_d30")
                 self.assertTrue(bool(list(row.get("guardrails") or [])))
+                friction_key = str(row.get("friction_key") or "")
+                self.assertEqual(
+                    list(row.get("seed_evidence_record_ids") or []),
+                    list(expected_evidence_ids_by_friction.get(friction_key) or []),
+                )
                 artifact_path = Path(str(row.get("artifact_path") or ""))
                 self.assertTrue(artifact_path.exists())
                 artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
@@ -1123,6 +1399,10 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 self.assertEqual(
                     str((metadata.get("success_criteria") or {}).get("metric") or ""),
                     "retention_d30",
+                )
+                self.assertEqual(
+                    list(metadata.get("seed_evidence_record_ids") or []),
+                    list(expected_evidence_ids_by_friction.get(friction_key) or []),
                 )
 
             updated_pipeline = json.loads(drafted_config_path.read_text(encoding="utf-8"))
@@ -1328,6 +1608,8 @@ class CliImprovementPipelineTests(unittest.TestCase):
                                 "trend": "rising",
                                 "recurrence_score": 8,
                                 "opportunity_score": 6.2,
+                                "evidence_runtime_trend": "worsening",
+                                "evidence_runtime_priority_boost": 0.62,
                             },
                             {
                                 "domain": "quant_finance",
@@ -1395,9 +1677,118 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(source_hint.get("seed_reason") or ""), "benchmark_priority")
             self.assertEqual(int(source_hint.get("benchmark_priority_rank") or 0), 1)
             self.assertEqual(float(source_hint.get("benchmark_opportunity_score") or 0.0), 6.2)
+            self.assertEqual(int(source_hint.get("benchmark_pressure_rank") or 0), 1)
+            self.assertEqual(float(source_hint.get("benchmark_pressure_score") or 0.0), 6.2)
+            self.assertEqual(str(source_hint.get("benchmark_evidence_runtime_trend") or ""), "worsening")
+            self.assertEqual(float(source_hint.get("benchmark_evidence_runtime_priority_boost") or 0.0), 0.62)
 
             artifact_path = Path(str(draft.get("artifact_path") or ""))
             self.assertTrue(artifact_path.exists())
+
+    def test_draft_experiment_jobs_applies_evidence_pressure_to_status_filters_and_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                queued_hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Queued paywall reduction",
+                    statement="Queued lane hypothesis for paywall friction.",
+                    proposed_change="Delay paywall to after first workout.",
+                    friction_key="paywall_before_core_workout_trial",
+                )
+                testing_hypothesis = runtime.register_hypothesis(
+                    domain="fitness_apps",
+                    title="Testing onboarding simplification",
+                    statement="Testing lane hypothesis for onboarding rigidity.",
+                    proposed_change="Simplify first-week plan setup.",
+                    friction_key="onboarding_plan_too_rigid_for_beginner_adherence",
+                )
+                queued_hypothesis_id = str(queued_hypothesis.get("hypothesis_id") or "")
+                testing_hypothesis_id = str(testing_hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(queued_hypothesis_id))
+                self.assertTrue(bool(testing_hypothesis_id))
+                runtime.hypothesis_lab.set_hypothesis_status(
+                    hypothesis_id=testing_hypothesis_id,
+                    status="testing",
+                )
+            finally:
+                runtime.close()
+
+            evidence_history_path = root / "analysis" / "improvement" / "evidence_lookup_runtime_history.jsonl"
+            evidence_history_path.parent.mkdir(parents=True, exist_ok=True)
+            evidence_history_path.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "generated_at": "2026-04-22T08:00:00Z",
+                                "lookup_status": "ok",
+                                "missing_count": 0,
+                                "missing_record_ids": [],
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "generated_at": "2026-04-22T09:00:00Z",
+                                "lookup_status": "warning",
+                                "missing_count": 3,
+                                "missing_record_ids": ["rec-1", "rec-2", "rec-3"],
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            draft_args = argparse.Namespace(
+                seed_report_path=None,
+                benchmark_report_path=None,
+                benchmark_min_opportunity=None,
+                include_existing=False,
+                domain="fitness_apps",
+                statuses="queued",
+                limit=1,
+                lookup_limit=100,
+                pipeline_config_path=None,
+                write_config_path=None,
+                in_place=False,
+                artifacts_dir=root / "artifacts" / "evidence_pressure_drafts",
+                overwrite_artifacts=False,
+                environment=None,
+                default_sample_size=120,
+                evidence_runtime_history_path=evidence_history_path,
+                evidence_runtime_history_window=1,
+                evidence_pressure_enable=True,
+                evidence_pressure_min_priority_boost=0.2,
+                evidence_pressure_limit_increase=2,
+                evidence_pressure_statuses="testing",
+                strict=False,
+                output_path=None,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_draft_experiment_jobs(draft_args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertTrue(bool(payload.get("evidence_pressure_applied")))
+            self.assertEqual(int(payload.get("limit_requested") or 0), 1)
+            self.assertEqual(int(payload.get("limit") or 0), 3)
+            status_filters = [str(item) for item in list(payload.get("status_filters") or [])]
+            self.assertIn("queued", status_filters)
+            self.assertIn("testing", status_filters)
+
+            drafts = [dict(item) for item in list(payload.get("drafts") or []) if isinstance(item, dict)]
+            draft_hypothesis_ids = {str(item.get("hypothesis_id") or "") for item in drafts}
+            self.assertIn(queued_hypothesis_id, draft_hypothesis_ids)
+            self.assertIn(testing_hypothesis_id, draft_hypothesis_ids)
 
     def test_run_experiment_artifact_command(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -1850,6 +2241,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                     statement="Candidate should be blocked when false positive rate violates guardrail.",
                     proposed_change="Raise threshold aggressively.",
                     friction_key="false_positive_drift",
+                    metadata={"seed_evidence_record_ids": ["seed_src_1", "seed_src_2"]},
                 )
                 hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
                 self.assertTrue(bool(hypothesis_id))
@@ -1949,6 +2341,10 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(len(experiment_runs), 1)
             self.assertEqual(str((experiment_runs[0] or {}).get("verdict") or ""), "blocked_guardrail")
             self.assertGreaterEqual(int((experiment_runs[0] or {}).get("failed_checks_count") or 0), 1)
+            self.assertEqual(
+                list((experiment_runs[0] or {}).get("seed_evidence_record_ids") or []),
+                ["seed_src_1", "seed_src_2"],
+            )
             side_by_side = dict((experiment_runs[0] or {}).get("side_by_side") or {})
             self.assertTrue(bool(side_by_side.get("has_previous")))
             self.assertEqual(
@@ -1965,7 +2361,17 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(retest.get("hypothesis_status") or ""), "queued")
             self.assertGreaterEqual(int(retest.get("recommended_sample_size") or 0), 550)
             self.assertTrue(bool(list(retest.get("safety_targets") or [])))
+            self.assertEqual(
+                list(retest.get("seed_evidence_record_ids") or []),
+                ["seed_src_1", "seed_src_2"],
+            )
             self.assertEqual(int(payload.get("retest_runs_count") or 0), 1)
+            retest_runs = [dict(item) for item in list(payload.get("retest_runs") or []) if isinstance(item, dict)]
+            self.assertEqual(len(retest_runs), 1)
+            self.assertEqual(
+                list((retest_runs[0] or {}).get("seed_evidence_record_ids") or []),
+                ["seed_src_1", "seed_src_2"],
+            )
 
             debug_report_path = Path(str((experiment_runs[0] or {}).get("debug_report_path") or ""))
             self.assertTrue(debug_report_path.exists())
@@ -2037,6 +2443,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                             {
                                 "hypothesis_id": hypothesis_id,
                                 "run_id": trigger_run_id,
+                                "seed_evidence_record_ids": ["seed_src_9", "seed_src_10"],
                             }
                         ]
                     },
@@ -2073,17 +2480,121 @@ class CliImprovementPipelineTests(unittest.TestCase):
             runs = list(payload.get("runs") or [])
             self.assertEqual(len(runs), 1)
             self.assertEqual(str((runs[0] or {}).get("hypothesis_id") or ""), hypothesis_id)
+            self.assertEqual(
+                list((runs[0] or {}).get("seed_evidence_record_ids") or []),
+                ["seed_src_9", "seed_src_10"],
+            )
             side_by_side = dict((runs[0] or {}).get("side_by_side") or {})
             transition = dict(side_by_side.get("verdict_transition") or {})
             self.assertEqual(str(transition.get("previous") or ""), "blocked_guardrail")
             self.assertTrue(bool(str(transition.get("current") or "")))
             artifact_path = Path(str((runs[0] or {}).get("artifact_path") or ""))
             self.assertTrue(artifact_path.exists())
+            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+            artifact_metadata = dict(artifact_payload.get("metadata") or {})
+            self.assertEqual(
+                list(artifact_metadata.get("seed_evidence_record_ids") or []),
+                ["seed_src_9", "seed_src_10"],
+            )
+
+    def test_execute_retests_fallback_carries_seed_evidence_ids_from_experiment_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Execute retest fallback lane",
+                    statement="Fallback retest extraction should preserve source evidence lineage.",
+                    proposed_change="Retry with guardrail-safe settings.",
+                    friction_key="false_positive_drift",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+
+                blocked = runtime.run_hypothesis_experiment(
+                    hypothesis_id=hypothesis_id,
+                    environment="offline_backtest",
+                    baseline_metrics={
+                        "precision_at_k": 0.30,
+                        "false_positive_rate": 0.18,
+                        "inference_latency_ms_p95": 210,
+                    },
+                    candidate_metrics={
+                        "precision_at_k": 0.38,
+                        "false_positive_rate": 0.32,
+                        "inference_latency_ms_p95": 215,
+                    },
+                    sample_size=500,
+                )
+                trigger_run_id = str(blocked.get("run_id") or "")
+                self.assertTrue(bool(trigger_run_id))
+
+                queued = runtime.queue_hypothesis_retest_from_run(
+                    run_id=trigger_run_id,
+                    guardrail_sample_multiplier=1.1,
+                    min_sample_increment=50,
+                    guardrail_safety_factor=0.9,
+                )
+                self.assertTrue(bool(queued.get("queued")))
+            finally:
+                runtime.close()
+
+            pipeline_report_path = root / "reports" / "daily_pipeline_report.json"
+            pipeline_report_path.parent.mkdir(parents=True, exist_ok=True)
+            pipeline_report_path.write_text(
+                json.dumps(
+                    {
+                        "experiment_runs": [
+                            {
+                                "hypothesis_id": hypothesis_id,
+                                "seed_evidence_record_ids": ["seed_fallback_1", "seed_fallback_2"],
+                                "retest": {
+                                    "queued": True,
+                                    "hypothesis_id": hypothesis_id,
+                                    "run_id": trigger_run_id,
+                                },
+                            }
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                pipeline_report_path=pipeline_report_path,
+                max_runs=None,
+                artifact_dir=None,
+                environment=None,
+                notes_prefix="auto_retest",
+                allow_missing_jobs=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_execute_retests(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            runs = [dict(item) for item in list(payload.get("runs") or []) if isinstance(item, dict)]
+            self.assertEqual(len(runs), 1)
+            self.assertEqual(
+                list((runs[0] or {}).get("seed_evidence_record_ids") or []),
+                ["seed_fallback_1", "seed_fallback_2"],
+            )
 
     def test_operator_cycle_runs_pull_daily_retest_and_writes_inbox_summary(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             repo, db = self._make_repo(root)
+            expected_seed_evidence_record_ids = ["seed_op_1", "seed_op_2"]
 
             runtime = JarvisRuntime(db_path=db, repo_path=repo)
             try:
@@ -2093,6 +2604,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                     statement="Operator cycle should run pull/daily/retest and summarize outputs.",
                     proposed_change="Tighten threshold controls after guardrail violations.",
                     friction_key="false_positive_drift",
+                    metadata={"seed_evidence_record_ids": expected_seed_evidence_record_ids},
                 )
                 hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
                 self.assertTrue(bool(hypothesis_id))
@@ -2260,6 +2772,61 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertFalse(bool((summary.get("promotion_lock") or {}).get("active")))
             self.assertEqual(int((summary.get("metrics") or {}).get("blocked_promotion_count") or 0), 0)
             self.assertEqual(len(list(summary.get("blocked_promotions") or [])), 0)
+            blockers = [dict(item) for item in list(summary.get("blockers") or []) if isinstance(item, dict)]
+            self.assertTrue(
+                any(
+                    list(row.get("seed_evidence_record_ids") or []) == expected_seed_evidence_record_ids
+                    for row in blockers
+                )
+            )
+            blocker_with_seed = next(
+                (
+                    row
+                    for row in blockers
+                    if list(row.get("seed_evidence_record_ids") or []) == expected_seed_evidence_record_ids
+                ),
+                {},
+            )
+            blocker_lookup_command = str(blocker_with_seed.get("evidence_lookup_command") or "")
+            self.assertTrue(blocker_lookup_command.startswith("python3 -m jarvis.cli improvement evidence-lookup"))
+            self.assertIn("--record-ids", blocker_lookup_command)
+            self.assertIn(",".join(expected_seed_evidence_record_ids), blocker_lookup_command)
+            self.assertIn(str(config_path), blocker_lookup_command)
+            retest_deltas = [dict(item) for item in list(summary.get("retest_deltas") or []) if isinstance(item, dict)]
+            self.assertGreaterEqual(len(retest_deltas), 1)
+            self.assertEqual(
+                list(retest_deltas[0].get("seed_evidence_record_ids") or []),
+                expected_seed_evidence_record_ids,
+            )
+            self.assertEqual(
+                [
+                    str(item.get("record_id") or "")
+                    for item in list(retest_deltas[0].get("evidence_lookup_refs") or [])
+                    if isinstance(item, dict)
+                ],
+                expected_seed_evidence_record_ids,
+            )
+            retest_lookup_command = str(retest_deltas[0].get("evidence_lookup_command") or "")
+            self.assertTrue(retest_lookup_command.startswith("python3 -m jarvis.cli improvement evidence-lookup"))
+            self.assertIn("--record-ids", retest_lookup_command)
+            self.assertIn(",".join(expected_seed_evidence_record_ids), retest_lookup_command)
+            evidence_lookup_batch = dict(summary.get("evidence_lookup_batch") or {})
+            self.assertTrue(bool(evidence_lookup_batch.get("ready")))
+            self.assertEqual(
+                list(evidence_lookup_batch.get("record_ids") or []),
+                expected_seed_evidence_record_ids,
+            )
+            self.assertEqual(int(evidence_lookup_batch.get("record_count") or 0), len(expected_seed_evidence_record_ids))
+            batch_output_path = str(evidence_lookup_batch.get("output_path") or "")
+            self.assertTrue(batch_output_path.endswith("evidence_lookup_report.json"))
+            batch_command = str(evidence_lookup_batch.get("command") or "")
+            self.assertTrue(batch_command.startswith("python3 -m jarvis.cli improvement evidence-lookup"))
+            self.assertIn("--config-path", batch_command)
+            self.assertIn(str(config_path), batch_command)
+            self.assertIn("--record-ids", batch_command)
+            self.assertIn(",".join(expected_seed_evidence_record_ids), batch_command)
+            self.assertIn("--output-path", batch_command)
+            self.assertIn(batch_output_path, batch_command)
             self.assertGreaterEqual(len(list(summary.get("suggested_actions") or [])), 1)
 
     def test_operator_cycle_runs_benchmark_stage_with_cli_top_limit_override(self) -> None:
@@ -2419,6 +2986,30 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(benchmark_payload.get("top_limit") or 0), 4)
             self.assertEqual(str(benchmark_payload.get("top_limit_source") or ""), "cli_override")
             self.assertGreaterEqual(len(list(benchmark_payload.get("suggested_actions") or [])), 1)
+            self.assertEqual(str(benchmark_payload.get("evidence_runtime_history_path_source") or ""), "output_default")
+            self.assertEqual(int(benchmark_payload.get("evidence_runtime_history_window") or 0), 7)
+            self.assertEqual(str(payload.get("evidence_runtime_history_path_source") or ""), "output_default")
+            self.assertEqual(str(payload.get("evidence_runtime_history_window_source") or ""), "builtin_default")
+            self.assertEqual(int(payload.get("benchmark_stale_runtime_history_window") or 0), 7)
+            self.assertEqual(
+                str(payload.get("benchmark_stale_runtime_history_window_source") or ""),
+                "builtin_default",
+            )
+            self.assertEqual(int(payload.get("benchmark_stale_runtime_repeat_threshold") or 0), 2)
+            self.assertEqual(
+                str(payload.get("benchmark_stale_runtime_repeat_threshold_source") or ""),
+                "builtin_default",
+            )
+            self.assertEqual(float(payload.get("benchmark_stale_runtime_rate_ceiling") or 0.0), 0.6)
+            self.assertEqual(
+                str(payload.get("benchmark_stale_runtime_rate_ceiling_source") or ""),
+                "builtin_default",
+            )
+            self.assertEqual(int(payload.get("benchmark_stale_runtime_consecutive_runs") or 0), 2)
+            self.assertEqual(
+                str(payload.get("benchmark_stale_runtime_consecutive_runs_source") or ""),
+                "builtin_default",
+            )
 
             benchmark_report_path = Path(str(payload.get("benchmark_report_path") or ""))
             operator_report_path = Path(str(payload.get("operator_report_path") or ""))
@@ -2657,6 +3248,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             repo, db = self._make_repo(root)
+            expected_seed_evidence_record_ids = ["seed_verify_alert_1", "seed_verify_alert_2"]
 
             runtime = JarvisRuntime(db_path=db, repo_path=repo)
             try:
@@ -2666,6 +3258,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                     statement="Operator cycle should raise a verify-matrix alert when drift is detected.",
                     proposed_change="Escalate controlled-experiment matrix drift into interrupts.",
                     friction_key="false_positive_drift_in_high_volatility_windows",
+                    metadata={"seed_evidence_record_ids": expected_seed_evidence_record_ids},
                 )
                 hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
                 self.assertTrue(bool(hypothesis_id))
@@ -2872,6 +3465,30 @@ class CliImprovementPipelineTests(unittest.TestCase):
             blocked_promotions = [dict(item) for item in list(payload.get("blocked_promotions") or []) if isinstance(item, dict)]
             self.assertEqual(len(blocked_promotions), 1)
             self.assertEqual(str(blocked_promotions[0].get("blocked_by") or ""), "verify_matrix_alert")
+            self.assertEqual(
+                list(blocked_promotions[0].get("seed_evidence_record_ids") or []),
+                expected_seed_evidence_record_ids,
+            )
+            self.assertEqual(
+                [
+                    str(item.get("record_id") or "")
+                    for item in list(blocked_promotions[0].get("evidence_lookup_refs") or [])
+                    if isinstance(item, dict)
+                ],
+                expected_seed_evidence_record_ids,
+            )
+            blocked_lookup_command = str(blocked_promotions[0].get("evidence_lookup_command") or "")
+            self.assertTrue(blocked_lookup_command.startswith("python3 -m jarvis.cli improvement evidence-lookup"))
+            self.assertIn("--record-ids", blocked_lookup_command)
+            self.assertIn(",".join(expected_seed_evidence_record_ids), blocked_lookup_command)
+            payload_evidence_lookup_batch = dict(payload.get("evidence_lookup_batch") or {})
+            self.assertFalse(bool(payload_evidence_lookup_batch.get("ready")))
+            self.assertEqual(list(payload_evidence_lookup_batch.get("record_ids") or []), [])
+            payload_batch_output_path = str(payload_evidence_lookup_batch.get("output_path") or "")
+            self.assertEqual(str(payload.get("evidence_lookup_report_path") or ""), payload_batch_output_path)
+            self.assertTrue(payload_batch_output_path.endswith("evidence_lookup_report.json"))
+            payload_batch_command = str(payload_evidence_lookup_batch.get("command") or "")
+            self.assertEqual(payload_batch_command, "none")
             unlock_readiness = dict(blocked_promotions[0].get("unlock_readiness") or {})
             self.assertFalse(bool(unlock_readiness.get("unlock_ready")))
             self.assertTrue(bool(unlock_readiness.get("requires_acknowledgement")))
@@ -2935,6 +3552,29 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 dict(item) for item in list(inbox_summary.get("blocked_promotions") or []) if isinstance(item, dict)
             ]
             self.assertEqual(len(summary_blocked_promotions), 1)
+            self.assertEqual(
+                list(summary_blocked_promotions[0].get("seed_evidence_record_ids") or []),
+                expected_seed_evidence_record_ids,
+            )
+            self.assertEqual(
+                [
+                    str(item.get("record_id") or "")
+                    for item in list(summary_blocked_promotions[0].get("evidence_lookup_refs") or [])
+                    if isinstance(item, dict)
+                ],
+                expected_seed_evidence_record_ids,
+            )
+            summary_blocked_lookup_command = str(summary_blocked_promotions[0].get("evidence_lookup_command") or "")
+            self.assertTrue(summary_blocked_lookup_command.startswith("python3 -m jarvis.cli improvement evidence-lookup"))
+            self.assertIn("--record-ids", summary_blocked_lookup_command)
+            self.assertIn(",".join(expected_seed_evidence_record_ids), summary_blocked_lookup_command)
+            summary_evidence_lookup_batch = dict(inbox_summary.get("evidence_lookup_batch") or {})
+            self.assertFalse(bool(summary_evidence_lookup_batch.get("ready")))
+            self.assertEqual(list(summary_evidence_lookup_batch.get("record_ids") or []), [])
+            summary_batch_output_path = str(summary_evidence_lookup_batch.get("output_path") or "")
+            self.assertEqual(summary_batch_output_path, payload_batch_output_path)
+            summary_batch_command = str(summary_evidence_lookup_batch.get("command") or "")
+            self.assertEqual(summary_batch_command, "none")
             summary_unlock = dict(summary_blocked_promotions[0].get("unlock_readiness") or {})
             self.assertEqual(str(summary_unlock.get("recheck_command") or ""), recheck_command)
             self.assertEqual(
@@ -3117,8 +3757,12 @@ class CliImprovementPipelineTests(unittest.TestCase):
 
             original_invoke = cli_module._invoke_cli_json_command
             stage_call_order: list[str] = []
+            captured_delta_history_path: Path | None = None
+            captured_delta_history_window: int | None = None
 
             def patched_invoke(command_fn: Any, *, args: argparse.Namespace) -> dict[str, Any]:
+                nonlocal captured_delta_history_path
+                nonlocal captured_delta_history_window
                 if getattr(command_fn, "__name__", "") == "cmd_improvement_knowledge_brief":
                     stage_call_order.append("knowledge_brief")
                     staged_output_path = Path(str(getattr(args, "output_path", expected_knowledge_brief_report_path)))
@@ -3136,6 +3780,8 @@ class CliImprovementPipelineTests(unittest.TestCase):
                     return payload
                 if getattr(command_fn, "__name__", "") == "cmd_improvement_knowledge_brief_delta_alert":
                     stage_call_order.append("knowledge_brief_delta_alert")
+                    captured_delta_history_path = Path(str(getattr(args, "evidence_runtime_history_path", ""))).resolve()
+                    captured_delta_history_window = int(getattr(args, "evidence_runtime_history_window", 0) or 0)
                     staged_output_path = Path(str(getattr(args, "output_path", expected_delta_alert_report_path)))
                     payload = {
                         "status": "warning",
@@ -3162,6 +3808,11 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(stage_statuses.get("knowledge_brief") or ""), "ok")
             self.assertEqual(str(stage_statuses.get("knowledge_brief_delta_alert") or ""), "warning")
             self.assertEqual(stage_call_order[:2], ["knowledge_brief", "knowledge_brief_delta_alert"])
+            self.assertEqual(
+                captured_delta_history_path,
+                (output_dir / "evidence_lookup_runtime_history.jsonl").resolve(),
+            )
+            self.assertEqual(int(captured_delta_history_window or 0), 7)
 
             knowledge_brief_payload = dict(payload.get("knowledge_brief") or {})
             self.assertEqual(str(knowledge_brief_payload.get("status") or ""), "ok")
@@ -3174,6 +3825,11 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(knowledge_alert_payload.get("status") or ""), "warning")
             self.assertTrue(bool(knowledge_alert_payload.get("alert_created")))
             self.assertEqual(str(knowledge_alert_payload.get("drift_severity") or ""), "warn")
+            self.assertEqual(
+                str(knowledge_alert_payload.get("evidence_runtime_history_path_source") or ""),
+                "output_default",
+            )
+            self.assertEqual(int(knowledge_alert_payload.get("evidence_runtime_history_window") or 0), 7)
 
             knowledge_alert_report_path = Path(str(payload.get("knowledge_brief_delta_alert_report_path") or ""))
             self.assertTrue(knowledge_alert_report_path.exists())
@@ -4407,6 +5063,268 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(int(daily_payload.get("experiment_runs_count") or 0), 1)
             experiment_runs = [row for row in list(daily_payload.get("experiment_runs") or []) if isinstance(row, dict)]
             self.assertTrue(any(str(row.get("hypothesis_id") or "") == hypothesis_id for row in experiment_runs))
+
+    def test_operator_cycle_draft_reuses_existing_output_benchmark_report_when_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Reuse existing benchmark report during draft stage",
+                    statement="Draft stage should consume prior benchmark output when no explicit benchmark path is set.",
+                    proposed_change="Auto-wire output benchmark report path for iterative prioritization.",
+                    friction_key="latency_spikes_during_feature_enrichment",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+            finally:
+                runtime.close()
+
+            config_path = root / "operator_cycle_draft_auto_benchmark_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "allow_missing_inputs": False,
+                        },
+                        "feed_jobs": [],
+                        "feedback_jobs": [],
+                        "experiment_jobs": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_draft_auto_benchmark"
+            benchmark_report_path = output_dir / "benchmark_frustrations_report.json"
+            benchmark_report_path.parent.mkdir(parents=True, exist_ok=True)
+            benchmark_report_path.write_text(
+                json.dumps(
+                    {
+                        "generated_at": "2026-04-23T12:00:00Z",
+                        "status": "ok",
+                        "summary": {"priority_item_count": 1},
+                        "priority_board": [
+                            {
+                                "domain": "market_ml",
+                                "friction_key": "latency_spikes_during_feature_enrichment",
+                                "hypothesis_id": hypothesis_id,
+                                "opportunity_score": 7.1,
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                draft_enable=True,
+                draft_seed_report_path=None,
+                draft_benchmark_report_path=None,
+                draft_benchmark_min_opportunity=None,
+                draft_benchmark_max_age_hours=None,
+                draft_config_path=None,
+                draft_output_config_path=None,
+                draft_report_path=None,
+                draft_artifacts_dir=None,
+                draft_domain="market_ml",
+                draft_statuses="queued",
+                draft_limit=6,
+                draft_lookup_limit=200,
+                draft_include_existing=False,
+                draft_overwrite_artifacts=True,
+                draft_environment="controlled_backtest",
+                draft_default_sample_size=140,
+                draft_evidence_pressure_enable=None,
+                draft_evidence_pressure_min_priority_boost=None,
+                draft_evidence_pressure_limit_increase=None,
+                draft_evidence_pressure_statuses=None,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("draft_experiment_jobs") or ""), "ok")
+
+            draft_payload = dict(payload.get("draft") or {})
+            self.assertEqual(str(draft_payload.get("benchmark_report_path_source") or ""), "output_default_existing")
+            self.assertEqual(
+                str(draft_payload.get("benchmark_report_path") or ""),
+                str(benchmark_report_path.resolve()),
+            )
+            self.assertEqual(str(draft_payload.get("benchmark_auto_reuse_status") or ""), "reused")
+            self.assertFalse(bool(draft_payload.get("benchmark_auto_reuse_stale")))
+            self.assertEqual(str(draft_payload.get("benchmark_max_age_hours_source") or ""), "builtin_default")
+            self.assertGreater(float(draft_payload.get("benchmark_max_age_hours") or 0.0), 0.0)
+            self.assertGreaterEqual(int(draft_payload.get("drafted_count") or 0), 1)
+
+            draft_report_path = Path(str(payload.get("draft_report_path") or ""))
+            self.assertTrue(draft_report_path.exists())
+            draft_report = json.loads(draft_report_path.read_text(encoding="utf-8"))
+            drafts = [dict(item) for item in list(draft_report.get("drafts") or []) if isinstance(item, dict)]
+            self.assertGreaterEqual(len(drafts), 1)
+            first_source_hint = dict((drafts[0] or {}).get("source_hint") or {})
+            self.assertIn(
+                str(first_source_hint.get("seed_reason") or ""),
+                {"benchmark_priority", "benchmark_priority_domain_friction"},
+            )
+
+    def test_operator_cycle_skips_auto_reused_benchmark_when_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Skip stale auto benchmark reuse",
+                    statement="Draft stage should skip auto benchmark report when stale and fall back safely.",
+                    proposed_change="Guard auto benchmark path with max-age checks.",
+                    friction_key="latency_spikes_during_feature_enrichment",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+            finally:
+                runtime.close()
+
+            config_path = root / "operator_cycle_draft_stale_benchmark_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "owner": "operator",
+                            "auto_register": True,
+                            "allow_missing_inputs": False,
+                        },
+                        "feed_jobs": [],
+                        "feedback_jobs": [],
+                        "experiment_jobs": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = root / "output" / "operator_draft_stale_benchmark"
+            benchmark_report_path = output_dir / "benchmark_frustrations_report.json"
+            benchmark_report_path.parent.mkdir(parents=True, exist_ok=True)
+            benchmark_report_path.write_text(
+                json.dumps(
+                    {
+                        "generated_at": "2025-01-01T00:00:00Z",
+                        "status": "ok",
+                        "summary": {"priority_item_count": 1},
+                        "priority_board": [
+                            {
+                                "domain": "market_ml",
+                                "friction_key": "latency_spikes_during_feature_enrichment",
+                                "hypothesis_id": hypothesis_id,
+                                "opportunity_score": 8.0,
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                config_path=config_path,
+                output_dir=output_dir,
+                inbox_summary_path=None,
+                feed_names=None,
+                feed_timeout_seconds=20.0,
+                allow_missing_feeds=False,
+                allow_missing_inputs=False,
+                allow_missing_retests=False,
+                retest_max_runs=None,
+                retest_artifact_dir=None,
+                retest_environment=None,
+                retest_notes_prefix="operator_cycle_retest",
+                draft_enable=True,
+                draft_seed_report_path=None,
+                draft_benchmark_report_path=None,
+                draft_benchmark_min_opportunity=None,
+                draft_benchmark_max_age_hours=24.0,
+                draft_config_path=None,
+                draft_output_config_path=None,
+                draft_report_path=None,
+                draft_artifacts_dir=None,
+                draft_domain="market_ml",
+                draft_statuses="queued",
+                draft_limit=6,
+                draft_lookup_limit=200,
+                draft_include_existing=False,
+                draft_overwrite_artifacts=True,
+                draft_environment="controlled_backtest",
+                draft_default_sample_size=140,
+                draft_evidence_pressure_enable=None,
+                draft_evidence_pressure_min_priority_boost=None,
+                draft_evidence_pressure_limit_increase=None,
+                draft_evidence_pressure_statuses=None,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_operator_cycle(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            stage_statuses = dict(payload.get("stage_statuses") or {})
+            self.assertEqual(str(stage_statuses.get("draft_experiment_jobs") or ""), "ok")
+
+            draft_payload = dict(payload.get("draft") or {})
+            self.assertEqual(
+                str(draft_payload.get("benchmark_report_path_source") or ""),
+                "output_default_existing_stale_skipped",
+            )
+            self.assertIsNone(draft_payload.get("benchmark_report_path"))
+            self.assertEqual(str(draft_payload.get("benchmark_auto_reuse_status") or ""), "stale_skipped")
+            self.assertTrue(bool(draft_payload.get("benchmark_auto_reuse_stale")))
+            self.assertEqual(str(draft_payload.get("benchmark_max_age_hours_source") or ""), "cli_override")
+            self.assertEqual(float(draft_payload.get("benchmark_max_age_hours") or 0.0), 24.0)
+            self.assertGreater(float(draft_payload.get("benchmark_auto_reuse_age_hours") or 0.0), 24.0)
+            self.assertGreaterEqual(int(draft_payload.get("drafted_count") or 0), 1)
+
+            draft_report_path = Path(str(payload.get("draft_report_path") or ""))
+            self.assertTrue(draft_report_path.exists())
+            draft_report = json.loads(draft_report_path.read_text(encoding="utf-8"))
+            drafts = [dict(item) for item in list(draft_report.get("drafts") or []) if isinstance(item, dict)]
+            self.assertGreaterEqual(len(drafts), 1)
+            first_source_hint = dict((drafts[0] or {}).get("source_hint") or {})
+            self.assertEqual(str(first_source_hint.get("benchmark_priority_rank") or ""), "")
 
     def test_operator_cycle_draft_uses_domain_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -7377,10 +8295,37 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            history_path = root / "reports" / "evidence_lookup_runtime_history.jsonl"
+            history_path.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "generated_at": "2026-04-22T10:00:00Z",
+                                "missing_count": 1,
+                                "missing_record_ids": ["rec-legacy"],
+                                "lookup_status": "warning",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "generated_at": "2026-04-22T11:00:00Z",
+                                "missing_count": 3,
+                                "missing_record_ids": ["rec-fit-1", "rec-fit-2", "rec-fit-3"],
+                                "lookup_status": "warning",
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
 
             args = argparse.Namespace(
                 report_path=operator_report_path,
                 top_limit=5,
+                evidence_runtime_history_path=history_path,
+                evidence_runtime_history_window=1,
                 output_path=None,
                 strict=False,
                 json_compact=False,
@@ -7412,6 +8357,10 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(len(priority), 3)
             self.assertEqual(str((priority[0] or {}).get("friction_key") or ""), "paywall_before_core_workout_trial")
             self.assertGreater(float((priority[0] or {}).get("opportunity_score") or 0.0), 0.0)
+            self.assertEqual(str((priority[0] or {}).get("evidence_runtime_trend") or ""), "worsening")
+            self.assertGreater(float((priority[0] or {}).get("evidence_runtime_priority_boost") or 0.0), 0.0)
+            runtime_history = dict(payload.get("evidence_lookup_runtime_history") or {})
+            self.assertEqual(str(runtime_history.get("trend") or ""), "worsening")
 
     def test_benchmark_frustrations_warns_when_report_lacks_seed_rankings(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -7787,12 +8736,103 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(summary.get("mismatch_count") or 0), 1)
             self.assertEqual(int(summary.get("missing_count") or 0), 1)
             self.assertEqual(int(summary.get("invalid_count") or 0), 0)
+            self.assertEqual(int(summary.get("unmapped_run_count") or 0), 0)
+            self.assertEqual(int(summary.get("mapped_run_count") or 0), 2)
 
             comparisons = list(payload.get("comparisons") or [])
             statuses = {str((item or {}).get("scenario_id") or ""): str((item or {}).get("status") or "") for item in comparisons}
             self.assertEqual(statuses.get("quant_promote_expected"), "matched")
             self.assertEqual(statuses.get("market_ml_expected_promote_but_blocked"), "mismatch")
             self.assertEqual(statuses.get("missing_scenario"), "missing_run")
+
+    def test_verify_matrix_warns_on_unmapped_experiment_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            daily_report_path = root / "reports" / "daily_pipeline_report.json"
+            daily_report_path.parent.mkdir(parents=True, exist_ok=True)
+            daily_report_path.write_text(
+                json.dumps(
+                    {
+                        "experiment_runs": [
+                            {
+                                "run_id": "exp_mapped_quant",
+                                "hypothesis_id": "hyp_quant_1",
+                                "artifact_path": str((root / "artifacts" / "quant_eval.json").resolve()),
+                                "verdict": "promote",
+                                "resolution": {
+                                    "domain": "quant_finance",
+                                    "friction_key": "execution_slippage_regime_drift",
+                                },
+                            },
+                            {
+                                "run_id": "exp_unmapped_kalshi",
+                                "hypothesis_id": "hyp_kalshi_1",
+                                "artifact_path": str((root / "artifacts" / "kalshi_eval.json").resolve()),
+                                "verdict": "promote",
+                                "resolution": {
+                                    "domain": "kalshi_weather",
+                                    "friction_key": "forecast_timing_mismatch_near_settlement",
+                                },
+                            },
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            matrix_path = root / "matrix.json"
+            matrix_path.write_text(
+                json.dumps(
+                    {
+                        "scenarios": [
+                            {
+                                "scenario_id": "quant_expected_promote",
+                                "domain": "quant_finance",
+                                "friction_key": "execution_slippage_regime_drift",
+                                "expected_verdict": "promote",
+                            }
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                matrix_path=matrix_path,
+                report_path=daily_report_path,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_verify_matrix(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(str(payload.get("drift_severity") or ""), "warn")
+            summary = dict(payload.get("summary") or {})
+            self.assertEqual(int(summary.get("matched_count") or 0), 1)
+            self.assertEqual(int(summary.get("mismatch_count") or 0), 0)
+            self.assertEqual(int(summary.get("missing_count") or 0), 0)
+            self.assertEqual(int(summary.get("invalid_count") or 0), 0)
+            self.assertEqual(int(summary.get("mapped_run_count") or 0), 1)
+            self.assertEqual(int(summary.get("unmapped_run_count") or 0), 1)
+
+            unmapped_runs = [row for row in list(payload.get("unmapped_runs") or []) if isinstance(row, dict)]
+            self.assertEqual(len(unmapped_runs), 1)
+            self.assertEqual(str(unmapped_runs[0].get("run_id") or ""), "exp_unmapped_kalshi")
+
+            by_domain = {
+                str(row.get("domain") or ""): int(row.get("count") or 0)
+                for row in list(payload.get("unmapped_run_count_by_domain") or [])
+                if isinstance(row, dict)
+            }
+            self.assertEqual(by_domain.get("kalshi_weather"), 1)
 
     def test_verify_matrix_resolves_daily_report_from_operator_cycle_payload(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -8867,6 +9907,95 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(float(alert.get("urgency_score") or 0.0), 0.9)
             self.assertEqual(float(alert.get("confidence") or 0.0), 0.86)
 
+    def test_verify_matrix_alert_includes_unmapped_run_details(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            daily_report_path = root / "reports" / "daily_pipeline_report.json"
+            daily_report_path.parent.mkdir(parents=True, exist_ok=True)
+            daily_report_path.write_text(
+                json.dumps(
+                    {
+                        "experiment_runs": [
+                            {
+                                "run_id": "exp_mapped_quant",
+                                "hypothesis_id": "hyp_quant_1",
+                                "artifact_path": str((root / "artifacts" / "quant_eval.json").resolve()),
+                                "verdict": "promote",
+                                "resolution": {
+                                    "domain": "quant_finance",
+                                    "friction_key": "execution_slippage_regime_drift",
+                                },
+                            },
+                            {
+                                "run_id": "exp_unmapped_market",
+                                "hypothesis_id": "hyp_market_1",
+                                "artifact_path": str((root / "artifacts" / "market_eval.json").resolve()),
+                                "verdict": "promote",
+                                "resolution": {
+                                    "domain": "market_ml",
+                                    "friction_key": "latency_spikes_during_feature_enrichment",
+                                },
+                            },
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            matrix_path = root / "matrix.json"
+            matrix_path.write_text(
+                json.dumps(
+                    {
+                        "scenarios": [
+                            {
+                                "scenario_id": "quant_expected_promote",
+                                "domain": "quant_finance",
+                                "friction_key": "execution_slippage_regime_drift",
+                                "expected_verdict": "promote",
+                            }
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                matrix_path=matrix_path,
+                report_path=daily_report_path,
+                alert_domain="markets",
+                alert_urgency=None,
+                alert_confidence=None,
+                alert_max_items=3,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_verify_matrix_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(str(payload.get("drift_severity") or ""), "warn")
+            self.assertTrue(bool(payload.get("alert_created")))
+            alert = dict(payload.get("alert") or {})
+            reason = str(alert.get("reason") or "")
+            self.assertIn("matrix_drift_detected", reason)
+            self.assertIn("unmapped_runs=1", reason)
+            self.assertIn("run:exp_unmapped_market", reason)
+            self.assertTrue(
+                any(
+                    "unmapped experiment runs" in str(item).lower()
+                    for item in list(payload.get("mitigation_actions") or [])
+                )
+            )
+
     def test_domain_smoke_outputs_emits_github_outputs_and_summary(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -8965,6 +10094,26 @@ class CliImprovementPipelineTests(unittest.TestCase):
                             "current_require_code_owner_reviews": False,
                             "desired_require_code_owner_reviews": True,
                         },
+                        "required_status_checks": {
+                            "current_contexts": [
+                                "improvement-domain-smoke-nightly",
+                            ],
+                            "desired_contexts": [
+                                "improvement-gate-status-compact",
+                                "improvement-knowledge-bootstrap-route",
+                                "improvement-domain-smoke-nightly",
+                                "improvement-controlled-matrix-nightly",
+                                "improvement-evidence-lane-smoke",
+                            ],
+                            "change_needed": True,
+                        },
+                        "reconcile_provenance": {
+                            "source_workflow_run_id": "90210",
+                            "source_workflow_run_conclusion": "success",
+                            "source_workflow_name": "reconcile-codeowner-review-gate-drift-check",
+                            "source_workflow_event": "schedule",
+                            "source_workflow_run_url": "https://github.com/Dankerbadge/JARVIS/actions/runs/90210",
+                        },
                     },
                     indent=2,
                 ),
@@ -8998,6 +10147,46 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(payload.get("desired_required_approving_review_count") or 0), 1)
             self.assertTrue(bool(payload.get("current_require_last_push_approval")))
             self.assertTrue(bool(payload.get("desired_require_last_push_approval")))
+            self.assertEqual(
+                list(payload.get("current_required_status_checks") or []),
+                ["improvement-domain-smoke-nightly"],
+            )
+            self.assertEqual(
+                list(payload.get("desired_required_status_checks") or []),
+                [
+                    "improvement-controlled-matrix-nightly",
+                    "improvement-domain-smoke-nightly",
+                    "improvement-evidence-lane-smoke",
+                    "improvement-gate-status-compact",
+                    "improvement-knowledge-bootstrap-route",
+                ],
+            )
+            self.assertEqual(
+                str(payload.get("current_required_status_checks_csv") or ""),
+                "improvement-domain-smoke-nightly",
+            )
+            self.assertEqual(
+                str(payload.get("desired_required_status_checks_csv") or ""),
+                (
+                    "improvement-controlled-matrix-nightly,"
+                    "improvement-domain-smoke-nightly,"
+                    "improvement-evidence-lane-smoke,"
+                    "improvement-gate-status-compact,"
+                    "improvement-knowledge-bootstrap-route"
+                ),
+            )
+            self.assertTrue(bool(payload.get("required_status_checks_change_needed")))
+            self.assertEqual(str(payload.get("source_workflow_run_id") or ""), "90210")
+            self.assertEqual(str(payload.get("source_workflow_run_conclusion") or ""), "success")
+            self.assertEqual(
+                str(payload.get("source_workflow_name") or ""),
+                "reconcile-codeowner-review-gate-drift-check",
+            )
+            self.assertEqual(str(payload.get("source_workflow_event") or ""), "schedule")
+            self.assertEqual(
+                str(payload.get("source_workflow_run_url") or ""),
+                "https://github.com/Dankerbadge/JARVIS/actions/runs/90210",
+            )
 
             output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
             self.assertIn("collaborator_count=3", output_lines)
@@ -9007,6 +10196,178 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertIn("desired_required_approving_review_count=1", output_lines)
             self.assertIn("current_require_last_push_approval=true", output_lines)
             self.assertIn("desired_require_last_push_approval=true", output_lines)
+            self.assertIn("current_required_status_checks_csv=improvement-domain-smoke-nightly", output_lines)
+            self.assertIn(
+                (
+                    "desired_required_status_checks_csv="
+                    "improvement-controlled-matrix-nightly,"
+                    "improvement-domain-smoke-nightly,"
+                    "improvement-evidence-lane-smoke,"
+                    "improvement-gate-status-compact,"
+                    "improvement-knowledge-bootstrap-route"
+                ),
+                output_lines,
+            )
+            self.assertIn("required_status_checks_change_needed=true", output_lines)
+            self.assertIn("source_workflow_run_id=90210", output_lines)
+            self.assertIn("source_workflow_run_conclusion=success", output_lines)
+            self.assertIn("source_workflow_name=reconcile-codeowner-review-gate-drift-check", output_lines)
+            self.assertIn("source_workflow_event=schedule", output_lines)
+            self.assertIn(
+                "source_workflow_run_url=https://github.com/Dankerbadge/JARVIS/actions/runs/90210",
+                output_lines,
+            )
+
+    def test_reconcile_codeowner_review_gate_runtime_alert_creates_interrupt_and_emits_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            report_path = root / "output" / "ci" / "codeowner_review_reconcile_drift_check.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "repo_slug": "Dankerbadge/JARVIS",
+                        "branch": "main",
+                        "min_collaborators": 2,
+                        "collaborator_count": 3,
+                        "required_status_checks": {
+                            "current_contexts": [
+                                "improvement-domain-smoke-nightly",
+                                "improvement-evidence-lane-smoke",
+                            ],
+                            "desired_contexts": [
+                                "improvement-gate-status-compact",
+                                "improvement-knowledge-bootstrap-route",
+                                "improvement-domain-smoke-nightly",
+                                "improvement-controlled-matrix-nightly",
+                                "improvement-evidence-lane-smoke",
+                            ],
+                            "change_needed": True,
+                        },
+                        "reconcile_provenance": {
+                            "source_workflow_run_id": "13579",
+                            "source_workflow_run_conclusion": "in_progress",
+                            "source_workflow_name": "reconcile-codeowner-review-gate-drift-check",
+                            "source_workflow_event": "schedule",
+                            "source_workflow_run_url": "https://github.com/Dankerbadge/JARVIS/actions/runs/13579",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            alert_path = root / "output" / "ci" / "codeowner_review_reconcile_drift_alert.json"
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+            rerun_command = (
+                "bash ./scripts/reconcile_codeowner_review_gate.sh "
+                "--repo-slug Dankerbadge/JARVIS --branch main --min-collaborators 2 "
+                "--required-status-check improvement-gate-status-compact "
+                "--required-status-check improvement-knowledge-bootstrap-route "
+                "--required-status-check improvement-domain-smoke-nightly "
+                "--required-status-check improvement-controlled-matrix-nightly "
+                "--required-status-check improvement-evidence-lane-smoke "
+                "--apply > output/ci/codeowner_review_reconcile.json"
+            )
+
+            args = argparse.Namespace(
+                report_path=report_path,
+                rerun_command=rerun_command,
+                output_path=alert_path,
+                emit_github_output=True,
+                summary_heading="Codeowner Review Gate Drift Alert",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(int(payload.get("codeowner_review_drift_change_needed") or 0), 1)
+            self.assertEqual(int(payload.get("codeowner_review_drift_alert_created") or 0), 1)
+            self.assertNotEqual(str(payload.get("codeowner_review_drift_interrupt_id") or "none"), "none")
+            self.assertIn(
+                "improvement-controlled-matrix-nightly",
+                str(payload.get("codeowner_review_drift_missing_contexts_csv") or ""),
+            )
+            self.assertIn(
+                "improvement-gate-status-compact",
+                str(payload.get("codeowner_review_drift_missing_contexts_csv") or ""),
+            )
+            self.assertIn(
+                "improvement-knowledge-bootstrap-route",
+                str(payload.get("codeowner_review_drift_missing_contexts_csv") or ""),
+            )
+            self.assertEqual(
+                str(payload.get("codeowner_review_drift_rerun_command") or ""),
+                rerun_command,
+            )
+            self.assertEqual(
+                str(payload.get("codeowner_review_drift_source_workflow_run_id") or ""),
+                "13579",
+            )
+            self.assertEqual(
+                str(payload.get("codeowner_review_drift_source_workflow_run_conclusion") or ""),
+                "in_progress",
+            )
+            self.assertEqual(
+                str(payload.get("codeowner_review_drift_source_workflow_name") or ""),
+                "reconcile-codeowner-review-gate-drift-check",
+            )
+            self.assertEqual(
+                str(payload.get("codeowner_review_drift_source_workflow_event") or ""),
+                "schedule",
+            )
+            self.assertEqual(
+                str(payload.get("codeowner_review_drift_source_workflow_run_url") or ""),
+                "https://github.com/Dankerbadge/JARVIS/actions/runs/13579",
+            )
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"codeowner_review_drift_alert_path={alert_path.resolve()}", output_lines)
+            self.assertIn("codeowner_review_drift_change_needed=1", output_lines)
+            self.assertIn("codeowner_review_drift_alert_created=1", output_lines)
+            self.assertIn(f"codeowner_review_drift_rerun_command={rerun_command}", output_lines)
+            self.assertIn("codeowner_review_drift_source_workflow_run_id=13579", output_lines)
+            self.assertIn("codeowner_review_drift_source_workflow_run_conclusion=in_progress", output_lines)
+            self.assertIn(
+                "codeowner_review_drift_source_workflow_name=reconcile-codeowner-review-gate-drift-check",
+                output_lines,
+            )
+            self.assertIn("codeowner_review_drift_source_workflow_event=schedule", output_lines)
+            self.assertIn(
+                "codeowner_review_drift_source_workflow_run_url=https://github.com/Dankerbadge/JARVIS/actions/runs/13579",
+                output_lines,
+            )
+            self.assertIn(
+                "codeowner_review_drift_missing_contexts_csv=improvement-controlled-matrix-nightly,improvement-gate-status-compact,improvement-knowledge-bootstrap-route",
+                output_lines,
+            )
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Codeowner Review Gate Drift Alert", summary)
+            self.assertIn("- change_needed: `1`", summary)
+            self.assertIn("- alert_created: `1`", summary)
+            self.assertIn("- missing_contexts_csv: `improvement-controlled-matrix-nightly,improvement-gate-status-compact,improvement-knowledge-bootstrap-route`", summary)
+            self.assertIn("- source_workflow_run_id: `13579`", summary)
+            self.assertIn("- source_workflow_run_conclusion: `in_progress`", summary)
+            self.assertIn("- source_workflow_name: `reconcile-codeowner-review-gate-drift-check`", summary)
+            self.assertIn("- source_workflow_event: `schedule`", summary)
+            self.assertIn("- source_workflow_run_url: `https://github.com/Dankerbadge/JARVIS/actions/runs/13579`", summary)
 
     def test_domain_smoke_runtime_alert_creates_interrupt_and_emits_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -9867,6 +11228,23 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 str(payload.get("next_action_command") or ""),
                 "python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable",
             )
+            self.assertEqual(int(payload.get("benchmark_stale_fallback") or 0), 0)
+            self.assertEqual(str(payload.get("benchmark_stale_reason") or ""), "none")
+            self.assertEqual(str(payload.get("benchmark_stale_next_action") or ""), "none")
+            self.assertIsNone(payload.get("benchmark_stale_age_hours"))
+            self.assertIsNone(payload.get("benchmark_stale_max_age_hours"))
+            self.assertEqual(int(payload.get("benchmark_stale_history_window") or 0), 7)
+            self.assertEqual(str(payload.get("benchmark_stale_history_window_source") or ""), "builtin_default")
+            self.assertEqual(int(payload.get("benchmark_stale_repeat_threshold") or 0), 2)
+            self.assertEqual(str(payload.get("benchmark_stale_repeat_threshold_source") or ""), "builtin_default")
+            self.assertEqual(float(payload.get("benchmark_stale_rate_ceiling") or 0.0), 0.6)
+            self.assertEqual(str(payload.get("benchmark_stale_rate_ceiling_source") or ""), "builtin_default")
+            self.assertEqual(int(payload.get("benchmark_stale_rate_consecutive_runs") or 0), 2)
+            self.assertEqual(str(payload.get("benchmark_stale_rate_consecutive_runs_source") or ""), "builtin_default")
+            self.assertEqual(float(payload.get("benchmark_stale_rate_ceiling") or 0.0), 0.6)
+            self.assertEqual(str(payload.get("benchmark_stale_rate_ceiling_source") or ""), "builtin_default")
+            self.assertEqual(int(payload.get("benchmark_stale_rate_consecutive_runs") or 0), 2)
+            self.assertEqual(str(payload.get("benchmark_stale_rate_consecutive_runs_source") or ""), "builtin_default")
             self.assertEqual(str(payload.get("artifact_source") or ""), "route_initial")
             self.assertEqual(str(payload.get("output_path") or ""), str(output_path.resolve()))
             self.assertTrue(output_path.exists())
@@ -9891,6 +11269,19 @@ class CliImprovementPipelineTests(unittest.TestCase):
                         "route": "run_cycle",
                         "next_action": "Continue cadence.",
                         "next_action_command": "python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable",
+                        "benchmark_stale_fallback": 1,
+                        "benchmark_stale_reason": "stale_benchmark_report_age_hours_exceeded_limit",
+                        "benchmark_stale_age_hours": 168.0,
+                        "benchmark_stale_max_age_hours": 96.0,
+                        "benchmark_stale_next_action": "Use refreshed benchmark artifact on next draft cycle.",
+                        "benchmark_stale_history_window": 9,
+                        "benchmark_stale_history_window_source": "config_global",
+                        "benchmark_stale_repeat_threshold": 4,
+                        "benchmark_stale_repeat_threshold_source": "config_global",
+                        "benchmark_stale_rate_ceiling": 0.72,
+                        "benchmark_stale_rate_ceiling_source": "config_global",
+                        "benchmark_stale_rate_consecutive_runs": 3,
+                        "benchmark_stale_rate_consecutive_runs_source": "config_global",
                     },
                     indent=2,
                 ),
@@ -9926,6 +11317,22 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(payload.get("status") or ""), "ok")
             self.assertEqual(str(payload.get("phase") or ""), "ready")
             self.assertEqual(str(payload.get("route") or ""), "run_cycle")
+            self.assertEqual(int(payload.get("benchmark_stale_fallback") or 0), 1)
+            self.assertEqual(str(payload.get("benchmark_stale_reason") or ""), "stale_benchmark_report_age_hours_exceeded_limit")
+            self.assertEqual(float(payload.get("benchmark_stale_age_hours") or 0.0), 168.0)
+            self.assertEqual(float(payload.get("benchmark_stale_max_age_hours") or 0.0), 96.0)
+            self.assertEqual(
+                str(payload.get("benchmark_stale_next_action") or ""),
+                "Use refreshed benchmark artifact on next draft cycle.",
+            )
+            self.assertEqual(int(payload.get("benchmark_stale_history_window") or 0), 9)
+            self.assertEqual(str(payload.get("benchmark_stale_history_window_source") or ""), "config_global")
+            self.assertEqual(int(payload.get("benchmark_stale_repeat_threshold") or 0), 4)
+            self.assertEqual(str(payload.get("benchmark_stale_repeat_threshold_source") or ""), "config_global")
+            self.assertEqual(float(payload.get("benchmark_stale_rate_ceiling") or 0.0), 0.72)
+            self.assertEqual(str(payload.get("benchmark_stale_rate_ceiling_source") or ""), "config_global")
+            self.assertEqual(int(payload.get("benchmark_stale_rate_consecutive_runs") or 0), 3)
+            self.assertEqual(str(payload.get("benchmark_stale_rate_consecutive_runs_source") or ""), "config_global")
             self.assertEqual(str(payload.get("artifact_source") or ""), "post_bootstrap")
 
             output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
@@ -9940,6 +11347,22 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 "next_action_command=python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable",
                 output_lines,
             )
+            self.assertIn("benchmark_stale_fallback=1", output_lines)
+            self.assertIn("benchmark_stale_reason=stale_benchmark_report_age_hours_exceeded_limit", output_lines)
+            self.assertIn("benchmark_stale_age_hours=168.0", output_lines)
+            self.assertIn("benchmark_stale_max_age_hours=96.0", output_lines)
+            self.assertIn(
+                "benchmark_stale_next_action=Use refreshed benchmark artifact on next draft cycle.",
+                output_lines,
+            )
+            self.assertIn("benchmark_stale_history_window=9", output_lines)
+            self.assertIn("benchmark_stale_history_window_source=config_global", output_lines)
+            self.assertIn("benchmark_stale_repeat_threshold=4", output_lines)
+            self.assertIn("benchmark_stale_repeat_threshold_source=config_global", output_lines)
+            self.assertIn("benchmark_stale_rate_ceiling=0.72", output_lines)
+            self.assertIn("benchmark_stale_rate_ceiling_source=config_global", output_lines)
+            self.assertIn("benchmark_stale_rate_consecutive_runs=3", output_lines)
+            self.assertIn("benchmark_stale_rate_consecutive_runs_source=config_global", output_lines)
 
             summary = github_step_summary_path.read_text(encoding="utf-8")
             self.assertIn("## Knowledge Bootstrap Route (Effective)", summary)
@@ -9953,6 +11376,22 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 "- next_action_command: `python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable`",
                 summary,
             )
+            self.assertIn("- benchmark_stale_fallback: `1`", summary)
+            self.assertIn("- benchmark_stale_reason: `stale_benchmark_report_age_hours_exceeded_limit`", summary)
+            self.assertIn("- benchmark_stale_age_hours: `168.0`", summary)
+            self.assertIn("- benchmark_stale_max_age_hours: `96.0`", summary)
+            self.assertIn(
+                "- benchmark_stale_next_action: `Use refreshed benchmark artifact on next draft cycle.`",
+                summary,
+            )
+            self.assertIn("- benchmark_stale_history_window: `9`", summary)
+            self.assertIn("- benchmark_stale_history_window_source: `config_global`", summary)
+            self.assertIn("- benchmark_stale_repeat_threshold: `4`", summary)
+            self.assertIn("- benchmark_stale_repeat_threshold_source: `config_global`", summary)
+            self.assertIn("- benchmark_stale_rate_ceiling: `0.72`", summary)
+            self.assertIn("- benchmark_stale_rate_ceiling_source: `config_global`", summary)
+            self.assertIn("- benchmark_stale_rate_consecutive_runs: `3`", summary)
+            self.assertIn("- benchmark_stale_rate_consecutive_runs_source: `config_global`", summary)
 
     def test_knowledge_bootstrap_route_outputs_missing_artifact_returns_fallback_warning(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -9982,6 +11421,19 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 "knowledge bootstrap route artifact missing",
             )
             self.assertEqual(str(payload.get("next_action_command") or ""), "none")
+            self.assertEqual(int(payload.get("benchmark_stale_fallback") or 0), 0)
+            self.assertEqual(str(payload.get("benchmark_stale_reason") or ""), "none")
+            self.assertEqual(str(payload.get("benchmark_stale_next_action") or ""), "none")
+            self.assertIsNone(payload.get("benchmark_stale_age_hours"))
+            self.assertIsNone(payload.get("benchmark_stale_max_age_hours"))
+            self.assertEqual(int(payload.get("benchmark_stale_history_window") or 0), 7)
+            self.assertEqual(str(payload.get("benchmark_stale_history_window_source") or ""), "builtin_default")
+            self.assertEqual(int(payload.get("benchmark_stale_repeat_threshold") or 0), 2)
+            self.assertEqual(str(payload.get("benchmark_stale_repeat_threshold_source") or ""), "builtin_default")
+            self.assertEqual(float(payload.get("benchmark_stale_rate_ceiling") or 0.0), 0.6)
+            self.assertEqual(str(payload.get("benchmark_stale_rate_ceiling_source") or ""), "builtin_default")
+            self.assertEqual(int(payload.get("benchmark_stale_rate_consecutive_runs") or 0), 2)
+            self.assertEqual(str(payload.get("benchmark_stale_rate_consecutive_runs_source") or ""), "builtin_default")
             self.assertEqual(str(payload.get("artifact_path") or ""), str(artifact_path.resolve()))
 
     def test_knowledge_bootstrap_route_outputs_strict_raises_when_route_blocking(self) -> None:
@@ -10007,6 +11459,736 @@ class CliImprovementPipelineTests(unittest.TestCase):
             payload = json.loads(out.getvalue())
             self.assertEqual(int(payload.get("route_blocking") or 0), 1)
             self.assertEqual(str(payload.get("route") or ""), "noop")
+
+    def test_benchmark_stale_fallback_runtime_alert_creates_interrupt_when_repeated(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            route_output_path = root / "artifacts" / "knowledge_bootstrap_route_effective_outputs.json"
+            route_output_path.parent.mkdir(parents=True, exist_ok=True)
+            route_output_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "phase": "ready",
+                        "route": "run_cycle",
+                        "next_action_command": "python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable",
+                        "benchmark_stale_fallback": 1,
+                        "benchmark_stale_reason": "stale_benchmark_report_age_hours_exceeded_limit",
+                        "benchmark_stale_age_hours": 180.0,
+                        "benchmark_stale_max_age_hours": 96.0,
+                        "benchmark_stale_next_action": "Use refreshed benchmark artifact on next draft cycle.",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            history_path = root / "artifacts" / "benchmark_stale_fallback_history.jsonl"
+            history_path.write_text(
+                json.dumps(
+                    {
+                        "generated_at": "2026-04-22T00:00:00Z",
+                        "benchmark_stale_fallback": True,
+                        "benchmark_stale_reason": "stale_benchmark_report_age_hours_exceeded_limit",
+                        "route_phase": "ready",
+                        "route": "run_cycle",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            alert_path = root / "artifacts" / "benchmark_stale_fallback_runtime_alert.json"
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            args = argparse.Namespace(
+                route_output_path=route_output_path,
+                output_path=alert_path,
+                rerun_command="python3 -m jarvis.cli improvement operator-cycle --benchmark-enable",
+                history_path=history_path,
+                history_window=3,
+                repeat_threshold=2,
+                rate_ceiling=0.5,
+                consecutive_runs=2,
+                emit_github_output=True,
+                summary_heading="Benchmark Stale Fallback Runtime Alert",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_benchmark_stale_fallback_runtime_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertTrue(bool(payload.get("should_alert")))
+            self.assertTrue(bool(payload.get("alert_created")))
+            interrupt_id = str(payload.get("interrupt_id") or "").strip()
+            self.assertTrue(bool(interrupt_id))
+            self.assertEqual(str(payload.get("benchmark_stale_runtime_interrupt_id") or ""), interrupt_id)
+            self.assertEqual(int(payload.get("benchmark_stale_runtime_alert_created") or 0), 1)
+            self.assertEqual(int(payload.get("benchmark_stale_runtime_should_alert") or 0), 1)
+            self.assertEqual(float(payload.get("benchmark_stale_rate_ceiling") or 0.0), 0.5)
+            self.assertEqual(int(payload.get("benchmark_stale_rate_consecutive_runs") or 0), 2)
+            self.assertEqual(int(payload.get("benchmark_stale_runtime_rate_gate_blocking") or 0), 1)
+            self.assertGreaterEqual(int(payload.get("benchmark_stale_runtime_consecutive_rate_breach_runs") or 0), 2)
+            self.assertGreaterEqual(float(payload.get("benchmark_stale_runtime_latest_rolling_rate") or 0.0), 0.5)
+            self.assertTrue(alert_path.exists())
+            history_summary = dict(payload.get("benchmark_stale_fallback_history") or {})
+            self.assertGreaterEqual(int(history_summary.get("recent_stale_runs") or 0), 2)
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"benchmark_stale_runtime_alert_path={alert_path.resolve()}", output_lines)
+            self.assertIn(f"benchmark_stale_runtime_interrupt_id={interrupt_id}", output_lines)
+            self.assertIn("benchmark_stale_runtime_alert_created=1", output_lines)
+            self.assertIn("benchmark_stale_runtime_should_alert=1", output_lines)
+            self.assertIn("benchmark_stale_repeat_threshold=2", output_lines)
+            self.assertIn("benchmark_stale_rate_ceiling=0.5", output_lines)
+            self.assertIn("benchmark_stale_rate_consecutive_runs=2", output_lines)
+            self.assertIn("benchmark_stale_runtime_rate_gate_blocking=1", output_lines)
+            self.assertTrue(
+                any(
+                    line.startswith("benchmark_stale_runtime_rate_gate_reason=benchmark_stale_recent_rate_above_ceiling_consecutive_runs")
+                    for line in output_lines
+                )
+            )
+            self.assertIn("benchmark_stale_fallback_current=1", output_lines)
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Benchmark Stale Fallback Runtime Alert", summary)
+            self.assertIn(f"- interrupt_id: `{interrupt_id}`", summary)
+            self.assertIn("- alert_created: `1`", summary)
+            self.assertIn("- should_alert: `1`", summary)
+            self.assertIn("- stale_fallback_current: `1`", summary)
+            self.assertIn("- repeat_threshold: `2`", summary)
+            self.assertIn("- rate_ceiling: `0.5`", summary)
+            self.assertIn("- consecutive_runs: `2`", summary)
+            self.assertIn("- rate_gate_blocking: `1`", summary)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                interrupts = runtime.list_interrupts(status="all", limit=20)
+                self.assertEqual(len(interrupts), 1)
+                self.assertEqual(str((interrupts[0] or {}).get("status") or ""), "delivered")
+                self.assertEqual(str((interrupts[0] or {}).get("interrupt_id") or ""), interrupt_id)
+            finally:
+                runtime.close()
+
+    def test_benchmark_stale_fallback_runtime_alert_noop_when_not_repeated(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            route_output_path = root / "artifacts" / "knowledge_bootstrap_route_effective_outputs.json"
+            route_output_path.parent.mkdir(parents=True, exist_ok=True)
+            route_output_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "phase": "ready",
+                        "route": "run_cycle",
+                        "benchmark_stale_fallback": 1,
+                        "benchmark_stale_reason": "stale_benchmark_report_age_hours_exceeded_limit",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            history_path = root / "artifacts" / "benchmark_stale_fallback_history.jsonl"
+            alert_path = root / "artifacts" / "benchmark_stale_fallback_runtime_alert.json"
+
+            args = argparse.Namespace(
+                route_output_path=route_output_path,
+                output_path=alert_path,
+                rerun_command=None,
+                history_path=history_path,
+                history_window=3,
+                repeat_threshold=2,
+                rate_ceiling=0.9,
+                consecutive_runs=2,
+                emit_github_output=False,
+                summary_heading=None,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_benchmark_stale_fallback_runtime_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertFalse(bool(payload.get("should_alert")))
+            self.assertFalse(bool(payload.get("alert_created")))
+            self.assertIsNone(payload.get("interrupt_id"))
+            self.assertEqual(str(payload.get("benchmark_stale_runtime_interrupt_id") or ""), "none")
+            self.assertEqual(int(payload.get("benchmark_stale_runtime_alert_created") or 0), 0)
+            self.assertEqual(int(payload.get("benchmark_stale_runtime_should_alert") or 0), 0)
+            self.assertEqual(float(payload.get("benchmark_stale_rate_ceiling") or 0.0), 0.9)
+            self.assertEqual(int(payload.get("benchmark_stale_rate_consecutive_runs") or 0), 2)
+            self.assertEqual(int(payload.get("benchmark_stale_runtime_rate_gate_blocking") or 0), 0)
+            self.assertTrue(alert_path.exists())
+            self.assertTrue(history_path.exists())
+            history_summary = dict(payload.get("benchmark_stale_fallback_history") or {})
+            self.assertEqual(int(history_summary.get("recent_stale_runs") or 0), 1)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                interrupts = runtime.list_interrupts(status="all", limit=20)
+                self.assertEqual(len(interrupts), 0)
+            finally:
+                runtime.close()
+
+    def test_benchmark_stale_fallback_runtime_alert_strict_raises_when_route_output_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            route_output_path = root / "artifacts" / "missing_route_outputs.json"
+            args = argparse.Namespace(
+                route_output_path=route_output_path,
+                output_path=None,
+                rerun_command=None,
+                history_path=None,
+                history_window=7,
+                repeat_threshold=2,
+                rate_ceiling=0.6,
+                consecutive_runs=2,
+                emit_github_output=False,
+                summary_heading=None,
+                strict=True,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            with self.assertRaises(SystemExit) as raised:
+                with redirect_stdout(out):
+                    cmd_improvement_benchmark_stale_fallback_runtime_alert(args)
+            self.assertEqual(int(getattr(raised.exception, "code", 0) or 0), 2)
+            payload = json.loads(out.getvalue())
+            self.assertTrue(bool(payload.get("route_missing")))
+            self.assertEqual(str(payload.get("route_status") or ""), "missing")
+
+    def test_evidence_lookup_batch_outputs_normalizes_ready_batch_and_writes_output(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "config_path": str((root / "configs" / "improvement_operator_knowledge_stack.json").resolve()),
+                        "evidence_lookup_report_path": str(
+                            (root / "reports" / "evidence_lookup_report.json").resolve()
+                        ),
+                        "evidence_lookup_batch": {
+                            "ready": True,
+                            "record_ids": ["rec-1", "rec-2"],
+                            "record_count": 2,
+                            "command": (
+                                "python3 -m jarvis.cli improvement evidence-lookup "
+                                "--config-path ./configs/improvement_operator_knowledge_stack.json "
+                                "--record-ids rec-1,rec-2 "
+                                "--output-path ./reports/evidence_lookup_report.json"
+                            ),
+                            "output_path": str((root / "reports" / "evidence_lookup_report.json").resolve()),
+                            "next_action": "Run evidence lookup.",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            output_path = root / "reports" / "evidence_lookup_batch_outputs.json"
+            args = argparse.Namespace(
+                report_path=report_path,
+                report_source="initial",
+                output_path=output_path,
+                strict=False,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_evidence_lookup_batch_outputs(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("reason") or ""), "ok")
+            self.assertEqual(int(payload.get("blocking") or 0), 0)
+            self.assertEqual(int(payload.get("ready") or 0), 1)
+            self.assertEqual(list(payload.get("record_ids") or []), ["rec-1", "rec-2"])
+            self.assertEqual(int(payload.get("record_count") or 0), 2)
+            self.assertEqual(str(payload.get("first_record_id") or ""), "rec-1")
+            self.assertEqual(str(payload.get("record_ids_csv") or ""), "rec-1,rec-2")
+            self.assertEqual(str(payload.get("next_action") or ""), "Run evidence lookup.")
+            self.assertEqual(str(payload.get("report_source") or ""), "initial")
+            self.assertEqual(str(payload.get("output_path") or ""), str(output_path.resolve()))
+            self.assertTrue(str(payload.get("command") or "").startswith("python3 -m jarvis.cli improvement evidence-lookup"))
+            self.assertEqual(
+                str(payload.get("evidence_report_path") or ""),
+                str((root / "reports" / "evidence_lookup_report.json").resolve()),
+            )
+            self.assertTrue(output_path.exists())
+
+            stored = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(int(stored.get("ready") or 0), 1)
+            self.assertEqual(str(stored.get("first_record_id") or ""), "rec-1")
+
+    def test_evidence_lookup_batch_outputs_derives_command_without_explicit_batch(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            config_path = root / "configs" / "improvement_operator_knowledge_stack.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps({"feedback_jobs": []}, indent=2), encoding="utf-8")
+
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "config_path": str(config_path.resolve()),
+                        "evidence_lookup_report_path": str(
+                            (root / "reports" / "evidence_lookup_report.json").resolve()
+                        ),
+                        "blockers": [
+                            {
+                                "hypothesis_id": "hyp-1",
+                                "seed_evidence_record_ids": ["rec-legacy-1", "rec-legacy-2"],
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                report_path=report_path,
+                report_source=None,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_evidence_lookup_batch_outputs(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(
+                str(payload.get("reason") or ""),
+                "derived_from_report_without_explicit_batch",
+            )
+            self.assertEqual(int(payload.get("ready") or 0), 1)
+            self.assertEqual(list(payload.get("record_ids") or []), ["rec-legacy-1", "rec-legacy-2"])
+            self.assertEqual(int(payload.get("record_count") or 0), 2)
+            command = str(payload.get("command") or "")
+            self.assertTrue(command.startswith("python3 -m jarvis.cli improvement evidence-lookup"))
+            self.assertIn(f"--config-path {config_path.resolve()}", command)
+            self.assertIn("--record-ids rec-legacy-1,rec-legacy-2", command)
+            self.assertIn(
+                f"--output-path {(root / 'reports' / 'evidence_lookup_report.json').resolve()}",
+                command,
+            )
+
+    def test_evidence_lookup_batch_outputs_emits_github_outputs_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "evidence_lookup_batch": {
+                            "ready": True,
+                            "record_ids": ["rec-1"],
+                            "record_count": 1,
+                            "command": "python3 -m jarvis.cli improvement evidence-lookup --record-ids rec-1",
+                            "output_path": str((root / "reports" / "evidence_lookup_report.json").resolve()),
+                            "next_action": "Run batch lookup now.",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            args = argparse.Namespace(
+                report_path=report_path,
+                report_source="initial",
+                emit_github_output=True,
+                summary_heading="Evidence Lookup Batch",
+                summary_include_report_source=True,
+                summary_include_record_ids=True,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_evidence_lookup_batch_outputs(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(int(payload.get("ready") or 0), 1)
+            self.assertEqual(str(payload.get("report_source") or ""), "initial")
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"report_path={report_path.resolve()}", output_lines)
+            self.assertIn("report_source=initial", output_lines)
+            self.assertIn("status=ok", output_lines)
+            self.assertIn("evidence_lookup_ready=1", output_lines)
+            self.assertIn("evidence_lookup_record_count=1", output_lines)
+            self.assertIn("evidence_lookup_first_record_id=rec-1", output_lines)
+            self.assertIn("evidence_lookup_record_ids_csv=rec-1", output_lines)
+            self.assertIn(
+                "evidence_lookup_command=python3 -m jarvis.cli improvement evidence-lookup --record-ids rec-1",
+                output_lines,
+            )
+            self.assertIn(
+                f"evidence_lookup_report_path={(root / 'reports' / 'evidence_lookup_report.json').resolve()}",
+                output_lines,
+            )
+            self.assertIn("next_action=Run batch lookup now.", output_lines)
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Evidence Lookup Batch", summary)
+            self.assertIn("- report_source: `initial`", summary)
+            self.assertIn("- status: `ok`", summary)
+            self.assertIn("- ready: `1`", summary)
+            self.assertIn("- record_count: `1`", summary)
+            self.assertIn("- first_record_id: `rec-1`", summary)
+            self.assertIn("- record_ids_csv: `rec-1`", summary)
+            self.assertIn(
+                "- command: `python3 -m jarvis.cli improvement evidence-lookup --record-ids rec-1`",
+                summary,
+            )
+            self.assertIn("- next_action: `Run batch lookup now.`", summary)
+
+    def test_evidence_lookup_batch_outputs_missing_report_strict_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            report_path = root / "reports" / "missing_operator_cycle_report.json"
+            args = argparse.Namespace(
+                report_path=report_path,
+                report_source=None,
+                output_path=None,
+                strict=True,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with self.assertRaises(SystemExit) as raised:
+                with redirect_stdout(out):
+                    cmd_improvement_evidence_lookup_batch_outputs(args)
+            self.assertEqual(int(getattr(raised.exception, "code", 0) or 0), 2)
+
+            payload = json.loads(out.getvalue())
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(str(payload.get("reason") or ""), "operator_cycle_report_missing")
+            self.assertEqual(int(payload.get("blocking") or 0), 1)
+            self.assertEqual(int(payload.get("ready") or 0), 0)
+            self.assertEqual(str(payload.get("command") or ""), "none")
+
+    def test_evidence_lookup_runtime_alert_creates_interrupt_and_emits_repair_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            report_path = root / "reports" / "evidence_lookup_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path = root / "configs" / "improvement_operator_knowledge_stack.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps({"feedback_jobs": []}, indent=2), encoding="utf-8")
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "record_ids": ["rec-1", "rec-2", "rec-3"],
+                        "requested_count": 3,
+                        "resolved_record_id_count": 1,
+                        "missing_record_ids": ["rec-2", "rec-3"],
+                        "missing_count": 2,
+                        "config_path": str(config_path.resolve()),
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            alert_path = root / "reports" / "evidence_lookup_runtime_alert.json"
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=alert_path,
+                rerun_command=None,
+                emit_github_output=False,
+                summary_heading=None,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_evidence_lookup_runtime_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertTrue(bool(payload.get("alert_created")))
+            interrupt_id = str(payload.get("interrupt_id") or "").strip()
+            self.assertTrue(bool(interrupt_id))
+            acknowledge_command = str(payload.get("acknowledge_command") or "").strip()
+            self.assertIn(interrupt_id, acknowledge_command)
+            rerun_command = str(payload.get("rerun_command") or "").strip()
+            self.assertTrue(rerun_command.startswith("python3 -m jarvis.cli improvement evidence-lookup"))
+            self.assertIn(f"--config-path {config_path.resolve()}", rerun_command)
+            self.assertIn(f"--output-path {report_path.resolve()}", rerun_command)
+            self.assertEqual(str(payload.get("first_repair_command") or ""), acknowledge_command)
+            self.assertEqual(int(payload.get("evidence_lookup_missing_count") or 0), 2)
+            self.assertEqual(str(payload.get("evidence_lookup_first_missing_record_id") or ""), "rec-2")
+            self.assertTrue(alert_path.exists())
+            history_path = Path(str(payload.get("evidence_lookup_runtime_history_path") or "")).resolve()
+            self.assertEqual(history_path, (alert_path.parent / "evidence_lookup_runtime_history.jsonl").resolve())
+            self.assertTrue(history_path.exists())
+            history_rows = [
+                json.loads(line)
+                for line in history_path.read_text(encoding="utf-8").splitlines()
+                if str(line).strip()
+            ]
+            self.assertEqual(len(history_rows), 1)
+            self.assertEqual(int((history_rows[0] or {}).get("missing_count") or 0), 2)
+            history_summary = dict(payload.get("evidence_lookup_runtime_history") or {})
+            self.assertEqual(str(history_summary.get("trend") or ""), "insufficient_history")
+            self.assertGreater(float(payload.get("evidence_lookup_runtime_priority_boost") or 0.0), 0.0)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                interrupts = runtime.list_interrupts(status="all", limit=20)
+                self.assertEqual(len(interrupts), 1)
+                self.assertEqual(str((interrupts[0] or {}).get("status") or ""), "delivered")
+                self.assertEqual(str((interrupts[0] or {}).get("interrupt_id") or ""), interrupt_id)
+            finally:
+                runtime.close()
+
+    def test_evidence_lookup_runtime_alert_emits_github_outputs_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            report_path = root / "reports" / "evidence_lookup_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "record_ids": ["rec-1", "rec-2"],
+                        "requested_count": 2,
+                        "resolved_record_id_count": 1,
+                        "missing_record_ids": ["rec-2"],
+                        "missing_count": 1,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            alert_path = root / "reports" / "evidence_lookup_runtime_alert.json"
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            rerun_command = "python3 -m jarvis.cli improvement evidence-lookup --record-ids rec-2"
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=alert_path,
+                rerun_command=rerun_command,
+                emit_github_output=True,
+                summary_heading="Evidence Lookup Runtime Alert",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_evidence_lookup_runtime_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"evidence_lookup_runtime_alert_path={alert_path.resolve()}", output_lines)
+            self.assertIn(
+                f"evidence_lookup_runtime_interrupt_id={payload.get('evidence_lookup_runtime_interrupt_id')}",
+                output_lines,
+            )
+            self.assertIn(
+                f"evidence_lookup_runtime_alert_created={int(payload.get('evidence_lookup_runtime_alert_created') or 0)}",
+                output_lines,
+            )
+            self.assertIn(
+                f"evidence_lookup_runtime_rerun_command={payload.get('evidence_lookup_runtime_rerun_command')}",
+                output_lines,
+            )
+            self.assertIn(
+                f"evidence_lookup_missing_count={int(payload.get('evidence_lookup_missing_count') or 0)}",
+                output_lines,
+            )
+            self.assertIn(
+                f"evidence_lookup_first_missing_record_id={payload.get('evidence_lookup_first_missing_record_id')}",
+                output_lines,
+            )
+            self.assertIn(
+                f"evidence_lookup_runtime_history_trend={payload.get('evidence_lookup_runtime_history_trend')}",
+                output_lines,
+            )
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Evidence Lookup Runtime Alert", summary)
+            self.assertIn(
+                f"- interrupt_id: `{payload.get('evidence_lookup_runtime_interrupt_id')}`",
+                summary,
+            )
+            self.assertIn(
+                f"- alert_created: `{int(payload.get('evidence_lookup_runtime_alert_created') or 0)}`",
+                summary,
+            )
+            self.assertIn("- missing_count: `1`", summary)
+            self.assertIn("- first_missing_record_id: `rec-2`", summary)
+            self.assertIn("- missing_record_ids_csv: `rec-2`", summary)
+            self.assertIn(
+                f"- runtime_history_trend: `{payload.get('evidence_lookup_runtime_history_trend')}`",
+                summary,
+            )
+            self.assertIn(
+                f"- rerun_command: `{payload.get('evidence_lookup_runtime_rerun_command')}`",
+                summary,
+            )
+            self.assertIn("- runtime_error: `none`", summary)
+
+    def test_evidence_lookup_runtime_alert_noop_when_no_missing_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            report_path = root / "reports" / "evidence_lookup_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "record_ids": ["rec-1"],
+                        "requested_count": 1,
+                        "resolved_record_id_count": 1,
+                        "missing_record_ids": [],
+                        "missing_count": 0,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            alert_path = root / "reports" / "evidence_lookup_runtime_alert.json"
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=alert_path,
+                rerun_command=None,
+                emit_github_output=False,
+                summary_heading=None,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_evidence_lookup_runtime_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertFalse(bool(payload.get("alert_created")))
+            self.assertIsNone(payload.get("interrupt_id"))
+            self.assertEqual(str(payload.get("evidence_lookup_runtime_interrupt_id") or ""), "none")
+            self.assertEqual(int(payload.get("evidence_lookup_runtime_alert_created") or 0), 0)
+            self.assertTrue(alert_path.exists())
+            history_summary = dict(payload.get("evidence_lookup_runtime_history") or {})
+            self.assertEqual(str(history_summary.get("trend") or ""), "clear")
+            self.assertEqual(float(payload.get("evidence_lookup_runtime_priority_boost") or 0.0), 0.0)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                interrupts = runtime.list_interrupts(status="all", limit=20)
+                self.assertEqual(len(interrupts), 0)
+            finally:
+                runtime.close()
+
+    def test_evidence_lookup_runtime_alert_strict_raises_when_report_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            report_path = root / "reports" / "missing_evidence_lookup_report.json"
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=None,
+                rerun_command=None,
+                emit_github_output=False,
+                summary_heading=None,
+                strict=True,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            with self.assertRaises(SystemExit) as raised:
+                with redirect_stdout(out):
+                    cmd_improvement_evidence_lookup_runtime_alert(args)
+            self.assertEqual(int(getattr(raised.exception, "code", 0) or 0), 2)
+            payload = json.loads(out.getvalue())
+            self.assertTrue(bool(payload.get("report_missing")))
+            self.assertEqual(str(payload.get("lookup_status") or ""), "missing_report")
 
     def test_improvement_knowledge_bootstrap_route_reports_bootstrap_pending(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -10092,6 +12274,120 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(payload.get("phase") or ""), "ready")
             self.assertEqual(str(payload.get("route") or ""), "run_cycle")
             self.assertFalse(bool(payload.get("bootstrap_required")))
+            self.assertEqual(int(payload.get("benchmark_stale_fallback") or 0), 0)
+            self.assertEqual(str(payload.get("benchmark_stale_reason") or ""), "none")
+            self.assertEqual(str(payload.get("benchmark_stale_next_action") or ""), "none")
+            self.assertEqual(int(payload.get("benchmark_stale_history_window") or 0), 7)
+            self.assertEqual(str(payload.get("benchmark_stale_history_window_source") or ""), "builtin_default")
+            self.assertEqual(int(payload.get("benchmark_stale_repeat_threshold") or 0), 2)
+            self.assertEqual(str(payload.get("benchmark_stale_repeat_threshold_source") or ""), "builtin_default")
+
+    def test_improvement_knowledge_bootstrap_route_surfaces_benchmark_stale_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "knowledge_bootstrap_state": {
+                            "phase": "ready",
+                            "bootstrap_required": False,
+                        },
+                        "stage_statuses": {
+                            "knowledge_brief_delta_alert": "ok",
+                        },
+                        "draft": {
+                            "benchmark_auto_reuse_status": "stale_skipped",
+                            "benchmark_auto_reuse_reason": "stale_benchmark_report_age_hours_exceeded_limit (120.0 > 96.0)",
+                            "benchmark_auto_reuse_stale": True,
+                            "benchmark_auto_reuse_age_hours": 120.0,
+                            "benchmark_max_age_hours": 96.0,
+                            "benchmark_report_path_source": "output_default_existing_stale_skipped",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_knowledge_bootstrap_route(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("phase") or ""), "ready")
+            self.assertEqual(str(payload.get("route") or ""), "run_cycle")
+            self.assertEqual(int(payload.get("benchmark_stale_fallback") or 0), 1)
+            self.assertIn(
+                "stale_benchmark_report_age_hours_exceeded_limit",
+                str(payload.get("benchmark_stale_reason") or ""),
+            )
+            self.assertEqual(float(payload.get("benchmark_stale_age_hours") or 0.0), 120.0)
+            self.assertEqual(float(payload.get("benchmark_stale_max_age_hours") or 0.0), 96.0)
+            self.assertTrue(bool(str(payload.get("benchmark_stale_next_action") or "").strip()))
+
+    def test_improvement_knowledge_bootstrap_route_surfaces_stale_policy_from_report(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "knowledge_bootstrap_state": {
+                            "phase": "ready",
+                            "bootstrap_required": False,
+                        },
+                        "stage_statuses": {
+                            "knowledge_brief_delta_alert": "ok",
+                        },
+                        "benchmark_stale_runtime_history_window": 11,
+                        "benchmark_stale_runtime_history_window_source": "config_global",
+                        "benchmark_stale_runtime_repeat_threshold": 5,
+                        "benchmark_stale_runtime_repeat_threshold_source": "config_global",
+                        "benchmark_stale_runtime_rate_ceiling": 0.8,
+                        "benchmark_stale_runtime_rate_ceiling_source": "config_global",
+                        "benchmark_stale_runtime_consecutive_runs": 4,
+                        "benchmark_stale_runtime_consecutive_runs_source": "config_global",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_knowledge_bootstrap_route(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("route") or ""), "run_cycle")
+            self.assertEqual(int(payload.get("benchmark_stale_history_window") or 0), 11)
+            self.assertEqual(str(payload.get("benchmark_stale_history_window_source") or ""), "config_global")
+            self.assertEqual(int(payload.get("benchmark_stale_repeat_threshold") or 0), 5)
+            self.assertEqual(str(payload.get("benchmark_stale_repeat_threshold_source") or ""), "config_global")
+            self.assertEqual(float(payload.get("benchmark_stale_rate_ceiling") or 0.0), 0.8)
+            self.assertEqual(str(payload.get("benchmark_stale_rate_ceiling_source") or ""), "config_global")
+            self.assertEqual(int(payload.get("benchmark_stale_rate_consecutive_runs") or 0), 4)
+            self.assertEqual(str(payload.get("benchmark_stale_rate_consecutive_runs_source") or ""), "config_global")
 
     def test_improvement_knowledge_bootstrap_route_infers_phase_from_stage_status_when_state_missing(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -11344,6 +13640,32 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 second_snapshot = dict(second_payload.get("knowledge_snapshot") or {})
                 second_snapshot_path = Path(str(second_snapshot.get("path") or "")).resolve()
                 self.assertTrue(second_snapshot_path.exists())
+                history_path = root / "analysis" / "improvement" / "evidence_lookup_runtime_history.jsonl"
+                history_path.parent.mkdir(parents=True, exist_ok=True)
+                history_path.write_text(
+                    "\n".join(
+                        [
+                            json.dumps(
+                                {
+                                    "generated_at": "2026-04-22T12:00:00Z",
+                                    "lookup_status": "warning",
+                                    "missing_count": 1,
+                                    "missing_record_ids": ["rec-a"],
+                                }
+                            ),
+                            json.dumps(
+                                {
+                                    "generated_at": "2026-04-22T13:00:00Z",
+                                    "lookup_status": "warning",
+                                    "missing_count": 3,
+                                    "missing_record_ids": ["rec-a", "rec-b", "rec-c"],
+                                }
+                            ),
+                        ]
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
 
                 delta_alert_args = argparse.Namespace(
                     domains="fitness_apps",
@@ -11355,6 +13677,8 @@ class CliImprovementPipelineTests(unittest.TestCase):
                     alert_urgency=None,
                     alert_confidence=None,
                     alert_max_items=3,
+                    evidence_runtime_history_path=history_path,
+                    evidence_runtime_history_window=1,
                     output_path=None,
                     strict=False,
                     json_compact=False,
@@ -11370,6 +13694,11 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 self.assertTrue(bool(status))
                 self.assertNotEqual(status, "ok")
                 self.assertTrue(bool(payload.get("alert_created")))
+                runtime_history = dict(payload.get("evidence_lookup_runtime_history") or {})
+                self.assertEqual(str(runtime_history.get("trend") or ""), "worsening")
+                severity_profile = dict(payload.get("severity_profile") or {})
+                reasons = [str(item) for item in list(severity_profile.get("reasons") or [])]
+                self.assertIn("evidence_lookup_runtime_worsening", reasons)
 
                 alert = dict(payload.get("alert") or {})
                 alert_interrupt_id = str(alert.get("interrupt_id") or "")

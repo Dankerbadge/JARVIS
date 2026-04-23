@@ -1,0 +1,94 @@
+name: reconcile-codeowner-review-gate-drift-check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "50 13 * * 1-5"
+
+jobs:
+  reconcile-drift:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Dry-run code-owner review gate reconciliation
+        id: reconcile_drift
+        env:
+          GH_TOKEN: ${{ secrets.JARVIS_ADMIN_GH_TOKEN }}
+        run: |
+          mkdir -p output/ci
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "JARVIS_ADMIN_GH_TOKEN is not set; skipping drift-check run."
+            printf '%s\n' \
+              '{' \
+              '  "status": "skipped",' \
+              '  "reason": "missing_secret",' \
+              '  "required_secret": "JARVIS_ADMIN_GH_TOKEN"' \
+              '}' \
+              > output/ci/codeowner_review_reconcile_drift_check.json
+            exit 0
+          fi
+
+          bash ./scripts/reconcile_codeowner_review_gate.sh \
+            --repo-slug Dankerbadge/JARVIS \
+            --branch main \
+            --min-collaborators 2 \
+            --required-status-check improvement-gate-status-compact \
+            --required-status-check improvement-knowledge-bootstrap-route \
+            --required-status-check improvement-domain-smoke-nightly \
+            --required-status-check improvement-controlled-matrix-nightly \
+            --required-status-check improvement-evidence-lane-smoke \
+            --source-workflow-run-id "${{ github.run_id }}" \
+            --source-workflow-run-conclusion in_progress \
+            --source-workflow-name "${{ github.workflow }}" \
+            --source-workflow-event "${{ github.event_name }}" \
+            --source-workflow-run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            > output/ci/codeowner_review_reconcile_drift_check.json
+
+          python3 -m jarvis.cli improvement reconcile-codeowner-review-gate-outputs \
+            --report-path output/ci/codeowner_review_reconcile_drift_check.json \
+            --emit-github-output \
+            --summary-heading "Codeowner Review Gate Drift Check"
+
+      - name: Drift-check healthy branch
+        if: ${{ steps.reconcile_drift.outputs.required_status_checks_change_needed != 'true' }}
+        run: |
+          echo "No required-status-check drift detected (current=${{ steps.reconcile_drift.outputs.current_required_status_checks_csv || 'none' }})."
+
+      - name: Open required-status-check drift alert
+        if: ${{ steps.reconcile_drift.outputs.required_status_checks_change_needed == 'true' }}
+        id: drift_alert
+        run: |
+          RERUN_COMMAND="bash ./scripts/reconcile_codeowner_review_gate.sh --repo-slug Dankerbadge/JARVIS --branch main --min-collaborators 2 --required-status-check improvement-gate-status-compact --required-status-check improvement-knowledge-bootstrap-route --required-status-check improvement-domain-smoke-nightly --required-status-check improvement-controlled-matrix-nightly --required-status-check improvement-evidence-lane-smoke --apply > output/ci/codeowner_review_reconcile.json"
+          ./scripts/run_improvement_reconcile_codeowner_review_gate_runtime_alert.sh \
+            output/ci/codeowner_review_reconcile_drift_check.json \
+            --output-path output/ci/codeowner_review_reconcile_drift_alert.json \
+            --rerun-command "${RERUN_COMMAND}" \
+            --emit-github-output \
+            --summary-heading "Codeowner Review Gate Drift Alert"
+
+      - name: Upload reconcile drift-check artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: codeowner-review-reconcile-drift-check
+          path: |
+            output/ci/codeowner_review_reconcile_drift_check.json
+            output/ci/codeowner_review_reconcile_drift_alert.json
+
+      - name: Fail on drift alert creation error
+        if: ${{ steps.reconcile_drift.outputs.required_status_checks_change_needed == 'true' && (steps.drift_alert.outputs.codeowner_review_drift_alert_created != '1' || steps.drift_alert.outputs.codeowner_review_drift_error != 'none') }}
+        run: |
+          echo "Required-status-check drift alert creation failed (created=${{ steps.drift_alert.outputs.codeowner_review_drift_alert_created || '0' }}, error=${{ steps.drift_alert.outputs.codeowner_review_drift_error || 'none' }})."
+          exit 1
+
+      - name: Fail on required-status-check drift
+        if: ${{ steps.reconcile_drift.outputs.required_status_checks_change_needed == 'true' }}
+        run: |
+          echo "Required-status-check drift detected (current=${{ steps.reconcile_drift.outputs.current_required_status_checks_csv || 'none' }}, desired=${{ steps.reconcile_drift.outputs.desired_required_status_checks_csv || 'none' }}, alert_interrupt_id=${{ steps.drift_alert.outputs.codeowner_review_drift_interrupt_id || 'none' }}, first_repair=${{ steps.drift_alert.outputs.codeowner_review_drift_first_repair_command || 'none' }}, source_run_id=${{ steps.drift_alert.outputs.codeowner_review_drift_source_workflow_run_id || 'none' }}, source_conclusion=${{ steps.drift_alert.outputs.codeowner_review_drift_source_workflow_run_conclusion || 'none' }}, source_name=${{ steps.drift_alert.outputs.codeowner_review_drift_source_workflow_name || 'none' }}, source_event=${{ steps.drift_alert.outputs.codeowner_review_drift_source_workflow_event || 'none' }}, source_run_url=${{ steps.drift_alert.outputs.codeowner_review_drift_source_workflow_run_url || 'none' }})."
+          exit 1

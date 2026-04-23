@@ -80,6 +80,7 @@ Generate a week-over-week fitness frustration leaderboard (current week vs prior
 python3 -m jarvis.cli improvement fitness-leaderboard \
   --input-path ./analysis/fitness_market_feedback.jsonl \
   --lookback-days 7 \
+  --evidence-sample-limit 3 \
   --app-fields app_name,app,product,source_context.app \
   --own-app-aliases myapp,my_app_ios,my_app_android \
   --min-cross-app-count 2 \
@@ -90,6 +91,7 @@ The leaderboard now includes:
 - `shared_market_displeasures`: frustrations seen across multiple competitor apps.
 - `white_space_candidates`: market pains not currently present in your own app aliases.
 - `top_apps_current` per cluster plus window-level app coverage diagnostics (`app_resolution`).
+- `evidence_samples_current` / `evidence_samples_previous`: stable record-level drilldown rows for debugging.
 
 App identity extraction now falls back to `source_context` when explicit app fields are missing,
 so single-string provider tags still count toward known app coverage.
@@ -131,6 +133,8 @@ python3 -m jarvis.cli improvement seed-from-leaderboard \
 
 `--min-signal-count-current` is useful for controlled validation lanes: it avoids auto-seeding
 hypotheses from low-volume one-off complaints.
+`seed-from-leaderboard` also persists `seed_evidence_record_ids` in hypothesis metadata
+when leaderboard entries provide evidence samples.
 
 Scheduling-friendly wrapper:
 
@@ -168,6 +172,9 @@ python3 -m jarvis.cli improvement daily-pipeline \
   --config-path ./configs/improvement_fitness_market_live_example.drafted.json
 ```
 
+When seed metadata includes evidence lineage, drafted artifact metadata now carries
+`seed_evidence_record_ids` so controlled tests remain traceable to concrete source records.
+
 Scheduling-friendly wrapper:
 
 ```bash
@@ -189,6 +196,49 @@ python3 -m jarvis.cli improvement daily-pipeline \
 `domain + friction_key` (so you do not need to hardcode `hypothesis_id` in config).
 It can also emit per-experiment debug artifacts (`failed_checks`, `root_cause_hints`,
 and optional reasoning timelines) for controlled-environment iteration.
+Daily experiment rows and queued/executed retest rows now include
+`seed_evidence_record_ids` when available so triage can jump directly to source records.
+Operator-cycle inbox summaries also emit `evidence_lookup_refs` for blocker/retest/promotion
+rows so operators can follow those IDs without manual cross-referencing.
+Those rows now also include `evidence_lookup_command` (pre-filled with row-specific
+record IDs) for one-command source drilldown.
+Operator-cycle summaries also include `evidence_lookup_batch` with a deduped unresolved
+record-ID set, a batch command, and a precomputed `evidence_lookup_report.json` output path.
+Resolve those IDs into concrete snippets/provenance with:
+
+```bash
+python3 -m jarvis.cli improvement evidence-lookup \
+  --operator-report-path ./output/improvement/operator_cycle_report.json \
+  --config-path ./configs/improvement_pipeline_example.json \
+  --output-path ./output/improvement/evidence_lookup_report.json
+```
+
+Normalize batch evidence lookup routing fields for automation (including GitHub outputs):
+
+```bash
+./scripts/run_improvement_evidence_lookup_batch_outputs.sh \
+  ./output/improvement/operator_cycle_report.json \
+  --report-source effective_operator_report \
+  --output-path ./output/improvement/evidence_lookup_batch_outputs.json \
+  --emit-github-output \
+  --summary-heading "Evidence Lookup Batch"
+```
+
+The knowledge-bootstrap route workflow now runs this normalizer and automatically executes
+the emitted `evidence_lookup_command` when `evidence_lookup_ready=1`.
+When unresolved IDs remain after execution, the workflow runs
+`./scripts/run_improvement_evidence_lookup_runtime_alert.sh` to open an operations interrupt
+and fail the run with the emitted `evidence_lookup_missing_count` summary fields.
+
+Run a synthetic end-to-end evidence lane smoke (batch outputs -> batch lookup -> runtime alert):
+
+```bash
+./scripts/run_improvement_evidence_lane_smoke.sh \
+  --workspace-dir ./output/ci/evidence_lane_smoke \
+  --strict
+```
+
+You can also pass explicit IDs/files via `--record-ids` and repeated `--input-path` flags.
 It now includes an auto-retest lane: `blocked_guardrail` and `insufficient_data`
 outcomes can be re-queued with recommended cohort-size and guardrail-safety targets,
 plus side-by-side comparison summaries versus previous runs.
@@ -291,6 +341,13 @@ python3 -m jarvis.cli improvement operator-cycle \
   --strict
 ```
 
+When `--draft-enable` is on and `--draft-benchmark-report-path` is not set,
+operator-cycle now auto-reuses
+`<output-dir>/benchmark_frustrations_report.json` if that file already exists
+from a prior run, so draft prioritization keeps compounding without extra flags.
+Auto-reuse is guarded by staleness (`--draft-benchmark-max-age-hours`, default
+`96` hours); stale reports are skipped automatically.
+
 For config-driven seed/draft defaults (no extra CLI flags), add these under `defaults`:
 
 ```json
@@ -357,7 +414,12 @@ For config-driven seed/draft defaults (no extra CLI flags), add these under `def
   "draft_default_sample_size_by_domain": {
     "market_ml": 150
   },
+  "draft_benchmark_max_age_hours": 96,
   "benchmark_top_limit": 12,
+  "benchmark_stale_runtime_history_window": 7,
+  "benchmark_stale_runtime_repeat_threshold": 2,
+  "benchmark_stale_runtime_rate_ceiling": 0.6,
+  "benchmark_stale_runtime_consecutive_runs": 2,
   "verify_matrix_path": "improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json",
   "verify_matrix_alert_domain": "markets",
   "verify_matrix_alert_max_items": 3
@@ -422,6 +484,11 @@ python3 -m jarvis.cli improvement verify-matrix \
   --output-path ./configs/improvement_operator_knowledge_stack/output/matrix_verification_report.json \
   --strict
 ```
+
+`verify-matrix` now also reports controlled-coverage drift via
+`summary.unmapped_run_count`, `unmapped_runs`, and
+`unmapped_run_count_by_domain` when experiment runs are not represented in
+the matrix scenarios.
 
 Wrapper:
 
@@ -556,12 +623,60 @@ Knowledge-route workflow path in this repo:
 `./.github/workflows/improvement-knowledge-bootstrap-route.yml`.
 That workflow runs on weekdays at `13:25 UTC` and only fails when
 `steps.route.outputs.route_blocking == '1'` (warning/unresolved route state).
+Before operator-cycle execution, it resolves the latest successful prior run of
+the same workflow, downloads `knowledge-bootstrap-route` artifacts, and
+restores `output/ci/operator_cycle/benchmark_frustrations_report.json` when
+available so draft benchmark prioritization compounds across scheduled runs.
 When initial route is `bootstrap`, it executes one follow-up rerun from
 `next_action_command`, regenerates
 `output/ci/knowledge_bootstrap_route_post_bootstrap.json`, and then branches on
 the effective post-follow-up route payload.
+Effective route outputs now also expose benchmark staleness fallback fields
+(`benchmark_stale_fallback`, `benchmark_stale_reason`,
+`benchmark_stale_age_hours`, `benchmark_stale_max_age_hours`,
+`benchmark_stale_next_action`) so CI can emit a dedicated stale-reuse action
+branch.
+The workflow now appends `output/ci/operator_cycle/benchmark_stale_fallback_history.jsonl`
+and runs `improvement benchmark-stale-fallback-runtime-alert` to open an
+interrupt when stale fallback repeats across runs.
+Alert cadence is configurable via operator-cycle defaults:
+`benchmark_stale_runtime_history_window` and
+`benchmark_stale_runtime_repeat_threshold`.
+Rate-gate behavior is configurable via:
+`benchmark_stale_runtime_rate_ceiling` and
+`benchmark_stale_runtime_consecutive_runs`.
+
+Evidence lane smoke PR workflow path in this repo:
+`./.github/workflows/improvement-evidence-lane-smoke.yml`.
+It runs on `pull_request` and executes
+`./scripts/run_improvement_evidence_lane_smoke.sh --workspace-dir ./output/ci/evidence_lane_smoke --strict`,
+then uploads `output/ci/evidence_lane_smoke/` artifacts under `evidence-lane-smoke`.
+
+Local controlled smoke for the stale-fallback rate gate:
+
+```bash
+./scripts/run_improvement_benchmark_stale_fallback_runtime_alert.sh \
+  ./output/ci/knowledge_bootstrap_route_effective_outputs.json \
+  --history-path ./output/ci/operator_cycle/benchmark_stale_fallback_history.jsonl \
+  --history-window 3 \
+  --repeat-threshold 2 \
+  --rate-ceiling 0.5 \
+  --consecutive-runs 2 \
+  --output-path ./output/ci/operator_cycle/benchmark_stale_fallback_runtime_alert.json
+```
 Automated reconciler workflow path in this repo:
 `./.github/workflows/reconcile-codeowner-review-gate.yml`.
+Dry-run required-check drift workflow path in this repo:
+`./.github/workflows/reconcile-codeowner-review-gate-drift-check.yml`.
+It runs on weekdays at `13:50 UTC`, opens an operations interrupt when
+required status-check baselines drift, and fails with repair guidance before
+the mutating reconcile workflow runs. The mutating workflow is chained via
+`workflow_run` and only auto-runs when the drift-check workflow concludes
+`success` (no direct `workflow_dispatch` on the mutating workflow).
+The drift-check dry-run command injects source provenance via
+`--source-workflow-run-id`, `--source-workflow-run-conclusion`,
+`--source-workflow-name`, `--source-workflow-event`, and
+`--source-workflow-run-url`, so downstream alerts stay traceable.
 
 Override gate behavior only when explicitly needed:
 
@@ -1072,8 +1187,46 @@ When initial route is `bootstrap`, it executes one follow-up rerun from
 `next_action_command`, regenerates
 `output/ci/knowledge_bootstrap_route_post_bootstrap.json`, and then branches on
 the effective post-follow-up route payload.
+Effective route outputs now also expose benchmark staleness fallback fields
+(`benchmark_stale_fallback`, `benchmark_stale_reason`,
+`benchmark_stale_age_hours`, `benchmark_stale_max_age_hours`,
+`benchmark_stale_next_action`) so CI can emit a dedicated stale-reuse action
+branch.
+The workflow now appends `output/ci/operator_cycle/benchmark_stale_fallback_history.jsonl`
+and runs `improvement benchmark-stale-fallback-runtime-alert` to open an
+interrupt when stale fallback repeats across runs.
+Alert cadence is configurable via operator-cycle defaults:
+`benchmark_stale_runtime_history_window` and
+`benchmark_stale_runtime_repeat_threshold`.
+Rate-gate behavior is configurable via:
+`benchmark_stale_runtime_rate_ceiling` and
+`benchmark_stale_runtime_consecutive_runs`.
+
+Local controlled smoke for the stale-fallback rate gate:
+
+```bash
+./scripts/run_improvement_benchmark_stale_fallback_runtime_alert.sh \
+  ./output/ci/knowledge_bootstrap_route_effective_outputs.json \
+  --history-path ./output/ci/operator_cycle/benchmark_stale_fallback_history.jsonl \
+  --history-window 3 \
+  --repeat-threshold 2 \
+  --rate-ceiling 0.5 \
+  --consecutive-runs 2 \
+  --output-path ./output/ci/operator_cycle/benchmark_stale_fallback_runtime_alert.json
+```
 The automated reconciler workflow in this repo is:
 `./.github/workflows/reconcile-codeowner-review-gate.yml`.
+The dry-run required-check drift workflow in this repo is:
+`./.github/workflows/reconcile-codeowner-review-gate-drift-check.yml`.
+It runs before auto-apply reconciliation, opens an operations interrupt via
+`improvement reconcile-codeowner-review-gate-runtime-alert` when
+`required_status_checks_change_needed=true`, and fails with compact
+current/desired status-check context outputs.
+Its dry-run call to `reconcile_codeowner_review_gate.sh` passes
+`--source-workflow-run-id`, `--source-workflow-run-conclusion`,
+`--source-workflow-name`, `--source-workflow-event`, and
+`--source-workflow-run-url` so runtime alerts and memory events preserve the
+originating workflow run reference.
 
 Single-maintainer safety reconciler (auto-toggle code-owner review gate by collaborator count):
 
@@ -1082,16 +1235,38 @@ Single-maintainer safety reconciler (auto-toggle code-owner review gate by colla
   --repo-slug Dankerbadge/JARVIS \
   --branch main \
   --min-collaborators 2 \
+  --required-status-check improvement-gate-status-compact \
+  --required-status-check improvement-knowledge-bootstrap-route \
+  --required-status-check improvement-domain-smoke-nightly \
+  --required-status-check improvement-controlled-matrix-nightly \
+  --required-status-check improvement-evidence-lane-smoke \
   --apply
 ```
 
 When collaborator count is below `--min-collaborators`, the reconciler also
 sets `required_approving_review_count=0` to prevent single-maintainer merge
 deadlocks and disables `require_last_push_approval`; above threshold it keeps
-at least one required approval and preserves last-push approval behavior.
+at least one required approval and preserves last-push approval behavior. When
+`--required-status-check` values are provided, it merges those contexts into
+branch protection `required_status_checks.contexts` without dropping any
+already-configured required checks.
 
-The scheduled reconciler workflow uses `JARVIS_ADMIN_GH_TOKEN` (repo-admin token scope) to patch
-branch protection safely in GitHub Actions.
+The scheduled drift-check workflow uses `JARVIS_ADMIN_GH_TOKEN` (repo-admin
+token scope) to inspect branch protection safely in GitHub Actions. Successful
+drift-check runs then auto-trigger the mutating reconcile workflow (via
+`workflow_run`) to patch branch protection, including required status-check
+reconciliation for this baseline set:
+`improvement-gate-status-compact`,
+`improvement-knowledge-bootstrap-route`,
+`improvement-domain-smoke-nightly`,
+`improvement-controlled-matrix-nightly`,
+`improvement-evidence-lane-smoke`.
+For manual operation, trigger the drift-check workflow (`workflow_dispatch`);
+the mutating reconcile run follows only after a successful drift-check.
+Mutating reconcile artifacts now include provenance fields from that source
+drift-check run: `source_workflow_run_id`, `source_workflow_run_conclusion`,
+`source_workflow_name`, `source_workflow_event`, and
+`source_workflow_run_url`.
 
 Promote to ready for review only if policy passes:
 

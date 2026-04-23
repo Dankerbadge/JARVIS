@@ -113,6 +113,19 @@ DEFAULT_FITNESS_APP_FIELDS_CSV = (
     "app_name,app,product,provider,source_context.app_identifier,source_context.app_name,source_context.app,source_context,source"
 )
 DEFAULT_IMPROVEMENT_KNOWLEDGE_DOMAINS_CSV = "quant_finance,kalshi_weather,fitness_apps,market_ml"
+DEFAULT_EVIDENCE_LOOKUP_ID_FIELDS_CSV = (
+    "id,record_id,review_id,ticket_id,source_context.id,source_context.record_id,source_context.review_id"
+)
+DEFAULT_EVIDENCE_LOOKUP_SUMMARY_FIELDS_CSV = (
+    "summary,review,text,content,complaint,message,body,title,headline,subject"
+)
+DEFAULT_EVIDENCE_LOOKUP_TIMESTAMP_FIELDS_CSV = (
+    "created_at,at,submission_date,date,timestamp,occurred_at,updated_at,source_context.created_at"
+)
+DEFAULT_EVIDENCE_LOOKUP_CONTEXT_FIELDS_CSV = (
+    "url,rating,score,severity,app_version,platform,app_name,app,provider,"
+    "source_context.app_identifier,source_context.app_label,source_context.app_name,source_context.platform"
+)
 
 
 def _build_demo_repo(repo_path: Path) -> None:
@@ -2572,6 +2585,163 @@ def _resolve_record_path_value(payload: Any, path: Any) -> Any:
     return value
 
 
+def _coerce_scalar_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (dict, list, tuple, set)):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _collect_record_id_candidates(
+    *,
+    record: dict[str, Any],
+    id_fields: list[str],
+) -> list[tuple[str, str]]:
+    candidates: list[tuple[str, str]] = []
+    seen_keys: set[str] = set()
+    for field in id_fields:
+        value = _coerce_scalar_text(_resolve_record_path_value(record, field))
+        if value is None:
+            continue
+        key = f"{field}::{value}"
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        candidates.append((value, field))
+    return candidates
+
+
+def _resolve_first_record_text(
+    *,
+    record: dict[str, Any],
+    field_paths: list[str],
+) -> tuple[str | None, str | None]:
+    for field in field_paths:
+        value = _coerce_scalar_text(_resolve_record_path_value(record, field))
+        if value is not None:
+            return value, field
+    return None, None
+
+
+def _extract_evidence_record_ids_from_payload(payload: Any) -> list[str]:
+    out: list[str] = []
+
+    def _append(value: Any) -> None:
+        text = str(value or "").strip()
+        if not text or text in out:
+            return
+        out.append(text)
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for item in list(node.get("seed_evidence_record_ids") or []):
+                _append(item)
+            raw_refs = node.get("evidence_lookup_refs")
+            if isinstance(raw_refs, list):
+                for raw in raw_refs:
+                    if isinstance(raw, dict):
+                        record_id = str(raw.get("record_id") or "").strip()
+                        if record_id:
+                            _append(record_id)
+                        lookup_key = str(raw.get("lookup_key") or "").strip()
+                        if lookup_key.startswith("record_id:"):
+                            _append(lookup_key.split(":", 1)[1])
+                    else:
+                        text = str(raw or "").strip()
+                        if text.startswith("record_id:"):
+                            _append(text.split(":", 1)[1])
+            for value in node.values():
+                _walk(value)
+            return
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(payload)
+    return out
+
+
+def _collect_evidence_lookup_input_sources(
+    *,
+    config_path: Path | None,
+    input_paths: list[Path],
+    input_format: str | None,
+) -> list[dict[str, Any]]:
+    deduped: dict[str, dict[str, Any]] = {}
+
+    def _upsert(
+        *,
+        path: Path,
+        source_kind: str,
+        source_index: int | None,
+        domain: str | None = None,
+        source: str | None = None,
+        file_format: str | None = None,
+    ) -> None:
+        key = str(path)
+        current = deduped.get(key)
+        if current is None:
+            current = {
+                "input_path": str(path),
+                "input_format": str(file_format or "").strip().lower() or None,
+                "domain": str(domain or "").strip().lower() or None,
+                "source": str(source or "").strip().lower() or None,
+                "origins": [],
+            }
+            deduped[key] = current
+        elif not current.get("input_format") and file_format:
+            current["input_format"] = str(file_format).strip().lower() or None
+        if not current.get("domain") and domain:
+            current["domain"] = str(domain).strip().lower() or None
+        if not current.get("source") and source:
+            current["source"] = str(source).strip().lower() or None
+        current_origins = [dict(item) for item in list(current.get("origins") or []) if isinstance(item, dict)]
+        current_origins.append(
+            {
+                "kind": source_kind,
+                "index": source_index,
+            }
+        )
+        current["origins"] = current_origins
+
+    for index, raw_path in enumerate(input_paths):
+        resolved_path = Path(str(raw_path)).expanduser().resolve()
+        _upsert(
+            path=resolved_path,
+            source_kind="cli_input_path",
+            source_index=index,
+            file_format=input_format,
+        )
+
+    if config_path is not None:
+        loaded = json.loads(config_path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise ValueError("invalid_pipeline_config:expected_json_object")
+        defaults = dict(loaded.get("defaults") or {}) if isinstance(loaded.get("defaults"), dict) else {}
+        feedback_jobs = list(loaded.get("feedback_jobs") or [])
+        for index, raw_job in enumerate(feedback_jobs):
+            if not isinstance(raw_job, dict):
+                continue
+            input_path_raw = raw_job.get("input_path")
+            if input_path_raw is None or not str(input_path_raw).strip():
+                continue
+            resolved_input_path = _resolve_pipeline_path(input_path_raw, config_path=config_path)
+            _upsert(
+                path=resolved_input_path,
+                source_kind="config_feedback_job",
+                source_index=index,
+                domain=str(raw_job.get("domain") or defaults.get("domain") or "").strip().lower() or None,
+                source=str(raw_job.get("source") or defaults.get("source") or "").strip().lower() or None,
+                file_format=raw_job.get("input_format"),
+            )
+
+    rows = [dict(item) for item in deduped.values()]
+    rows.sort(key=lambda row: str(row.get("input_path") or ""))
+    return rows
+
+
 def _parse_timestamp_value(raw_value: Any) -> datetime | None:
     if raw_value is None:
         return None
@@ -2735,6 +2905,89 @@ def _collect_cluster_app_counters(signals: list[dict[str, Any]]) -> dict[str, Co
     return counters
 
 
+def _resolve_signal_record_id(signal: dict[str, Any]) -> tuple[str | None, str | None]:
+    evidence = dict(signal.get("evidence") or {}) if isinstance(signal.get("evidence"), dict) else {}
+    for key in ("id", "record_id", "review_id", "ticket_id"):
+        value = evidence.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text, key
+    return None, None
+
+
+def _build_signal_evidence_sample(signal: dict[str, Any]) -> dict[str, Any]:
+    evidence = dict(signal.get("evidence") or {}) if isinstance(signal.get("evidence"), dict) else {}
+    metadata = dict(signal.get("metadata") or {}) if isinstance(signal.get("metadata"), dict) else {}
+    source_context = dict(metadata.get("source_context") or {}) if isinstance(metadata.get("source_context"), dict) else {}
+    record_id, record_id_field = _resolve_signal_record_id(signal)
+    app_label = (
+        str(source_context.get("app_label") or source_context.get("app_name") or evidence.get("app_name") or "").strip()
+        or None
+    )
+    summary_text = str(signal.get("summary") or "").strip()
+    if not summary_text:
+        summary_text = str(signal.get("normalized_summary") or "").strip()
+    return {
+        "record_id": record_id,
+        "record_id_field": record_id_field,
+        "signal_id": str(signal.get("friction_id") or "").strip() or None,
+        "app_identifier": _resolve_signal_app_identifier(signal),
+        "app_label": app_label,
+        "source": str(signal.get("source") or "").strip() or None,
+        "segment": str(signal.get("segment") or "").strip() or None,
+        "summary": summary_text or None,
+        "severity": int(signal.get("severity") or 0),
+        "frustration_score": round(float(signal.get("frustration_score") or 0.0), 4),
+        "created_at": evidence.get("created_at") or signal.get("created_at"),
+        "updated_at": signal.get("updated_at"),
+        "rating": evidence.get("rating"),
+        "app_version": evidence.get("app_version"),
+        "platform": evidence.get("platform"),
+        "url": evidence.get("url"),
+    }
+
+
+def _collect_cluster_evidence_samples(
+    *,
+    signals: list[dict[str, Any]],
+    canonical_key: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if not canonical_key:
+        return []
+    selected = [
+        dict(signal)
+        for signal in signals
+        if str(signal.get("canonical_key") or "").strip() == canonical_key
+    ]
+    selected.sort(
+        key=lambda signal: (
+            -float(signal.get("severity") or 0.0),
+            -float(signal.get("frustration_score") or 0.0),
+            str(signal.get("updated_at") or ""),
+        )
+    )
+    evidence_rows: list[dict[str, Any]] = []
+    seen_record_ids: set[str] = set()
+    cap = max(1, int(limit))
+    for signal in selected:
+        sample = _build_signal_evidence_sample(signal)
+        dedupe_key = (
+            str(sample.get("record_id") or "").strip()
+            or str(sample.get("signal_id") or "").strip()
+        )
+        if dedupe_key and dedupe_key in seen_record_ids:
+            continue
+        if dedupe_key:
+            seen_record_ids.add(dedupe_key)
+        evidence_rows.append(sample)
+        if len(evidence_rows) >= cap:
+            break
+    return evidence_rows
+
+
 def _summarize_displeasures_for_records(
     *,
     records: list[dict[str, Any]],
@@ -2879,6 +3132,7 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
     leaderboard_limit = max(1, int(getattr(args, "leaderboard_limit", 12) or 12))
     cooling_limit = max(1, int(getattr(args, "cooling_limit", 10) or 10))
     trend_threshold = max(0.0, float(getattr(args, "trend_threshold", 0.25) or 0.25))
+    evidence_sample_limit = max(1, int(getattr(args, "evidence_sample_limit", 3) or 3))
 
     current_summary_payload = _summarize_displeasures_for_records(
         records=current_records,
@@ -2993,6 +3247,16 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
                 "example_summary": str(item.get("example_summary") or ""),
                 "top_tags": list(item.get("top_tags") or []),
                 "top_sources": list(item.get("top_sources") or []),
+                "evidence_samples_current": _collect_cluster_evidence_samples(
+                    signals=current_signals,
+                    canonical_key=canonical_key,
+                    limit=evidence_sample_limit,
+                ),
+                "evidence_samples_previous": _collect_cluster_evidence_samples(
+                    signals=previous_signals,
+                    canonical_key=canonical_key,
+                    limit=evidence_sample_limit,
+                ),
                 "last_seen_at": item.get("latest_seen_at"),
             }
         )
@@ -3038,6 +3302,11 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
                 else [],
                 "example_summary": str(item.get("example_summary") or ""),
                 "top_tags": list(item.get("top_tags") or []),
+                "evidence_samples_previous": _collect_cluster_evidence_samples(
+                    signals=previous_signals,
+                    canonical_key=canonical_key,
+                    limit=evidence_sample_limit,
+                ),
                 "last_seen_at": item.get("latest_seen_at"),
             }
         )
@@ -3156,6 +3425,7 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
         },
         "timestamp_fields": list(timestamp_fields),
         "trend_threshold": trend_threshold,
+        "evidence_sample_limit": int(evidence_sample_limit),
         "include_untimed_current": include_untimed_current,
         "app_resolution": {
             "known_app_records": int(app_known_count),
@@ -3211,6 +3481,229 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
     )
 
     if not top_entries and bool(getattr(args, "strict", False)):
+        raise SystemExit(2)
+
+
+def cmd_improvement_evidence_lookup(args: argparse.Namespace) -> None:
+    requested_record_ids: list[str] = []
+    for item in _parse_csv_items(getattr(args, "record_ids", None)):
+        normalized = str(item).strip()
+        if normalized and normalized not in requested_record_ids:
+            requested_record_ids.append(normalized)
+
+    operator_report_path = (
+        args.operator_report_path.resolve()
+        if getattr(args, "operator_report_path", None) is not None
+        else None
+    )
+    operator_report_extracted_ids: list[str] = []
+    if operator_report_path is not None:
+        loaded_report = json.loads(operator_report_path.read_text(encoding="utf-8"))
+        operator_report_extracted_ids = _extract_evidence_record_ids_from_payload(loaded_report)
+        for record_id in operator_report_extracted_ids:
+            if record_id not in requested_record_ids:
+                requested_record_ids.append(record_id)
+    if not requested_record_ids:
+        raise ValueError("missing_record_ids")
+
+    config_path = args.config_path.resolve() if getattr(args, "config_path", None) is not None else None
+    input_paths = [Path(str(item)).expanduser() for item in list(getattr(args, "input_paths", None) or [])]
+    explicit_input_format = str(getattr(args, "input_format", None) or "").strip().lower() or None
+    sources = _collect_evidence_lookup_input_sources(
+        config_path=config_path,
+        input_paths=input_paths,
+        input_format=explicit_input_format,
+    )
+    if not sources:
+        raise ValueError("missing_input_sources")
+
+    id_fields = _parse_csv_items(getattr(args, "id_fields", None))
+    if not id_fields:
+        id_fields = _parse_csv_items(DEFAULT_EVIDENCE_LOOKUP_ID_FIELDS_CSV)
+    summary_fields = _parse_csv_items(getattr(args, "summary_fields", None))
+    if not summary_fields:
+        summary_fields = _parse_csv_items(DEFAULT_EVIDENCE_LOOKUP_SUMMARY_FIELDS_CSV)
+    timestamp_fields = _parse_csv_items(getattr(args, "timestamp_fields", None))
+    if not timestamp_fields:
+        timestamp_fields = _parse_csv_items(DEFAULT_EVIDENCE_LOOKUP_TIMESTAMP_FIELDS_CSV)
+    context_fields = _parse_csv_items(getattr(args, "context_fields", None))
+    if not context_fields:
+        context_fields = _parse_csv_items(DEFAULT_EVIDENCE_LOOKUP_CONTEXT_FIELDS_CSV)
+
+    snippet_max_chars = max(80, int(getattr(args, "snippet_max_chars", 280) or 280))
+    limit_per_id = max(1, int(getattr(args, "limit_per_id", 5) or 5))
+    include_record = bool(getattr(args, "include_record", False))
+    allow_missing_inputs = bool(getattr(args, "allow_missing_inputs", False))
+
+    requested_id_set = set(requested_record_ids)
+    connector = FeedbackFileConnector()
+    matches_by_record_id: dict[str, list[dict[str, Any]]] = {record_id: [] for record_id in requested_record_ids}
+    source_rows: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for source_index, source in enumerate(sources):
+        input_path = Path(str(source.get("input_path") or "")).expanduser().resolve()
+        source_format = str(source.get("input_format") or "").strip().lower() or None
+        domain = str(source.get("domain") or "").strip().lower() or None
+        source_name = str(source.get("source") or "").strip().lower() or None
+        source_entry = {
+            "index": int(source_index),
+            "input_path": str(input_path),
+            "input_format": source_format,
+            "domain": domain,
+            "source": source_name,
+            "origins": [dict(item) for item in list(source.get("origins") or []) if isinstance(item, dict)],
+            "record_count": 0,
+            "matched_count": 0,
+            "matched_record_ids": [],
+            "status": "ok",
+        }
+        if not input_path.exists():
+            source_entry["status"] = "skipped_missing_input" if allow_missing_inputs else "error_missing_input"
+            if not allow_missing_inputs:
+                errors.append(
+                    {
+                        "source_index": int(source_index),
+                        "input_path": str(input_path),
+                        "error": "input_path_not_found",
+                    }
+                )
+            source_rows.append(source_entry)
+            continue
+        try:
+            loaded = connector.load_records(path=input_path, file_format=source_format)
+        except Exception as exc:
+            source_entry["status"] = "error_load_failed"
+            source_entry["error"] = str(exc)
+            errors.append(
+                {
+                    "source_index": int(source_index),
+                    "input_path": str(input_path),
+                    "error": str(exc),
+                }
+            )
+            source_rows.append(source_entry)
+            continue
+
+        source_entry["input_format"] = str(loaded.get("input_format") or source_entry.get("input_format") or "")
+        records = [dict(item) for item in list(loaded.get("records") or []) if isinstance(item, dict)]
+        source_entry["record_count"] = len(records)
+        matched_record_ids_for_source: set[str] = set()
+        for record_index, record in enumerate(records):
+            id_candidates = _collect_record_id_candidates(
+                record=record,
+                id_fields=id_fields,
+            )
+            matching_candidates: list[tuple[str, str]] = []
+            seen_matching_record_ids: set[str] = set()
+            for record_id, matched_field in id_candidates:
+                if record_id not in requested_id_set or record_id in seen_matching_record_ids:
+                    continue
+                seen_matching_record_ids.add(record_id)
+                matching_candidates.append((record_id, matched_field))
+            if not matching_candidates:
+                continue
+            summary_text, summary_field = _resolve_first_record_text(
+                record=record,
+                field_paths=summary_fields,
+            )
+            timestamp_value, timestamp_field = _resolve_first_record_text(
+                record=record,
+                field_paths=timestamp_fields,
+            )
+            context: dict[str, Any] = {}
+            for field in context_fields:
+                value = _resolve_record_path_value(record, field)
+                if value is None:
+                    continue
+                if isinstance(value, (dict, list, tuple, set)):
+                    continue
+                if field in context:
+                    continue
+                context[field] = value
+
+            snippet = str(summary_text or "").strip()
+            if len(snippet) > snippet_max_chars:
+                snippet = f"{snippet[:snippet_max_chars].rstrip()}..."
+
+            for record_id, matched_field in matching_candidates:
+                match_row = {
+                    "record_id": record_id,
+                    "lookup_key": f"record_id:{record_id}",
+                    "matched_field": matched_field,
+                    "record_index": int(record_index),
+                    "input_path": str(input_path),
+                    "input_format": str(loaded.get("input_format") or ""),
+                    "domain": domain,
+                    "source": source_name,
+                    "summary": summary_text,
+                    "summary_field": summary_field,
+                    "snippet": snippet or None,
+                    "timestamp": timestamp_value,
+                    "timestamp_field": timestamp_field,
+                    "context": context,
+                }
+                if include_record:
+                    match_row["record"] = dict(record)
+                matches_by_record_id.setdefault(record_id, []).append(match_row)
+                matched_record_ids_for_source.add(record_id)
+        source_entry["matched_count"] = len(matched_record_ids_for_source)
+        source_entry["matched_record_ids"] = sorted(matched_record_ids_for_source)
+        source_rows.append(source_entry)
+
+    matches: list[dict[str, Any]] = []
+    missing_record_ids: list[str] = []
+    for record_id in requested_record_ids:
+        rows = [dict(item) for item in list(matches_by_record_id.get(record_id) or []) if isinstance(item, dict)]
+        total_matches = len(rows)
+        if total_matches == 0:
+            missing_record_ids.append(record_id)
+        matches.append(
+            {
+                "record_id": record_id,
+                "lookup_key": f"record_id:{record_id}",
+                "status": "resolved" if total_matches > 0 else "missing",
+                "match_count": int(total_matches),
+                "truncated_count": max(0, total_matches - limit_per_id),
+                "matches": rows[:limit_per_id],
+            }
+        )
+
+    status = "ok" if not errors and not missing_record_ids else "warning"
+    payload = {
+        "generated_at": utc_now_iso(),
+        "status": status,
+        "record_ids": list(requested_record_ids),
+        "requested_count": len(requested_record_ids),
+        "resolved_record_id_count": len(requested_record_ids) - len(missing_record_ids),
+        "missing_record_ids": missing_record_ids,
+        "missing_count": len(missing_record_ids),
+        "operator_report_path": str(operator_report_path) if operator_report_path is not None else None,
+        "operator_report_extracted_record_ids": operator_report_extracted_ids,
+        "config_path": str(config_path) if config_path is not None else None,
+        "input_source_count": len(source_rows),
+        "input_sources": source_rows,
+        "id_fields": list(id_fields),
+        "summary_fields": list(summary_fields),
+        "timestamp_fields": list(timestamp_fields),
+        "context_fields": list(context_fields),
+        "snippet_max_chars": int(snippet_max_chars),
+        "limit_per_id": int(limit_per_id),
+        "matches": matches,
+        "error_count": len(errors),
+        "errors": errors,
+    }
+
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if bool(getattr(args, "strict", False)) and (errors or missing_record_ids):
         raise SystemExit(2)
 
 
@@ -3429,6 +3922,22 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 )
                 continue
             summary_hint = str(entry.get("example_summary") or "").strip()
+            evidence_samples_current = [
+                dict(item)
+                for item in list(entry.get("evidence_samples_current") or [])
+                if isinstance(item, dict)
+            ]
+            evidence_samples_previous = [
+                dict(item)
+                for item in list(entry.get("evidence_samples_previous") or [])
+                if isinstance(item, dict)
+            ]
+            seed_evidence_record_ids: list[str] = []
+            for sample in [*evidence_samples_current, *evidence_samples_previous]:
+                record_id = str(sample.get("record_id") or "").strip()
+                if not record_id or record_id in seed_evidence_record_ids:
+                    continue
+                seed_evidence_record_ids.append(record_id)
 
             statement = (
                 f"Recent {source} feedback indicates '{canonical_key or friction_key}' is {trend}, "
@@ -3463,6 +3972,7 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 "seed_cross_app_count_current": int(cross_app_count_current),
                 "seed_market_recurrence_score": float(entry.get("market_recurrence_score") or 0.0),
                 "seed_top_apps_current": sorted(set(top_app_names)),
+                "seed_evidence_record_ids": seed_evidence_record_ids,
             }
             risk_level = "high" if trend == "new" and impact_score_current >= 6.0 else "medium"
             if trend in {"new", "rising"} and cross_app_count_current >= 3 and impact_score_current >= 4.0:
@@ -3502,6 +4012,7 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 "trend": trend,
                 "impact_score_current": round(impact_score_current, 4),
                 "impact_score_delta": round(impact_score_delta, 4),
+                "seed_evidence_record_ids": list(seed_evidence_record_ids),
             }
             created.append(created_entry)
             existing_by_key[friction_key] = hypothesis
@@ -3615,6 +4126,7 @@ def _collect_benchmark_priority_targets(
     *,
     min_opportunity_score: float | None = None,
 ) -> list[dict[str, Any]]:
+    summary_block = dict(benchmark_payload.get("summary") or {})
     recurring_rows = [row for row in list(benchmark_payload.get("recurring_pains") or []) if isinstance(row, dict)]
     recurring_by_key: dict[str, dict[str, Any]] = {}
     for row in recurring_rows:
@@ -3634,6 +4146,21 @@ def _collect_benchmark_priority_targets(
         opportunity_score = _coerce_float(row.get("opportunity_score"), default=0.0)
         if min_opportunity_score is not None and opportunity_score < float(min_opportunity_score):
             continue
+        evidence_runtime_trend = (
+            str(
+                row.get("evidence_runtime_trend")
+                if row.get("evidence_runtime_trend") is not None
+                else summary_block.get("evidence_runtime_history_trend")
+                or ""
+            ).strip().lower()
+            or None
+        )
+        evidence_runtime_priority_boost = _coerce_float(
+            row.get("evidence_runtime_priority_boost")
+            if row.get("evidence_runtime_priority_boost") is not None
+            else summary_block.get("evidence_runtime_priority_boost"),
+            default=0.0,
+        )
         recurring_row = dict(recurring_by_key.get(f"{domain}:{friction_key}") or {})
         hypothesis_ids: list[str] = []
         for raw_ids in [row.get("hypothesis_ids"), recurring_row.get("hypothesis_ids")]:
@@ -3649,6 +4176,8 @@ def _collect_benchmark_priority_targets(
                 "domain": domain,
                 "friction_key": friction_key,
                 "opportunity_score": round(float(opportunity_score), 4),
+                "pressure_score": round(float(opportunity_score), 4),
+                "pressure_rank": index + 1,
                 "trend": str(row.get("trend") or recurring_row.get("trend") or "").strip().lower() or None,
                 "recurrence_score": max(
                     0,
@@ -3659,6 +4188,8 @@ def _collect_benchmark_priority_targets(
                         default=0,
                     ),
                 ),
+                "evidence_runtime_trend": evidence_runtime_trend,
+                "evidence_runtime_priority_boost": round(float(evidence_runtime_priority_boost), 4),
                 "hypothesis_ids": hypothesis_ids,
             }
         )
@@ -3700,6 +4231,28 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
         if getattr(args, "benchmark_min_opportunity", None) is not None
         else None
     )
+    evidence_runtime_history_path_raw = getattr(args, "evidence_runtime_history_path", None)
+    evidence_runtime_history_window = max(
+        1,
+        _coerce_int(getattr(args, "evidence_runtime_history_window", 7), default=7),
+    )
+    evidence_pressure_enabled = _coerce_bool(
+        getattr(args, "evidence_pressure_enable", True),
+        default=True,
+    )
+    evidence_pressure_min_priority_boost = max(
+        0.0,
+        _coerce_float(getattr(args, "evidence_pressure_min_priority_boost", 0.35), default=0.35),
+    )
+    evidence_pressure_limit_increase = max(
+        0,
+        _coerce_int(getattr(args, "evidence_pressure_limit_increase", 2), default=2),
+    )
+    evidence_pressure_statuses = _coerce_status_preferences(
+        getattr(args, "evidence_pressure_statuses", "queued,testing"),
+    )
+    if not evidence_pressure_statuses:
+        evidence_pressure_statuses = ["queued", "testing"]
     if benchmark_report_path is not None:
         loaded_benchmark = json.loads(benchmark_report_path.read_text(encoding="utf-8"))
         if not isinstance(loaded_benchmark, dict):
@@ -3731,10 +4284,29 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
                     "seed_reason": "benchmark_priority",
                     "benchmark_priority_rank": int(row.get("priority_rank") or 0),
                     "benchmark_opportunity_score": _coerce_float(row.get("opportunity_score"), default=0.0),
+                    "benchmark_pressure_rank": int(
+                        row.get("pressure_rank")
+                        if row.get("pressure_rank") is not None
+                        else row.get("priority_rank")
+                        or 0
+                    ),
+                    "benchmark_pressure_score": _coerce_float(
+                        row.get("pressure_score")
+                        if row.get("pressure_score") is not None
+                        else row.get("opportunity_score"),
+                        default=0.0,
+                    ),
                     "benchmark_domain": row.get("domain"),
                     "benchmark_friction_key": row.get("friction_key"),
                     "benchmark_trend": row.get("trend"),
                     "benchmark_recurrence_score": int(row.get("recurrence_score") or 0),
+                    "benchmark_evidence_runtime_trend": (
+                        str(row.get("evidence_runtime_trend") or "").strip().lower() or None
+                    ),
+                    "benchmark_evidence_runtime_priority_boost": _coerce_float(
+                        row.get("evidence_runtime_priority_boost"),
+                        default=0.0,
+                    ),
                 }
     if seed_report_path is not None:
         loaded_seed = json.loads(seed_report_path.read_text(encoding="utf-8"))
@@ -3757,16 +4329,61 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
             source_by_hypothesis_id[hypothesis_id] = {
                 "seed_index": int(index),
                 "seed_reason": str(row.get("reason") or "seed_report_row"),
+                "seed_evidence_record_ids": [
+                    str(item).strip()
+                    for item in list(row.get("seed_evidence_record_ids") or [])
+                    if str(item).strip()
+                ],
             }
 
     domain_filter_raw = str(getattr(args, "domain", None) or domain_from_seed or domain_from_benchmark or "").strip().lower()
     domain_filter = domain_filter_raw or None
-    status_filters = _coerce_status_preferences(getattr(args, "statuses", "queued"))
-    if not status_filters:
-        status_filters = ["queued"]
-    status_filter_set = set(status_filters)
+    status_filters_requested = _coerce_status_preferences(getattr(args, "statuses", "queued"))
+    if not status_filters_requested:
+        status_filters_requested = ["queued"]
+    limit_requested = max(1, int(getattr(args, "limit", 8) or 8))
+    status_filters = list(status_filters_requested)
+    limit = int(limit_requested)
+    history_fallback_base_dir = (
+        benchmark_report_path.parent
+        if benchmark_report_path is not None
+        else (
+            seed_report_path.parent
+            if seed_report_path is not None
+            else Path.cwd()
+        )
+    )
+    evidence_runtime_history_path = _resolve_evidence_runtime_history_path(
+        raw_value=evidence_runtime_history_path_raw,
+        fallback_base_dir=history_fallback_base_dir,
+    )
+    evidence_runtime_history = _summarize_evidence_runtime_history(
+        history_path=evidence_runtime_history_path,
+        window=evidence_runtime_history_window,
+    )
+    evidence_pressure_applied = False
+    evidence_pressure_reason = "none"
+    evidence_runtime_trend = str(evidence_runtime_history.get("trend") or "").strip().lower()
+    evidence_runtime_priority_boost = max(
+        0.0,
+        _coerce_float(evidence_runtime_history.get("priority_boost"), default=0.0),
+    )
+    if (
+        evidence_pressure_enabled
+        and evidence_runtime_trend in {"worsening", "persistent"}
+        and evidence_runtime_priority_boost >= evidence_pressure_min_priority_boost
+    ):
+        for pressure_status in evidence_pressure_statuses:
+            if pressure_status not in status_filters:
+                status_filters.append(pressure_status)
+        limit = int(limit + evidence_pressure_limit_increase)
+        evidence_pressure_applied = True
+        evidence_pressure_reason = (
+            "evidence_runtime_trend_"
+            f"{evidence_runtime_trend}_priority_boost_{round(float(evidence_runtime_priority_boost), 4)}"
+        )
 
-    limit = max(1, int(getattr(args, "limit", 8) or 8))
+    status_filter_set = set(status_filters)
     lookup_limit = max(limit, int(getattr(args, "lookup_limit", 400) or 400))
     default_sample_size = max(1, int(getattr(args, "default_sample_size", 100) or 100))
     overwrite_artifacts = bool(getattr(args, "overwrite_artifacts", False))
@@ -3872,10 +4489,29 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
                 "seed_reason": "benchmark_priority_domain_friction",
                 "benchmark_priority_rank": int(row.get("priority_rank") or 0),
                 "benchmark_opportunity_score": _coerce_float(row.get("opportunity_score"), default=0.0),
+                "benchmark_pressure_rank": int(
+                    row.get("pressure_rank")
+                    if row.get("pressure_rank") is not None
+                    else row.get("priority_rank")
+                    or 0
+                ),
+                "benchmark_pressure_score": _coerce_float(
+                    row.get("pressure_score")
+                    if row.get("pressure_score") is not None
+                    else row.get("opportunity_score"),
+                    default=0.0,
+                ),
                 "benchmark_domain": row.get("domain"),
                 "benchmark_friction_key": row.get("friction_key"),
                 "benchmark_trend": row.get("trend"),
                 "benchmark_recurrence_score": int(row.get("recurrence_score") or 0),
+                "benchmark_evidence_runtime_trend": (
+                    str(row.get("evidence_runtime_trend") or "").strip().lower() or None
+                ),
+                "benchmark_evidence_runtime_priority_boost": _coerce_float(
+                    row.get("evidence_runtime_priority_boost"),
+                    default=0.0,
+                ),
             }
 
         if not selected_hypotheses:
@@ -3920,6 +4556,23 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
             if not friction_key:
                 friction_key = _normalize_friction_key(hypothesis.get("title")) or f"hypothesis_{index + 1}"
             status_value = str(hypothesis.get("status") or "").strip().lower()
+            hypothesis_metadata = (
+                dict(hypothesis.get("metadata") or {})
+                if isinstance(hypothesis.get("metadata"), dict)
+                else {}
+            )
+            source_hint = dict(source_by_hypothesis_id.get(hypothesis_id) or {})
+            source_reason = str(source_hint.get("seed_reason") or "queued_hypothesis")
+            seed_evidence_record_ids: list[str] = []
+            for raw_ids in (
+                hypothesis_metadata.get("seed_evidence_record_ids"),
+                source_hint.get("seed_evidence_record_ids"),
+            ):
+                for item in list(raw_ids or []):
+                    value = str(item).strip()
+                    if not value or value in seed_evidence_record_ids:
+                        continue
+                    seed_evidence_record_ids.append(value)
 
             success_criteria = (
                 dict(hypothesis.get("success_criteria") or {})
@@ -3985,6 +4638,8 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
                     "success_criteria": success_criteria,
                     "target_sample_size": int(target_sample_size),
                     "guardrails": guardrails,
+                    "seed_source_reason": source_reason,
+                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
                 },
                 "notes": (
                     "Drafted controlled experiment artifact with bootstrap numeric placeholders. "
@@ -4014,9 +4669,6 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
             else:
                 job_artifact_path = str(artifact_path)
 
-            source_hint = dict(source_by_hypothesis_id.get(hypothesis_id) or {})
-            source_reason = str(source_hint.get("seed_reason") or "queued_hypothesis")
-
             job_entry: dict[str, Any] = {
                 "hypothesis_id": hypothesis_id,
                 "domain": domain,
@@ -4027,6 +4679,7 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
                 "compare_history": True,
                 "collect_debug": True,
                 "auto_retest_lane": True,
+                "seed_evidence_record_ids": list(seed_evidence_record_ids),
             }
 
             config_action = "not_requested"
@@ -4073,6 +4726,7 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
                     "direction": direction,
                     "min_effect": float(min_effect),
                     "guardrails": guardrails,
+                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
                     "source_hint": source_hint,
                 }
             )
@@ -4109,9 +4763,20 @@ def cmd_improvement_draft_experiment_jobs(args: argparse.Namespace) -> None:
             "config_output_path": str(config_output_path) if config_output_path is not None else None,
             "artifacts_dir": str(artifacts_dir),
             "domain_filter": domain_filter,
+            "status_filters_requested": status_filters_requested,
             "status_filters": status_filters,
+            "limit_requested": int(limit_requested),
             "limit": limit,
             "lookup_limit": lookup_limit,
+            "evidence_lookup_runtime_history_path": str(evidence_runtime_history_path),
+            "evidence_lookup_runtime_history_window": int(evidence_runtime_history_window),
+            "evidence_lookup_runtime_history": evidence_runtime_history,
+            "evidence_pressure_enabled": bool(evidence_pressure_enabled),
+            "evidence_pressure_applied": bool(evidence_pressure_applied),
+            "evidence_pressure_reason": evidence_pressure_reason,
+            "evidence_pressure_min_priority_boost": float(evidence_pressure_min_priority_boost),
+            "evidence_pressure_limit_increase": int(evidence_pressure_limit_increase),
+            "evidence_pressure_statuses": evidence_pressure_statuses,
             "candidate_seed_count": len(seed_hypothesis_ids),
             "selected_hypotheses_count": len(selected_hypotheses),
             "drafted_count": len(drafts),
@@ -4191,6 +4856,427 @@ def _coerce_int(value: Any, *, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return int(default)
+
+
+def _normalize_record_id_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    out: list[str] = []
+    for item in list(value or []):
+        text = str(item).strip()
+        if not text or text in out:
+            continue
+        out.append(text)
+    return out
+
+
+def _resolve_evidence_runtime_history_path(
+    *,
+    raw_value: Any,
+    fallback_base_dir: Path,
+    fallback_name: str = "evidence_lookup_runtime_history.jsonl",
+    resolve_relative_to: Path | None = None,
+) -> Path:
+    if raw_value is None or not str(raw_value).strip():
+        return (fallback_base_dir / fallback_name).resolve()
+    base_dir = resolve_relative_to or Path.cwd()
+    return _resolve_path_from_base(raw_value, base_dir=base_dir).resolve()
+
+
+def _load_evidence_runtime_history_rows(history_path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not history_path.exists():
+        return rows
+    for line_number, raw_line in enumerate(history_path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = str(raw_line or "").strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        normalized = dict(row)
+        normalized["_line_number"] = line_number
+        rows.append(normalized)
+    return rows
+
+
+def _append_evidence_runtime_history_row(history_path: Path, row: dict[str, Any]) -> str | None:
+    try:
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        with history_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+        return None
+    except Exception as exc:
+        text = str(exc).strip()
+        return text or "history_append_failed"
+
+
+def _summarize_evidence_runtime_history(
+    *,
+    history_path: Path | None,
+    window: int = 7,
+) -> dict[str, Any]:
+    effective_window = max(1, _coerce_int(window, default=7))
+    if history_path is None:
+        return {
+            "status": "not_configured",
+            "history_path": None,
+            "history_exists": False,
+            "window": int(effective_window),
+            "row_count": 0,
+            "recent_row_count": 0,
+            "previous_row_count": 0,
+            "recent_missing_total": 0,
+            "previous_missing_total": 0,
+            "recent_missing_avg": 0.0,
+            "previous_missing_avg": 0.0,
+            "recent_unresolved_runs": 0,
+            "previous_unresolved_runs": 0,
+            "recent_unresolved_rate": 0.0,
+            "previous_unresolved_rate": 0.0,
+            "missing_count_delta": 0.0,
+            "unresolved_rate_delta": 0.0,
+            "trend": "not_configured",
+            "priority_boost": 0.0,
+            "recurring_missing_record_ids": [],
+            "recurring_missing_record_id_count": 0,
+            "recommendation": "Runtime history path is not configured.",
+        }
+
+    resolved_history_path = history_path.resolve()
+    rows = _load_evidence_runtime_history_rows(resolved_history_path)
+    if not rows:
+        return {
+            "status": "missing_history",
+            "history_path": str(resolved_history_path),
+            "history_exists": bool(resolved_history_path.exists()),
+            "window": int(effective_window),
+            "row_count": 0,
+            "recent_row_count": 0,
+            "previous_row_count": 0,
+            "recent_missing_total": 0,
+            "previous_missing_total": 0,
+            "recent_missing_avg": 0.0,
+            "previous_missing_avg": 0.0,
+            "recent_unresolved_runs": 0,
+            "previous_unresolved_runs": 0,
+            "recent_unresolved_rate": 0.0,
+            "previous_unresolved_rate": 0.0,
+            "missing_count_delta": 0.0,
+            "unresolved_rate_delta": 0.0,
+            "trend": "missing_history",
+            "priority_boost": 0.0,
+            "recurring_missing_record_ids": [],
+            "recurring_missing_record_id_count": 0,
+            "recommendation": "No evidence runtime history rows found yet; collect baseline samples first.",
+        }
+
+    recent_rows = rows[-effective_window:]
+    previous_rows = rows[-(effective_window * 2) : -effective_window]
+
+    def _missing_count_from_row(row: dict[str, Any]) -> int:
+        explicit = row.get("missing_count")
+        if explicit is not None:
+            return max(0, _coerce_int(explicit, default=0))
+        return len(_normalize_record_id_list(row.get("missing_record_ids")))
+
+    def _is_unresolved_row(row: dict[str, Any]) -> bool:
+        if _missing_count_from_row(row) > 0:
+            return True
+        lookup_status = str(row.get("lookup_status") or "").strip().lower()
+        return lookup_status == "missing_report"
+
+    recent_missing_total = sum(_missing_count_from_row(row) for row in recent_rows)
+    previous_missing_total = sum(_missing_count_from_row(row) for row in previous_rows)
+    recent_unresolved_runs = sum(1 for row in recent_rows if _is_unresolved_row(row))
+    previous_unresolved_runs = sum(1 for row in previous_rows if _is_unresolved_row(row))
+
+    recent_row_count = len(recent_rows)
+    previous_row_count = len(previous_rows)
+    recent_missing_avg = float(recent_missing_total) / float(max(1, recent_row_count))
+    previous_missing_avg = float(previous_missing_total) / float(max(1, previous_row_count))
+    recent_unresolved_rate = float(recent_unresolved_runs) / float(max(1, recent_row_count))
+    previous_unresolved_rate = float(previous_unresolved_runs) / float(max(1, previous_row_count))
+    missing_count_delta = recent_missing_avg - previous_missing_avg
+    unresolved_rate_delta = recent_unresolved_rate - previous_unresolved_rate
+
+    recurring_counter: Counter[str] = Counter()
+    for row in recent_rows:
+        for record_id in _normalize_record_id_list(row.get("missing_record_ids")):
+            recurring_counter[record_id] += 1
+    recurring_missing_record_ids = [record_id for record_id, _ in recurring_counter.most_common(5)]
+
+    if recent_unresolved_runs <= 0 and recent_missing_total <= 0:
+        trend = "clear"
+    elif previous_row_count <= 0:
+        trend = "insufficient_history"
+    elif unresolved_rate_delta >= 0.15 or missing_count_delta >= 0.5:
+        trend = "worsening"
+    elif unresolved_rate_delta <= -0.15 or missing_count_delta <= -0.5:
+        trend = "improving"
+    else:
+        trend = "persistent"
+
+    priority_boost = 0.0
+    if trend == "worsening":
+        priority_boost = min(
+            1.0,
+            0.55 + (recent_unresolved_rate * 0.3) + min(0.2, max(0.0, missing_count_delta) * 0.15),
+        )
+    elif trend == "persistent":
+        priority_boost = min(
+            0.75,
+            0.35 + (recent_unresolved_rate * 0.25) + min(0.15, recent_missing_avg * 0.05),
+        )
+    elif trend == "insufficient_history" and recent_unresolved_runs > 0:
+        priority_boost = min(
+            0.55,
+            0.2 + (recent_unresolved_rate * 0.2) + min(0.1, recent_missing_avg * 0.05),
+        )
+
+    if trend == "worsening":
+        recommendation = "Escalate evidence lookup remediation; unresolved record IDs are worsening."
+    elif trend == "persistent":
+        recommendation = "Prioritize recurring unresolved evidence IDs and close repeated source lookup gaps."
+    elif trend == "insufficient_history" and recent_unresolved_runs > 0:
+        recommendation = "Collect more runtime samples; unresolved evidence IDs already indicate emerging risk."
+    elif trend == "improving":
+        recommendation = "Evidence lookup trend is improving; keep remediation momentum."
+    else:
+        recommendation = "Evidence lookup runtime trend is clear; continue monitoring."
+
+    return {
+        "status": "ok",
+        "history_path": str(resolved_history_path),
+        "history_exists": True,
+        "window": int(effective_window),
+        "row_count": len(rows),
+        "recent_row_count": recent_row_count,
+        "previous_row_count": previous_row_count,
+        "recent_missing_total": int(recent_missing_total),
+        "previous_missing_total": int(previous_missing_total),
+        "recent_missing_avg": round(float(recent_missing_avg), 4),
+        "previous_missing_avg": round(float(previous_missing_avg), 4),
+        "recent_unresolved_runs": int(recent_unresolved_runs),
+        "previous_unresolved_runs": int(previous_unresolved_runs),
+        "recent_unresolved_rate": round(float(recent_unresolved_rate), 4),
+        "previous_unresolved_rate": round(float(previous_unresolved_rate), 4),
+        "missing_count_delta": round(float(missing_count_delta), 4),
+        "unresolved_rate_delta": round(float(unresolved_rate_delta), 4),
+        "trend": trend,
+        "priority_boost": round(float(priority_boost), 4),
+        "recurring_missing_record_ids": recurring_missing_record_ids,
+        "recurring_missing_record_id_count": len(recurring_missing_record_ids),
+        "recommendation": recommendation,
+    }
+
+
+def _resolve_benchmark_stale_fallback_history_path(
+    *,
+    raw_value: Any,
+    fallback_base_dir: Path,
+) -> Path:
+    return _resolve_evidence_runtime_history_path(
+        raw_value=raw_value,
+        fallback_base_dir=fallback_base_dir,
+        fallback_name="benchmark_stale_fallback_history.jsonl",
+    )
+
+
+def _summarize_benchmark_stale_fallback_history(
+    *,
+    history_path: Path | None,
+    window: int = 7,
+) -> dict[str, Any]:
+    effective_window = max(1, _coerce_int(window, default=7))
+    if history_path is None:
+        return {
+            "status": "not_configured",
+            "history_path": None,
+            "history_exists": False,
+            "window": int(effective_window),
+            "row_count": 0,
+            "recent_row_count": 0,
+            "previous_row_count": 0,
+            "recent_stale_runs": 0,
+            "previous_stale_runs": 0,
+            "recent_stale_rate": 0.0,
+            "previous_stale_rate": 0.0,
+            "stale_run_delta": 0,
+            "stale_rate_delta": 0.0,
+            "trend": "not_configured",
+            "priority_boost": 0.0,
+            "recurring_stale_reasons": [],
+            "recurring_stale_reason_count": 0,
+            "recommendation": "Benchmark stale fallback history path is not configured.",
+        }
+
+    resolved_history_path = history_path.resolve()
+    rows = _load_evidence_runtime_history_rows(resolved_history_path)
+    if not rows:
+        return {
+            "status": "missing_history",
+            "history_path": str(resolved_history_path),
+            "history_exists": bool(resolved_history_path.exists()),
+            "window": int(effective_window),
+            "row_count": 0,
+            "recent_row_count": 0,
+            "previous_row_count": 0,
+            "recent_stale_runs": 0,
+            "previous_stale_runs": 0,
+            "recent_stale_rate": 0.0,
+            "previous_stale_rate": 0.0,
+            "stale_run_delta": 0,
+            "stale_rate_delta": 0.0,
+            "trend": "missing_history",
+            "priority_boost": 0.0,
+            "recurring_stale_reasons": [],
+            "recurring_stale_reason_count": 0,
+            "recommendation": "No benchmark stale fallback history rows found yet; collect baseline samples first.",
+        }
+
+    def _is_stale_fallback_row(row: dict[str, Any]) -> bool:
+        if row.get("benchmark_stale_fallback") is not None:
+            return _coerce_bool(row.get("benchmark_stale_fallback"), default=False)
+        if row.get("stale_fallback") is not None:
+            return _coerce_bool(row.get("stale_fallback"), default=False)
+        return False
+
+    recent_rows = rows[-effective_window:]
+    previous_rows = rows[-(effective_window * 2) : -effective_window]
+    recent_stale_runs = sum(1 for row in recent_rows if _is_stale_fallback_row(row))
+    previous_stale_runs = sum(1 for row in previous_rows if _is_stale_fallback_row(row))
+    recent_row_count = len(recent_rows)
+    previous_row_count = len(previous_rows)
+    recent_stale_rate = float(recent_stale_runs) / float(max(1, recent_row_count))
+    previous_stale_rate = float(previous_stale_runs) / float(max(1, previous_row_count))
+    stale_run_delta = int(recent_stale_runs - previous_stale_runs)
+    stale_rate_delta = float(recent_stale_rate - previous_stale_rate)
+
+    recurring_reason_counter: Counter[str] = Counter()
+    for row in recent_rows:
+        if not _is_stale_fallback_row(row):
+            continue
+        reason = str(row.get("benchmark_stale_reason") or row.get("stale_reason") or "").strip().lower()
+        if reason and reason != "none":
+            recurring_reason_counter[reason] += 1
+    recurring_stale_reasons = [reason for reason, _ in recurring_reason_counter.most_common(5)]
+
+    if recent_stale_runs <= 0:
+        trend = "clear"
+    elif previous_row_count <= 0:
+        trend = "insufficient_history"
+    elif stale_rate_delta >= 0.2 or stale_run_delta >= 1:
+        trend = "worsening"
+    elif stale_rate_delta <= -0.2 or stale_run_delta <= -1:
+        trend = "improving"
+    else:
+        trend = "persistent"
+
+    priority_boost = 0.0
+    if trend == "worsening":
+        priority_boost = min(1.0, 0.55 + (recent_stale_rate * 0.35) + min(0.1, float(recent_stale_runs) * 0.03))
+    elif trend == "persistent":
+        priority_boost = min(0.8, 0.35 + (recent_stale_rate * 0.3))
+    elif trend == "insufficient_history" and recent_stale_runs > 0:
+        priority_boost = min(0.55, 0.2 + (recent_stale_rate * 0.2))
+
+    if trend == "worsening":
+        recommendation = "Escalate benchmark stale fallback remediation; repeated stale skips are increasing."
+    elif trend == "persistent":
+        recommendation = "Stale benchmark fallback is recurring; prioritize automated benchmark freshness checks."
+    elif trend == "insufficient_history" and recent_stale_runs > 0:
+        recommendation = "Collect additional runtime samples; stale benchmark fallback is already present."
+    elif trend == "improving":
+        recommendation = "Benchmark stale fallback trend is improving; continue freshness remediation."
+    else:
+        recommendation = "Benchmark stale fallback trend is clear; continue monitoring."
+
+    return {
+        "status": "ok",
+        "history_path": str(resolved_history_path),
+        "history_exists": True,
+        "window": int(effective_window),
+        "row_count": len(rows),
+        "recent_row_count": int(recent_row_count),
+        "previous_row_count": int(previous_row_count),
+        "recent_stale_runs": int(recent_stale_runs),
+        "previous_stale_runs": int(previous_stale_runs),
+        "recent_stale_rate": round(float(recent_stale_rate), 4),
+        "previous_stale_rate": round(float(previous_stale_rate), 4),
+        "stale_run_delta": int(stale_run_delta),
+        "stale_rate_delta": round(float(stale_rate_delta), 4),
+        "trend": trend,
+        "priority_boost": round(float(priority_boost), 4),
+        "recurring_stale_reasons": recurring_stale_reasons,
+        "recurring_stale_reason_count": len(recurring_stale_reasons),
+        "recommendation": recommendation,
+    }
+
+
+def _inspect_benchmark_report_recency(report_path: Path) -> dict[str, Any]:
+    resolved_path = report_path.resolve()
+    exists = bool(resolved_path.exists())
+    generated_at_dt: datetime | None = None
+    generated_at_source = "none"
+    parse_error: str | None = None
+    if exists:
+        try:
+            loaded = json.loads(resolved_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                candidate = loaded.get("generated_at")
+                if candidate is not None and str(candidate).strip():
+                    parsed = _parse_timestamp_value(candidate)
+                    if parsed is not None:
+                        generated_at_dt = parsed
+                        generated_at_source = "payload_generated_at"
+            else:
+                parse_error = "invalid_benchmark_report:expected_json_object"
+        except Exception as exc:
+            parse_error = str(exc).strip() or "benchmark_report_parse_failed"
+    if exists and generated_at_dt is None:
+        try:
+            generated_at_dt = datetime.fromtimestamp(resolved_path.stat().st_mtime, tz=timezone.utc)
+            generated_at_source = "file_mtime"
+        except Exception as exc:
+            if parse_error is None:
+                parse_error = str(exc).strip() or "benchmark_report_stat_failed"
+    now_dt = datetime.now(timezone.utc)
+    age_hours: float | None = None
+    if generated_at_dt is not None:
+        age_seconds = max(0.0, float((now_dt - generated_at_dt).total_seconds()))
+        age_hours = round(age_seconds / 3600.0, 4)
+    return {
+        "path": str(resolved_path),
+        "exists": exists,
+        "generated_at": (
+            generated_at_dt.astimezone(timezone.utc).isoformat()
+            if generated_at_dt is not None
+            else None
+        ),
+        "generated_at_source": generated_at_source,
+        "age_hours": age_hours,
+        "parse_error": parse_error,
+    }
+
+
+def _build_evidence_lookup_refs(seed_evidence_record_ids: Any) -> list[dict[str, str]]:
+    refs: list[dict[str, str]] = []
+    for record_id in _normalize_record_id_list(seed_evidence_record_ids):
+        refs.append(
+            {
+                "lookup_type": "source_record_id",
+                "record_id": record_id,
+                "lookup_key": f"record_id:{record_id}",
+            }
+        )
+    return refs
 
 
 def _resolve_pipeline_hypothesis_id(
@@ -4591,6 +5677,13 @@ def cmd_improvement_daily_pipeline(args: argparse.Namespace) -> None:
                 )
                 continue
             try:
+                hypothesis_snapshot = runtime.hypothesis_lab.get_hypothesis(hypothesis_id)
+                hypothesis_metadata = (
+                    dict(hypothesis_snapshot.get("metadata") or {})
+                    if isinstance(hypothesis_snapshot, dict) and isinstance(hypothesis_snapshot.get("metadata"), dict)
+                    else {}
+                )
+                job_seed_evidence_record_ids = _normalize_record_id_list(raw_job.get("seed_evidence_record_ids"))
                 result = runtime.run_hypothesis_experiment_from_artifact(
                     hypothesis_id=hypothesis_id,
                     artifact_path=str(artifact_path),
@@ -4612,6 +5705,22 @@ def cmd_improvement_daily_pipeline(args: argparse.Namespace) -> None:
                 )
                 evaluation = result.get("evaluation") if isinstance(result.get("evaluation"), dict) else {}
                 run_id = str(result.get("run_id") or "").strip()
+                artifact_block = dict(result.get("artifact") or {}) if isinstance(result.get("artifact"), dict) else {}
+                artifact_metadata = (
+                    dict(artifact_block.get("metadata") or {})
+                    if isinstance(artifact_block.get("metadata"), dict)
+                    else {}
+                )
+                seed_evidence_record_ids: list[str] = []
+                for raw_ids in (
+                    hypothesis_metadata.get("seed_evidence_record_ids"),
+                    artifact_metadata.get("seed_evidence_record_ids"),
+                    job_seed_evidence_record_ids,
+                ):
+                    for item in _normalize_record_id_list(raw_ids):
+                        if item in seed_evidence_record_ids:
+                            continue
+                        seed_evidence_record_ids.append(item)
                 debug_entry: dict[str, Any] = {}
                 compare_entry: dict[str, Any] = {}
                 retest_entry: dict[str, Any] = {}
@@ -4759,10 +5868,15 @@ def cmd_improvement_daily_pipeline(args: argparse.Namespace) -> None:
                             ),
                         )
                         if retest_entry:
+                            retest_entry = {
+                                **dict(retest_entry),
+                                "seed_evidence_record_ids": list(seed_evidence_record_ids),
+                            }
                             retest_runs.append(
                                 {
                                     "index": index,
                                     **dict(retest_entry),
+                                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
                                 }
                             )
                     except Exception as retest_exc:
@@ -4787,6 +5901,7 @@ def cmd_improvement_daily_pipeline(args: argparse.Namespace) -> None:
                         "hypothesis_status": result.get("hypothesis_status"),
                         "verdict": evaluation.get("verdict"),
                         "resolution": resolution_details,
+                        "seed_evidence_record_ids": list(seed_evidence_record_ids),
                         "side_by_side": compare_entry or None,
                         "retest": retest_entry or None,
                         **debug_entry,
@@ -4859,7 +5974,13 @@ def cmd_improvement_execute_retests(args: argparse.Namespace) -> None:
     for index, item in enumerate(raw_retest_runs):
         if not isinstance(item, dict):
             continue
-        normalized_jobs.append({"index": index, **dict(item)})
+        normalized_jobs.append(
+            {
+                "index": index,
+                **dict(item),
+                "seed_evidence_record_ids": _normalize_record_id_list(item.get("seed_evidence_record_ids")),
+            }
+        )
     if not normalized_jobs:
         for index, run in enumerate(list(loaded.get("experiment_runs") or [])):
             if not isinstance(run, dict):
@@ -4869,10 +5990,17 @@ def cmd_improvement_execute_retests(args: argparse.Namespace) -> None:
                 continue
             if not bool(retest.get("queued")):
                 continue
+            merged_seed_evidence_ids: list[str] = []
+            for raw_ids in (run.get("seed_evidence_record_ids"), retest.get("seed_evidence_record_ids")):
+                for item in _normalize_record_id_list(raw_ids):
+                    if item in merged_seed_evidence_ids:
+                        continue
+                    merged_seed_evidence_ids.append(item)
             normalized_jobs.append(
                 {
                     "index": index,
                     **dict(retest),
+                    "seed_evidence_record_ids": merged_seed_evidence_ids,
                 }
             )
 
@@ -4898,6 +6026,7 @@ def cmd_improvement_execute_retests(args: argparse.Namespace) -> None:
         for index, job in enumerate(selected_jobs):
             hypothesis_id = str(job.get("hypothesis_id") or "").strip()
             trigger_run_id = str(job.get("run_id") or job.get("trigger_run_id") or "").strip()
+            seed_evidence_record_ids = _normalize_record_id_list(job.get("seed_evidence_record_ids"))
             if not hypothesis_id:
                 row = {
                     "index": index,
@@ -4948,6 +6077,14 @@ def cmd_improvement_execute_retests(args: argparse.Namespace) -> None:
                     if isinstance(execution.get("artifact_payload"), dict)
                     else {}
                 )
+                if seed_evidence_record_ids:
+                    artifact_metadata = (
+                        dict(artifact_payload.get("metadata") or {})
+                        if isinstance(artifact_payload.get("metadata"), dict)
+                        else {}
+                    )
+                    artifact_metadata["seed_evidence_record_ids"] = list(seed_evidence_record_ids)
+                    artifact_payload["metadata"] = artifact_metadata
                 artifact_path: Path | None = None
                 if artifact_dir is not None:
                     safe_hypothesis = re.sub(r"[^a-zA-Z0-9_-]+", "_", hypothesis_id) or "hypothesis"
@@ -4968,6 +6105,7 @@ def cmd_improvement_execute_retests(args: argparse.Namespace) -> None:
                         "verdict": evaluation.get("verdict"),
                         "side_by_side": execution.get("side_by_side"),
                         "retest_plan": execution.get("retest_plan"),
+                        "seed_evidence_record_ids": list(seed_evidence_record_ids),
                         "artifact_path": str(artifact_path) if artifact_path is not None else None,
                     }
                 )
@@ -5778,6 +6916,31 @@ def _build_operator_cycle_recheck_command(
     return " ".join(shlex.quote(part) for part in command_parts)
 
 
+def _build_operator_evidence_lookup_command(
+    *,
+    config_path: Path,
+    record_ids: Any,
+    output_path: Path | None = None,
+) -> str:
+    normalized_record_ids = _normalize_record_id_list(record_ids)
+    if not normalized_record_ids:
+        return "none"
+    command_parts = [
+        "python3",
+        "-m",
+        "jarvis.cli",
+        "improvement",
+        "evidence-lookup",
+        "--config-path",
+        str(config_path),
+        "--record-ids",
+        ",".join(normalized_record_ids),
+    ]
+    if output_path is not None:
+        command_parts.extend(["--output-path", str(output_path)])
+    return " ".join(shlex.quote(part) for part in command_parts)
+
+
 def _build_operator_cycle_knowledge_bootstrap_command(
     *,
     config_path: Path,
@@ -5970,9 +7133,112 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         getattr(args, "seed_report_path", None),
         default_name="fitness_leaderboard_seed_report.json",
     )
+    evidence_lookup_report_path = _resolve_path_near(
+        output_dir,
+        getattr(args, "evidence_lookup_report_path", None),
+        default_name="evidence_lookup_report.json",
+    )
 
     stage_errors: list[dict[str, Any]] = []
     operator_cycle_defaults = _load_operator_cycle_defaults_from_config(config_path=config_path)
+    raw_evidence_runtime_history_path = (
+        getattr(args, "evidence_runtime_history_path", None)
+        if getattr(args, "evidence_runtime_history_path", None) is not None
+        else operator_cycle_defaults.get("evidence_runtime_history_path")
+    )
+    resolved_evidence_runtime_history_path: Path
+    evidence_runtime_history_path_source: str
+    if raw_evidence_runtime_history_path is not None and str(raw_evidence_runtime_history_path).strip():
+        if getattr(args, "evidence_runtime_history_path", None) is not None:
+            resolved_evidence_runtime_history_path = _resolve_path_from_base(
+                raw_evidence_runtime_history_path,
+                base_dir=Path.cwd(),
+            ).resolve()
+            evidence_runtime_history_path_source = "cli_override"
+        else:
+            resolved_evidence_runtime_history_path = _resolve_pipeline_path(
+                raw_evidence_runtime_history_path,
+                config_path=config_path,
+            ).resolve()
+            evidence_runtime_history_path_source = "config_global"
+    else:
+        resolved_evidence_runtime_history_path = (output_dir / "evidence_lookup_runtime_history.jsonl").resolve()
+        evidence_runtime_history_path_source = "output_default"
+    if getattr(args, "evidence_runtime_history_window", None) is not None:
+        resolved_evidence_runtime_history_window = max(
+            1,
+            int(getattr(args, "evidence_runtime_history_window") or 1),
+        )
+        evidence_runtime_history_window_source = "cli_override"
+    elif operator_cycle_defaults.get("evidence_runtime_history_window") is not None:
+        resolved_evidence_runtime_history_window = max(
+            1,
+            _coerce_int(operator_cycle_defaults.get("evidence_runtime_history_window"), default=7),
+        )
+        evidence_runtime_history_window_source = "config_global"
+    else:
+        resolved_evidence_runtime_history_window = 7
+        evidence_runtime_history_window_source = "builtin_default"
+    if getattr(args, "benchmark_stale_runtime_history_window", None) is not None:
+        resolved_benchmark_stale_runtime_history_window = max(
+            1,
+            int(getattr(args, "benchmark_stale_runtime_history_window") or 1),
+        )
+        benchmark_stale_runtime_history_window_source = "cli_override"
+    elif operator_cycle_defaults.get("benchmark_stale_runtime_history_window") is not None:
+        resolved_benchmark_stale_runtime_history_window = max(
+            1,
+            _coerce_int(operator_cycle_defaults.get("benchmark_stale_runtime_history_window"), default=7),
+        )
+        benchmark_stale_runtime_history_window_source = "config_global"
+    else:
+        resolved_benchmark_stale_runtime_history_window = 7
+        benchmark_stale_runtime_history_window_source = "builtin_default"
+    if getattr(args, "benchmark_stale_runtime_repeat_threshold", None) is not None:
+        resolved_benchmark_stale_runtime_repeat_threshold = max(
+            1,
+            int(getattr(args, "benchmark_stale_runtime_repeat_threshold") or 1),
+        )
+        benchmark_stale_runtime_repeat_threshold_source = "cli_override"
+    elif operator_cycle_defaults.get("benchmark_stale_runtime_repeat_threshold") is not None:
+        resolved_benchmark_stale_runtime_repeat_threshold = max(
+            1,
+            _coerce_int(operator_cycle_defaults.get("benchmark_stale_runtime_repeat_threshold"), default=2),
+        )
+        benchmark_stale_runtime_repeat_threshold_source = "config_global"
+    else:
+        resolved_benchmark_stale_runtime_repeat_threshold = 2
+        benchmark_stale_runtime_repeat_threshold_source = "builtin_default"
+    if getattr(args, "benchmark_stale_runtime_rate_ceiling", None) is not None:
+        resolved_benchmark_stale_runtime_rate_ceiling = min(
+            1.0,
+            max(0.0, _coerce_float(getattr(args, "benchmark_stale_runtime_rate_ceiling"), default=0.6)),
+        )
+        benchmark_stale_runtime_rate_ceiling_source = "cli_override"
+    elif operator_cycle_defaults.get("benchmark_stale_runtime_rate_ceiling") is not None:
+        resolved_benchmark_stale_runtime_rate_ceiling = min(
+            1.0,
+            max(0.0, _coerce_float(operator_cycle_defaults.get("benchmark_stale_runtime_rate_ceiling"), default=0.6)),
+        )
+        benchmark_stale_runtime_rate_ceiling_source = "config_global"
+    else:
+        resolved_benchmark_stale_runtime_rate_ceiling = 0.6
+        benchmark_stale_runtime_rate_ceiling_source = "builtin_default"
+    if getattr(args, "benchmark_stale_runtime_consecutive_runs", None) is not None:
+        resolved_benchmark_stale_runtime_consecutive_runs = max(
+            1,
+            int(getattr(args, "benchmark_stale_runtime_consecutive_runs") or 1),
+        )
+        benchmark_stale_runtime_consecutive_runs_source = "cli_override"
+    elif operator_cycle_defaults.get("benchmark_stale_runtime_consecutive_runs") is not None:
+        resolved_benchmark_stale_runtime_consecutive_runs = max(
+            1,
+            _coerce_int(operator_cycle_defaults.get("benchmark_stale_runtime_consecutive_runs"), default=2),
+        )
+        benchmark_stale_runtime_consecutive_runs_source = "config_global"
+    else:
+        resolved_benchmark_stale_runtime_consecutive_runs = 2
+        benchmark_stale_runtime_consecutive_runs_source = "builtin_default"
 
     pull_payload: dict[str, Any]
     try:
@@ -6491,8 +7757,108 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         if getattr(args, "draft_seed_report_path", None) is not None
         else auto_draft_seed_report_path
     )
+    raw_draft_benchmark_report_path = (
+        getattr(args, "draft_benchmark_report_path", None)
+        if getattr(args, "draft_benchmark_report_path", None) is not None
+        else operator_cycle_defaults.get("draft_benchmark_report_path")
+    )
+    draft_benchmark_max_age_hours_raw = (
+        getattr(args, "draft_benchmark_max_age_hours", None)
+        if getattr(args, "draft_benchmark_max_age_hours", None) is not None
+        else operator_cycle_defaults.get("draft_benchmark_max_age_hours")
+    )
+    if draft_benchmark_max_age_hours_raw is not None and str(draft_benchmark_max_age_hours_raw).strip():
+        resolved_draft_benchmark_max_age_hours = max(
+            0.0,
+            _coerce_float(draft_benchmark_max_age_hours_raw, default=96.0),
+        )
+        draft_benchmark_max_age_hours_source = (
+            "cli_override"
+            if getattr(args, "draft_benchmark_max_age_hours", None) is not None
+            else "config_global"
+        )
+    else:
+        resolved_draft_benchmark_max_age_hours = 96.0
+        draft_benchmark_max_age_hours_source = "builtin_default"
+    auto_draft_benchmark_reuse_status = "not_attempted"
+    auto_draft_benchmark_reuse_reason = "not_attempted"
+    auto_draft_benchmark_stale = False
+    auto_draft_benchmark_recency = _inspect_benchmark_report_recency(benchmark_report_path)
+    auto_draft_benchmark_report_path: Path | None = None
+    if raw_draft_benchmark_report_path in (None, ""):
+        draft_stage_requested_from_seed_or_flag = bool(
+            getattr(args, "draft_enable", False)
+            or draft_seed_report_path is not None
+        )
+        if draft_stage_requested_from_seed_or_flag:
+            if bool(auto_draft_benchmark_recency.get("exists")):
+                benchmark_age_hours = auto_draft_benchmark_recency.get("age_hours")
+                stale_guard_enabled = float(resolved_draft_benchmark_max_age_hours) > 0.0
+                auto_draft_benchmark_stale = bool(
+                    stale_guard_enabled
+                    and benchmark_age_hours is not None
+                    and float(benchmark_age_hours) > float(resolved_draft_benchmark_max_age_hours)
+                )
+                if auto_draft_benchmark_stale:
+                    auto_draft_benchmark_reuse_status = "stale_skipped"
+                    auto_draft_benchmark_reuse_reason = (
+                        "auto_benchmark_age_exceeds_max_hours"
+                        f" ({round(float(benchmark_age_hours), 4)} > {round(float(resolved_draft_benchmark_max_age_hours), 4)})"
+                    )
+                else:
+                    auto_draft_benchmark_report_path = benchmark_report_path
+                    auto_draft_benchmark_reuse_status = "reused"
+                    auto_draft_benchmark_reuse_reason = "output_default_existing"
+            else:
+                auto_draft_benchmark_reuse_status = "missing"
+                auto_draft_benchmark_reuse_reason = "output_default_benchmark_missing"
+        else:
+            auto_draft_benchmark_reuse_status = "not_requested"
+            auto_draft_benchmark_reuse_reason = "draft_stage_not_requested"
+    else:
+        auto_draft_benchmark_reuse_status = "explicit_path_provided"
+        auto_draft_benchmark_reuse_reason = "explicit_or_configured_benchmark_path"
+    draft_benchmark_report_path: Path | None = None
+    draft_benchmark_report_path_source = "none"
+    if raw_draft_benchmark_report_path is not None and str(raw_draft_benchmark_report_path).strip():
+        if getattr(args, "draft_benchmark_report_path", None) is not None:
+            draft_benchmark_report_path = _resolve_path_from_base(
+                raw_draft_benchmark_report_path,
+                base_dir=Path.cwd(),
+            ).resolve()
+            draft_benchmark_report_path_source = "cli_override"
+        else:
+            draft_benchmark_report_path = _resolve_pipeline_path(
+                raw_draft_benchmark_report_path,
+                config_path=config_path,
+            ).resolve()
+            draft_benchmark_report_path_source = "config_global"
+    elif auto_draft_benchmark_report_path is not None:
+        draft_benchmark_report_path = auto_draft_benchmark_report_path
+        draft_benchmark_report_path_source = "output_default_existing"
+    elif auto_draft_benchmark_reuse_status == "stale_skipped":
+        draft_benchmark_report_path_source = "output_default_existing_stale_skipped"
+    draft_benchmark_min_opportunity_raw = (
+        getattr(args, "draft_benchmark_min_opportunity", None)
+        if getattr(args, "draft_benchmark_min_opportunity", None) is not None
+        else operator_cycle_defaults.get("draft_benchmark_min_opportunity")
+    )
+    if draft_benchmark_min_opportunity_raw is not None and str(draft_benchmark_min_opportunity_raw).strip():
+        draft_benchmark_min_opportunity = _coerce_float(draft_benchmark_min_opportunity_raw, default=0.0)
+        draft_benchmark_min_opportunity_source = (
+            "cli_override"
+            if getattr(args, "draft_benchmark_min_opportunity", None) is not None
+            else "config_global"
+        )
+    else:
+        draft_benchmark_min_opportunity = None
+        draft_benchmark_min_opportunity_source = "none"
 
-    draft_requested = bool(getattr(args, "draft_enable", False) or draft_seed_report_path is not None)
+    draft_requested = bool(
+        getattr(args, "draft_enable", False)
+        or draft_seed_report_path is not None
+        or draft_benchmark_report_path is not None
+    )
     draft_base_config_path = (
         _resolve_path_from_base(getattr(args, "draft_config_path"), base_dir=Path.cwd())
         if getattr(args, "draft_config_path", None) is not None
@@ -6551,6 +7917,63 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         cli_value=getattr(args, "draft_default_sample_size", None),
         defaults=operator_cycle_defaults,
     )
+    if getattr(args, "draft_evidence_pressure_enable", None) is not None:
+        resolved_draft_evidence_pressure_enable = bool(getattr(args, "draft_evidence_pressure_enable"))
+        draft_evidence_pressure_enable_source = "cli_override"
+    elif operator_cycle_defaults.get("draft_evidence_pressure_enable") is not None:
+        resolved_draft_evidence_pressure_enable = _coerce_bool(
+            operator_cycle_defaults.get("draft_evidence_pressure_enable"),
+            default=True,
+        )
+        draft_evidence_pressure_enable_source = "config_global"
+    else:
+        resolved_draft_evidence_pressure_enable = True
+        draft_evidence_pressure_enable_source = "builtin_default"
+    if getattr(args, "draft_evidence_pressure_min_priority_boost", None) is not None:
+        resolved_draft_evidence_pressure_min_priority_boost = max(
+            0.0,
+            _coerce_float(getattr(args, "draft_evidence_pressure_min_priority_boost"), default=0.35),
+        )
+        draft_evidence_pressure_min_priority_boost_source = "cli_override"
+    elif operator_cycle_defaults.get("draft_evidence_pressure_min_priority_boost") is not None:
+        resolved_draft_evidence_pressure_min_priority_boost = max(
+            0.0,
+            _coerce_float(operator_cycle_defaults.get("draft_evidence_pressure_min_priority_boost"), default=0.35),
+        )
+        draft_evidence_pressure_min_priority_boost_source = "config_global"
+    else:
+        resolved_draft_evidence_pressure_min_priority_boost = 0.35
+        draft_evidence_pressure_min_priority_boost_source = "builtin_default"
+    if getattr(args, "draft_evidence_pressure_limit_increase", None) is not None:
+        resolved_draft_evidence_pressure_limit_increase = max(
+            0,
+            _coerce_int(getattr(args, "draft_evidence_pressure_limit_increase"), default=2),
+        )
+        draft_evidence_pressure_limit_increase_source = "cli_override"
+    elif operator_cycle_defaults.get("draft_evidence_pressure_limit_increase") is not None:
+        resolved_draft_evidence_pressure_limit_increase = max(
+            0,
+            _coerce_int(operator_cycle_defaults.get("draft_evidence_pressure_limit_increase"), default=2),
+        )
+        draft_evidence_pressure_limit_increase_source = "config_global"
+    else:
+        resolved_draft_evidence_pressure_limit_increase = 2
+        draft_evidence_pressure_limit_increase_source = "builtin_default"
+    if getattr(args, "draft_evidence_pressure_statuses", None) is not None:
+        resolved_draft_evidence_pressure_statuses = (
+            str(getattr(args, "draft_evidence_pressure_statuses") or "").strip()
+            or "queued,testing"
+        )
+        draft_evidence_pressure_statuses_source = "cli_override"
+    elif operator_cycle_defaults.get("draft_evidence_pressure_statuses") is not None:
+        resolved_draft_evidence_pressure_statuses = (
+            str(operator_cycle_defaults.get("draft_evidence_pressure_statuses") or "").strip()
+            or "queued,testing"
+        )
+        draft_evidence_pressure_statuses_source = "config_global"
+    else:
+        resolved_draft_evidence_pressure_statuses = "queued,testing"
+        draft_evidence_pressure_statuses_source = "builtin_default"
 
     draft_payload: dict[str, Any]
     daily_config_path = config_path
@@ -6579,6 +8002,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         try:
             draft_args = argparse.Namespace(
                 seed_report_path=draft_seed_report_path,
+                benchmark_report_path=draft_benchmark_report_path,
+                benchmark_min_opportunity=draft_benchmark_min_opportunity,
                 include_existing=bool(getattr(args, "draft_include_existing", False)),
                 domain=(
                     str(getattr(args, "draft_domain")).strip()
@@ -6598,6 +8023,12 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     1,
                     int(resolved_draft_default_sample_size),
                 ),
+                evidence_runtime_history_path=resolved_evidence_runtime_history_path,
+                evidence_runtime_history_window=max(1, int(resolved_evidence_runtime_history_window)),
+                evidence_pressure_enable=bool(resolved_draft_evidence_pressure_enable),
+                evidence_pressure_min_priority_boost=float(resolved_draft_evidence_pressure_min_priority_boost),
+                evidence_pressure_limit_increase=max(0, int(resolved_draft_evidence_pressure_limit_increase)),
+                evidence_pressure_statuses=str(resolved_draft_evidence_pressure_statuses),
                 strict=False,
                 output_path=draft_report_path,
                 json_compact=False,
@@ -6654,6 +8085,54 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
             draft_payload["environment_source"] = str(draft_environment_source)
             draft_payload["resolved_default_sample_size"] = int(resolved_draft_default_sample_size)
             draft_payload["default_sample_size_source"] = str(draft_default_sample_size_source)
+            draft_payload["benchmark_report_path"] = (
+                str(draft_benchmark_report_path) if draft_benchmark_report_path is not None else None
+            )
+            draft_payload["benchmark_report_path_source"] = str(draft_benchmark_report_path_source)
+            draft_payload["benchmark_min_opportunity"] = (
+                float(draft_benchmark_min_opportunity)
+                if draft_benchmark_min_opportunity is not None
+                else None
+            )
+            draft_payload["benchmark_min_opportunity_source"] = str(draft_benchmark_min_opportunity_source)
+            draft_payload["benchmark_max_age_hours"] = float(resolved_draft_benchmark_max_age_hours)
+            draft_payload["benchmark_max_age_hours_source"] = str(draft_benchmark_max_age_hours_source)
+            draft_payload["benchmark_auto_reuse_status"] = str(auto_draft_benchmark_reuse_status)
+            draft_payload["benchmark_auto_reuse_reason"] = str(auto_draft_benchmark_reuse_reason)
+            draft_payload["benchmark_auto_reuse_stale"] = bool(auto_draft_benchmark_stale)
+            draft_payload["benchmark_auto_reuse_age_hours"] = (
+                _coerce_float(auto_draft_benchmark_recency.get("age_hours"), default=0.0)
+                if auto_draft_benchmark_recency.get("age_hours") is not None
+                else None
+            )
+            draft_payload["benchmark_auto_reuse_generated_at"] = auto_draft_benchmark_recency.get("generated_at")
+            draft_payload["benchmark_auto_reuse_generated_at_source"] = str(
+                auto_draft_benchmark_recency.get("generated_at_source") or "none"
+            )
+            draft_payload["benchmark_auto_reuse_parse_error"] = auto_draft_benchmark_recency.get("parse_error")
+            draft_payload["benchmark_auto_reuse_inspection_path"] = str(
+                auto_draft_benchmark_recency.get("path") or benchmark_report_path
+            )
+            draft_payload["evidence_runtime_history_path"] = str(resolved_evidence_runtime_history_path)
+            draft_payload["evidence_runtime_history_path_source"] = evidence_runtime_history_path_source
+            draft_payload["evidence_runtime_history_window"] = int(resolved_evidence_runtime_history_window)
+            draft_payload["evidence_runtime_history_window_source"] = evidence_runtime_history_window_source
+            draft_payload["resolved_evidence_pressure_enable"] = bool(resolved_draft_evidence_pressure_enable)
+            draft_payload["evidence_pressure_enable_source"] = str(draft_evidence_pressure_enable_source)
+            draft_payload["resolved_evidence_pressure_min_priority_boost"] = float(
+                resolved_draft_evidence_pressure_min_priority_boost
+            )
+            draft_payload["evidence_pressure_min_priority_boost_source"] = str(
+                draft_evidence_pressure_min_priority_boost_source
+            )
+            draft_payload["resolved_evidence_pressure_limit_increase"] = int(
+                resolved_draft_evidence_pressure_limit_increase
+            )
+            draft_payload["evidence_pressure_limit_increase_source"] = str(
+                draft_evidence_pressure_limit_increase_source
+            )
+            draft_payload["resolved_evidence_pressure_statuses"] = str(resolved_draft_evidence_pressure_statuses)
+            draft_payload["evidence_pressure_statuses_source"] = str(draft_evidence_pressure_statuses_source)
         except Exception as exc:
             draft_payload = {
                 "status": "error",
@@ -6673,6 +8152,50 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                 "environment_source": str(draft_environment_source),
                 "resolved_default_sample_size": int(resolved_draft_default_sample_size),
                 "default_sample_size_source": str(draft_default_sample_size_source),
+                "benchmark_report_path": (
+                    str(draft_benchmark_report_path) if draft_benchmark_report_path is not None else None
+                ),
+                "benchmark_report_path_source": str(draft_benchmark_report_path_source),
+                "benchmark_min_opportunity": (
+                    float(draft_benchmark_min_opportunity)
+                    if draft_benchmark_min_opportunity is not None
+                    else None
+                ),
+                "benchmark_min_opportunity_source": str(draft_benchmark_min_opportunity_source),
+                "benchmark_max_age_hours": float(resolved_draft_benchmark_max_age_hours),
+                "benchmark_max_age_hours_source": str(draft_benchmark_max_age_hours_source),
+                "benchmark_auto_reuse_status": str(auto_draft_benchmark_reuse_status),
+                "benchmark_auto_reuse_reason": str(auto_draft_benchmark_reuse_reason),
+                "benchmark_auto_reuse_stale": bool(auto_draft_benchmark_stale),
+                "benchmark_auto_reuse_age_hours": (
+                    _coerce_float(auto_draft_benchmark_recency.get("age_hours"), default=0.0)
+                    if auto_draft_benchmark_recency.get("age_hours") is not None
+                    else None
+                ),
+                "benchmark_auto_reuse_generated_at": auto_draft_benchmark_recency.get("generated_at"),
+                "benchmark_auto_reuse_generated_at_source": str(
+                    auto_draft_benchmark_recency.get("generated_at_source") or "none"
+                ),
+                "benchmark_auto_reuse_parse_error": auto_draft_benchmark_recency.get("parse_error"),
+                "benchmark_auto_reuse_inspection_path": str(
+                    auto_draft_benchmark_recency.get("path") or benchmark_report_path
+                ),
+                "evidence_runtime_history_path": str(resolved_evidence_runtime_history_path),
+                "evidence_runtime_history_path_source": evidence_runtime_history_path_source,
+                "evidence_runtime_history_window": int(resolved_evidence_runtime_history_window),
+                "evidence_runtime_history_window_source": evidence_runtime_history_window_source,
+                "resolved_evidence_pressure_enable": bool(resolved_draft_evidence_pressure_enable),
+                "evidence_pressure_enable_source": str(draft_evidence_pressure_enable_source),
+                "resolved_evidence_pressure_min_priority_boost": float(
+                    resolved_draft_evidence_pressure_min_priority_boost
+                ),
+                "evidence_pressure_min_priority_boost_source": str(
+                    draft_evidence_pressure_min_priority_boost_source
+                ),
+                "resolved_evidence_pressure_limit_increase": int(resolved_draft_evidence_pressure_limit_increase),
+                "evidence_pressure_limit_increase_source": str(draft_evidence_pressure_limit_increase_source),
+                "resolved_evidence_pressure_statuses": str(resolved_draft_evidence_pressure_statuses),
+                "evidence_pressure_statuses_source": str(draft_evidence_pressure_statuses_source),
             }
             daily_config_path = draft_base_config_path
             stage_errors.append({"stage": "draft_experiment_jobs", "error": str(exc)})
@@ -6694,6 +8217,46 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
             "environment_source": str(draft_environment_source),
             "resolved_default_sample_size": int(resolved_draft_default_sample_size),
             "default_sample_size_source": str(draft_default_sample_size_source),
+            "benchmark_report_path": (
+                str(draft_benchmark_report_path) if draft_benchmark_report_path is not None else None
+            ),
+            "benchmark_report_path_source": str(draft_benchmark_report_path_source),
+            "benchmark_min_opportunity": (
+                float(draft_benchmark_min_opportunity)
+                if draft_benchmark_min_opportunity is not None
+                else None
+            ),
+            "benchmark_min_opportunity_source": str(draft_benchmark_min_opportunity_source),
+            "benchmark_max_age_hours": float(resolved_draft_benchmark_max_age_hours),
+            "benchmark_max_age_hours_source": str(draft_benchmark_max_age_hours_source),
+            "benchmark_auto_reuse_status": str(auto_draft_benchmark_reuse_status),
+            "benchmark_auto_reuse_reason": str(auto_draft_benchmark_reuse_reason),
+            "benchmark_auto_reuse_stale": bool(auto_draft_benchmark_stale),
+            "benchmark_auto_reuse_age_hours": (
+                _coerce_float(auto_draft_benchmark_recency.get("age_hours"), default=0.0)
+                if auto_draft_benchmark_recency.get("age_hours") is not None
+                else None
+            ),
+            "benchmark_auto_reuse_generated_at": auto_draft_benchmark_recency.get("generated_at"),
+            "benchmark_auto_reuse_generated_at_source": str(
+                auto_draft_benchmark_recency.get("generated_at_source") or "none"
+            ),
+            "benchmark_auto_reuse_parse_error": auto_draft_benchmark_recency.get("parse_error"),
+            "benchmark_auto_reuse_inspection_path": str(
+                auto_draft_benchmark_recency.get("path") or benchmark_report_path
+            ),
+            "evidence_runtime_history_path": str(resolved_evidence_runtime_history_path),
+            "evidence_runtime_history_path_source": evidence_runtime_history_path_source,
+            "evidence_runtime_history_window": int(resolved_evidence_runtime_history_window),
+            "evidence_runtime_history_window_source": evidence_runtime_history_window_source,
+            "resolved_evidence_pressure_enable": bool(resolved_draft_evidence_pressure_enable),
+            "evidence_pressure_enable_source": str(draft_evidence_pressure_enable_source),
+            "resolved_evidence_pressure_min_priority_boost": float(resolved_draft_evidence_pressure_min_priority_boost),
+            "evidence_pressure_min_priority_boost_source": str(draft_evidence_pressure_min_priority_boost_source),
+            "resolved_evidence_pressure_limit_increase": int(resolved_draft_evidence_pressure_limit_increase),
+            "evidence_pressure_limit_increase_source": str(draft_evidence_pressure_limit_increase_source),
+            "resolved_evidence_pressure_statuses": str(resolved_draft_evidence_pressure_statuses),
+            "evidence_pressure_statuses_source": str(draft_evidence_pressure_statuses_source),
         }
 
     daily_payload: dict[str, Any]
@@ -6766,6 +8329,12 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
     blockers: list[dict[str, Any]] = []
     for row in daily_experiment_runs:
         verdict = str(row.get("verdict") or "").strip().lower()
+        seed_evidence_record_ids = _normalize_record_id_list(row.get("seed_evidence_record_ids"))
+        evidence_lookup_refs = _build_evidence_lookup_refs(seed_evidence_record_ids)
+        evidence_lookup_command = _build_operator_evidence_lookup_command(
+            config_path=config_path,
+            record_ids=seed_evidence_record_ids,
+        )
         if verdict in {"blocked_guardrail", "insufficient_data", "needs_iteration", "invalid_measurement"}:
             blockers.append(
                 {
@@ -6774,6 +8343,9 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "run_id": row.get("run_id"),
                     "verdict": verdict,
                     "root_cause_hints": list(row.get("root_cause_hints") or []),
+                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
+                    "evidence_lookup_refs": list(evidence_lookup_refs),
+                    "evidence_lookup_command": evidence_lookup_command,
                 }
             )
     retest_deltas: list[dict[str, Any]] = []
@@ -6786,6 +8358,12 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         )
         previous_verdict = str(transition.get("previous") or "").strip().lower() or None
         current_verdict = str(transition.get("current") or row.get("verdict") or "").strip().lower() or None
+        seed_evidence_record_ids = _normalize_record_id_list(row.get("seed_evidence_record_ids"))
+        evidence_lookup_refs = _build_evidence_lookup_refs(seed_evidence_record_ids)
+        evidence_lookup_command = _build_operator_evidence_lookup_command(
+            config_path=config_path,
+            record_ids=seed_evidence_record_ids,
+        )
         retest_deltas.append(
             {
                 "hypothesis_id": row.get("hypothesis_id"),
@@ -6795,6 +8373,9 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                 "current_verdict": current_verdict,
                 "metric_transition": side_by_side.get("metric_transition"),
                 "sample_transition": side_by_side.get("sample_transition"),
+                "seed_evidence_record_ids": list(seed_evidence_record_ids),
+                "evidence_lookup_refs": list(evidence_lookup_refs),
+                "evidence_lookup_command": evidence_lookup_command,
             }
         )
         if current_verdict in {"blocked_guardrail", "insufficient_data", "needs_iteration", "invalid_measurement"}:
@@ -6805,26 +8386,47 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "run_id": row.get("run_id"),
                     "verdict": current_verdict,
                     "root_cause_hints": [],
+                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
+                    "evidence_lookup_refs": list(evidence_lookup_refs),
+                    "evidence_lookup_command": evidence_lookup_command,
                 }
             )
 
     promotion_candidates: list[dict[str, Any]] = []
     for row in daily_experiment_runs:
         if str(row.get("verdict") or "").strip().lower() == "promote":
+            seed_evidence_record_ids = _normalize_record_id_list(row.get("seed_evidence_record_ids"))
+            evidence_lookup_refs = _build_evidence_lookup_refs(seed_evidence_record_ids)
+            evidence_lookup_command = _build_operator_evidence_lookup_command(
+                config_path=config_path,
+                record_ids=seed_evidence_record_ids,
+            )
             promotion_candidates.append(
                 {
                     "stage": "daily_pipeline",
                     "hypothesis_id": row.get("hypothesis_id"),
                     "run_id": row.get("run_id"),
+                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
+                    "evidence_lookup_refs": list(evidence_lookup_refs),
+                    "evidence_lookup_command": evidence_lookup_command,
                 }
             )
     for row in retest_runs:
         if str(row.get("verdict") or "").strip().lower() == "promote":
+            seed_evidence_record_ids = _normalize_record_id_list(row.get("seed_evidence_record_ids"))
+            evidence_lookup_refs = _build_evidence_lookup_refs(seed_evidence_record_ids)
+            evidence_lookup_command = _build_operator_evidence_lookup_command(
+                config_path=config_path,
+                record_ids=seed_evidence_record_ids,
+            )
             promotion_candidates.append(
                 {
                     "stage": "execute_retests",
                     "hypothesis_id": row.get("hypothesis_id"),
                     "run_id": row.get("run_id"),
+                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
+                    "evidence_lookup_refs": list(evidence_lookup_refs),
+                    "evidence_lookup_command": evidence_lookup_command,
                 }
             )
 
@@ -6834,6 +8436,44 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         current = str(row.get("current_verdict") or "unknown")
         key = f"{previous}->{current}"
         retest_transition_counts[key] = int(retest_transition_counts.get(key) or 0) + 1
+
+    unresolved_verdicts = {"blocked_guardrail", "insufficient_data", "needs_iteration", "invalid_measurement"}
+    evidence_lookup_batch_record_ids: list[str] = []
+    for row in blockers:
+        if not isinstance(row, dict):
+            continue
+        for record_id in _normalize_record_id_list(row.get("seed_evidence_record_ids")):
+            if record_id in evidence_lookup_batch_record_ids:
+                continue
+            evidence_lookup_batch_record_ids.append(record_id)
+    for row in retest_deltas:
+        if not isinstance(row, dict):
+            continue
+        current_verdict = str(row.get("current_verdict") or "").strip().lower()
+        if current_verdict and current_verdict not in unresolved_verdicts:
+            continue
+        for record_id in _normalize_record_id_list(row.get("seed_evidence_record_ids")):
+            if record_id in evidence_lookup_batch_record_ids:
+                continue
+            evidence_lookup_batch_record_ids.append(record_id)
+    evidence_lookup_batch_command = _build_operator_evidence_lookup_command(
+        config_path=config_path,
+        record_ids=evidence_lookup_batch_record_ids,
+        output_path=evidence_lookup_report_path,
+    )
+    evidence_lookup_batch_ready = bool(evidence_lookup_batch_record_ids)
+    evidence_lookup_batch = {
+        "ready": evidence_lookup_batch_ready,
+        "record_ids": list(evidence_lookup_batch_record_ids),
+        "record_count": len(evidence_lookup_batch_record_ids),
+        "output_path": str(evidence_lookup_report_path),
+        "command": evidence_lookup_batch_command,
+        "next_action": (
+            "Run the batch evidence lookup command to resolve unresolved blocker/retest source records."
+            if evidence_lookup_batch_ready
+            else "No unresolved blocker/retest evidence record IDs detected."
+        ),
+    }
 
     metrics = {
         "daily_promotions": _count_verdict(daily_experiment_runs, "promote"),
@@ -6857,6 +8497,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         suggested_actions.append("Increase sample sizes for unresolved hypotheses in controlled cohorts.")
     if int(metrics["retest_promotions"] or 0) > 0:
         suggested_actions.append("Promote retest winners to the next validation stage and monitor live guardrails.")
+    if evidence_lookup_batch_ready:
+        suggested_actions.append("Run batch evidence lookup to gather source snippets for unresolved blocker/retest IDs.")
     if not suggested_actions:
         suggested_actions.append("No urgent blockers detected; continue ingesting feedback and validating new hypotheses.")
 
@@ -7164,6 +8806,19 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "blockers": blockers,
         "retest_deltas": retest_deltas,
         "retest_transition_counts": retest_transition_counts,
+        "evidence_lookup_batch": evidence_lookup_batch,
+        "evidence_runtime_history_path": str(resolved_evidence_runtime_history_path),
+        "evidence_runtime_history_path_source": evidence_runtime_history_path_source,
+        "evidence_runtime_history_window": int(resolved_evidence_runtime_history_window),
+        "evidence_runtime_history_window_source": evidence_runtime_history_window_source,
+        "benchmark_stale_runtime_history_window": int(resolved_benchmark_stale_runtime_history_window),
+        "benchmark_stale_runtime_history_window_source": benchmark_stale_runtime_history_window_source,
+        "benchmark_stale_runtime_repeat_threshold": int(resolved_benchmark_stale_runtime_repeat_threshold),
+        "benchmark_stale_runtime_repeat_threshold_source": benchmark_stale_runtime_repeat_threshold_source,
+        "benchmark_stale_runtime_rate_ceiling": round(float(resolved_benchmark_stale_runtime_rate_ceiling), 4),
+        "benchmark_stale_runtime_rate_ceiling_source": benchmark_stale_runtime_rate_ceiling_source,
+        "benchmark_stale_runtime_consecutive_runs": int(resolved_benchmark_stale_runtime_consecutive_runs),
+        "benchmark_stale_runtime_consecutive_runs_source": benchmark_stale_runtime_consecutive_runs_source,
         "suggested_actions": suggested_actions,
     }
 
@@ -7179,6 +8834,17 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "draft_report_path": str(draft_report_path),
         "draft_output_config_path": str(draft_output_config_path),
         "draft_artifacts_dir": str(draft_artifacts_dir),
+        "evidence_lookup_report_path": str(evidence_lookup_report_path),
+        "evidence_runtime_history_path": str(resolved_evidence_runtime_history_path),
+        "evidence_runtime_history_window": int(resolved_evidence_runtime_history_window),
+        "benchmark_stale_runtime_history_window": int(resolved_benchmark_stale_runtime_history_window),
+        "benchmark_stale_runtime_history_window_source": benchmark_stale_runtime_history_window_source,
+        "benchmark_stale_runtime_repeat_threshold": int(resolved_benchmark_stale_runtime_repeat_threshold),
+        "benchmark_stale_runtime_repeat_threshold_source": benchmark_stale_runtime_repeat_threshold_source,
+        "benchmark_stale_runtime_rate_ceiling": round(float(resolved_benchmark_stale_runtime_rate_ceiling), 4),
+        "benchmark_stale_runtime_rate_ceiling_source": benchmark_stale_runtime_rate_ceiling_source,
+        "benchmark_stale_runtime_consecutive_runs": int(resolved_benchmark_stale_runtime_consecutive_runs),
+        "benchmark_stale_runtime_consecutive_runs_source": benchmark_stale_runtime_consecutive_runs_source,
         "daily_report_path": str(daily_report_path),
         "retest_report_path": str(retest_report_path),
         "inbox_summary_path": str(inbox_summary_path),
@@ -7190,6 +8856,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "fitness_leaderboard": leaderboard_payload,
         "seed_from_leaderboard": seed_payload,
         "draft": draft_payload,
+        "evidence_lookup_batch": evidence_lookup_batch,
         "summary": inbox_summary_base,
     }
     operator_report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -7201,6 +8868,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                 report_path=operator_report_path,
                 top_limit=max(1, int(resolved_benchmark_top_limit)),
                 output_path=benchmark_report_path,
+                evidence_runtime_history_path=resolved_evidence_runtime_history_path,
+                evidence_runtime_history_window=max(1, int(resolved_evidence_runtime_history_window)),
                 strict=False,
                 json_compact=False,
             )
@@ -7209,6 +8878,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                 args=benchmark_args,
             )
             benchmark_payload["top_limit_source"] = str(benchmark_top_limit_source)
+            benchmark_payload["evidence_runtime_history_path"] = str(resolved_evidence_runtime_history_path)
+            benchmark_payload["evidence_runtime_history_path_source"] = evidence_runtime_history_path_source
+            benchmark_payload["evidence_runtime_history_window"] = int(resolved_evidence_runtime_history_window)
+            benchmark_payload["evidence_runtime_history_window_source"] = evidence_runtime_history_window_source
         except Exception as exc:
             benchmark_payload = {
                 "status": "error",
@@ -7216,6 +8889,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                 "output_path": str(benchmark_report_path),
                 "top_limit": int(resolved_benchmark_top_limit),
                 "top_limit_source": str(benchmark_top_limit_source),
+                "evidence_runtime_history_path": str(resolved_evidence_runtime_history_path),
+                "evidence_runtime_history_path_source": evidence_runtime_history_path_source,
+                "evidence_runtime_history_window": int(resolved_evidence_runtime_history_window),
+                "evidence_runtime_history_window_source": evidence_runtime_history_window_source,
             }
             stage_errors.append({"stage": "benchmark_frustrations", "error": str(exc)})
     else:
@@ -7224,6 +8901,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
             "output_path": str(benchmark_report_path),
             "top_limit": int(resolved_benchmark_top_limit),
             "top_limit_source": str(benchmark_top_limit_source),
+            "evidence_runtime_history_path": str(resolved_evidence_runtime_history_path),
+            "evidence_runtime_history_path_source": evidence_runtime_history_path_source,
+            "evidence_runtime_history_window": int(resolved_evidence_runtime_history_window),
+            "evidence_runtime_history_window_source": evidence_runtime_history_window_source,
         }
 
     benchmark_actions = [
@@ -7464,6 +9145,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                 min_urgency_delta=max(0.0, float(resolved_knowledge_delta_min_urgency_delta)),
                 min_failure_rate_delta=max(0.0, float(resolved_knowledge_delta_min_failure_rate_delta)),
                 min_blocked_guardrail_delta=max(1, int(resolved_knowledge_delta_min_blocked_guardrail_delta)),
+                evidence_runtime_history_path=resolved_evidence_runtime_history_path,
+                evidence_runtime_history_window=max(1, int(resolved_evidence_runtime_history_window)),
                 output_path=knowledge_brief_delta_alert_report_path,
                 strict=False,
                 json_compact=False,
@@ -7510,6 +9193,18 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     else "builtin_default"
                 )
             )
+            knowledge_delta_alert_payload["evidence_runtime_history_path"] = str(
+                resolved_evidence_runtime_history_path
+            )
+            knowledge_delta_alert_payload["evidence_runtime_history_path_source"] = (
+                evidence_runtime_history_path_source
+            )
+            knowledge_delta_alert_payload["evidence_runtime_history_window"] = int(
+                resolved_evidence_runtime_history_window
+            )
+            knowledge_delta_alert_payload["evidence_runtime_history_window_source"] = (
+                evidence_runtime_history_window_source
+            )
         except Exception as exc:
             knowledge_delta_alert_payload = {
                 "status": "error",
@@ -7518,6 +9213,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                 "error_count": 1,
                 "alert_created": False,
                 "domains": _normalize_improvement_knowledge_domains(resolved_knowledge_delta_domains),
+                "evidence_runtime_history_path": str(resolved_evidence_runtime_history_path),
+                "evidence_runtime_history_path_source": evidence_runtime_history_path_source,
+                "evidence_runtime_history_window": int(resolved_evidence_runtime_history_window),
+                "evidence_runtime_history_window_source": evidence_runtime_history_window_source,
             }
             stage_errors.append({"stage": "knowledge_brief_delta_alert", "error": str(exc)})
     else:
@@ -7527,6 +9226,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
             "error_count": 0,
             "alert_created": False,
             "domains": _normalize_improvement_knowledge_domains(resolved_knowledge_delta_domains),
+            "evidence_runtime_history_path": str(resolved_evidence_runtime_history_path),
+            "evidence_runtime_history_path_source": evidence_runtime_history_path_source,
+            "evidence_runtime_history_window": int(resolved_evidence_runtime_history_window),
+            "evidence_runtime_history_window_source": evidence_runtime_history_window_source,
         }
 
     knowledge_alert_actions = [
@@ -7741,6 +9444,11 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "blockers": blockers,
         "retest_deltas": retest_deltas,
         "retest_transition_counts": retest_transition_counts,
+        "evidence_lookup_batch": evidence_lookup_batch,
+        "evidence_runtime_history_path": str(resolved_evidence_runtime_history_path),
+        "evidence_runtime_history_path_source": evidence_runtime_history_path_source,
+        "evidence_runtime_history_window": int(resolved_evidence_runtime_history_window),
+        "evidence_runtime_history_window_source": evidence_runtime_history_window_source,
         "benchmark": benchmark_payload,
         "verify_matrix": verify_payload,
         "verify_matrix_alert": verify_alert_payload,
@@ -7766,6 +9474,19 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "draft_report_path": str(draft_report_path),
         "draft_output_config_path": str(draft_output_config_path),
         "draft_artifacts_dir": str(draft_artifacts_dir),
+        "evidence_lookup_report_path": str(evidence_lookup_report_path),
+        "evidence_runtime_history_path": str(resolved_evidence_runtime_history_path),
+        "evidence_runtime_history_path_source": evidence_runtime_history_path_source,
+        "evidence_runtime_history_window": int(resolved_evidence_runtime_history_window),
+        "evidence_runtime_history_window_source": evidence_runtime_history_window_source,
+        "benchmark_stale_runtime_history_window": int(resolved_benchmark_stale_runtime_history_window),
+        "benchmark_stale_runtime_history_window_source": benchmark_stale_runtime_history_window_source,
+        "benchmark_stale_runtime_repeat_threshold": int(resolved_benchmark_stale_runtime_repeat_threshold),
+        "benchmark_stale_runtime_repeat_threshold_source": benchmark_stale_runtime_repeat_threshold_source,
+        "benchmark_stale_runtime_rate_ceiling": round(float(resolved_benchmark_stale_runtime_rate_ceiling), 4),
+        "benchmark_stale_runtime_rate_ceiling_source": benchmark_stale_runtime_rate_ceiling_source,
+        "benchmark_stale_runtime_consecutive_runs": int(resolved_benchmark_stale_runtime_consecutive_runs),
+        "benchmark_stale_runtime_consecutive_runs_source": benchmark_stale_runtime_consecutive_runs_source,
         "benchmark_report_path": str(benchmark_report_path),
         "verify_matrix_report_path": str(verify_matrix_report_path),
         "verify_matrix_alert_report_path": str(verify_matrix_alert_report_path),
@@ -7789,6 +9510,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "blockers": blockers,
         "retest_deltas": retest_deltas,
         "retest_transition_counts": retest_transition_counts,
+        "evidence_lookup_batch": evidence_lookup_batch,
         "verify_matrix": verify_payload,
         "verify_matrix_alert": verify_alert_payload,
         "knowledge_brief": knowledge_brief_payload,
@@ -7880,6 +9602,7 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
     mismatch_count = 0
     missing_count = 0
     invalid_count = 0
+    mapped_run_indexes: set[int] = set()
 
     for index, scenario in enumerate(scenarios):
         scenario_domain = str(scenario.get("domain") or "").strip().lower()
@@ -7963,6 +9686,10 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
             matched_count += 1
         else:
             mismatch_count += 1
+        selected_index_raw = selected_run.get("index")
+        run_index = int(selected_index_raw) if selected_index_raw is not None else -1
+        if run_index >= 0:
+            mapped_run_indexes.add(run_index)
 
         comparisons.append(
             {
@@ -7980,9 +9707,25 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
             }
         )
 
+    unmapped_runs = [
+        dict(row)
+        for row in run_rows
+        if (
+            int(row.get("index")) if row.get("index") is not None else -1
+        ) not in mapped_run_indexes
+    ]
+    unmapped_by_domain_counter: Counter[str] = Counter(
+        str(row.get("domain") or "unknown").strip().lower() or "unknown"
+        for row in unmapped_runs
+    )
+    unmapped_run_count_by_domain = [
+        {"domain": domain, "count": int(count)}
+        for domain, count in sorted(unmapped_by_domain_counter.items(), key=lambda item: (-int(item[1]), item[0]))
+    ]
+
     total_scenarios = len(scenarios)
     verification_status = "ok"
-    if mismatch_count > 0 or missing_count > 0 or invalid_count > 0:
+    if mismatch_count > 0 or missing_count > 0 or invalid_count > 0 or bool(unmapped_runs):
         verification_status = "warning"
 
     summary = {
@@ -7992,6 +9735,9 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
         "missing_count": missing_count,
         "invalid_count": invalid_count,
         "match_rate": round((matched_count / total_scenarios), 4) if total_scenarios > 0 else 0.0,
+        "mapped_run_count": len(mapped_run_indexes),
+        "unmapped_run_count": len(unmapped_runs),
+        "mapped_run_coverage_rate": round((len(mapped_run_indexes) / len(run_rows)), 4) if run_rows else 0.0,
     }
 
     return {
@@ -8003,12 +9749,15 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
         "run_count": len(run_rows),
         "summary": summary,
         "comparisons": comparisons,
+        "unmapped_runs": unmapped_runs,
+        "unmapped_run_count_by_domain": unmapped_run_count_by_domain,
     }
 
 
 def _classify_matrix_drift_severity(payload: dict[str, Any]) -> dict[str, Any]:
     summary = dict(payload.get("summary") or {})
     rows = [row for row in list(payload.get("comparisons") or []) if isinstance(row, dict)]
+    unmapped_runs = [row for row in list(payload.get("unmapped_runs") or []) if isinstance(row, dict)]
     mismatches = [row for row in rows if str(row.get("status") or "") == "mismatch"]
     missing = [row for row in rows if str(row.get("status") or "") == "missing_run"]
     invalid = [row for row in rows if str(row.get("status") or "") == "invalid_scenario"]
@@ -8021,8 +9770,9 @@ def _classify_matrix_drift_severity(payload: dict[str, Any]) -> dict[str, Any]:
     mismatch_count = int(summary.get("mismatch_count") or len(mismatches))
     missing_count = int(summary.get("missing_count") or len(missing))
     invalid_count = int(summary.get("invalid_count") or len(invalid))
+    unmapped_run_count = int(summary.get("unmapped_run_count") or len(unmapped_runs))
     guardrail_mismatch_count = len(guardrail_mismatches)
-    total_issues = mismatch_count + missing_count + invalid_count
+    total_issues = mismatch_count + missing_count + invalid_count + unmapped_run_count
 
     if total_issues <= 0:
         return {
@@ -8032,6 +9782,7 @@ def _classify_matrix_drift_severity(payload: dict[str, Any]) -> dict[str, Any]:
             "mismatch_count": mismatch_count,
             "missing_count": missing_count,
             "invalid_count": invalid_count,
+            "unmapped_run_count": unmapped_run_count,
             "guardrail_mismatch_count": guardrail_mismatch_count,
             "recommended_urgency": None,
             "recommended_confidence": None,
@@ -8056,6 +9807,12 @@ def _classify_matrix_drift_severity(payload: dict[str, Any]) -> dict[str, Any]:
     if invalid_count >= 1:
         score += 1
         reasons.append("has_invalid_scenarios")
+    if unmapped_run_count >= 1:
+        score += 1
+        reasons.append("has_unmapped_runs")
+    if unmapped_run_count >= 3:
+        score += 1
+        reasons.append("multiple_unmapped_runs")
     if guardrail_mismatch_count >= 1:
         score += 3
         reasons.append("guardrail_regression_detected")
@@ -8080,6 +9837,7 @@ def _classify_matrix_drift_severity(payload: dict[str, Any]) -> dict[str, Any]:
         "mismatch_count": mismatch_count,
         "missing_count": missing_count,
         "invalid_count": invalid_count,
+        "unmapped_run_count": unmapped_run_count,
         "guardrail_mismatch_count": guardrail_mismatch_count,
         "recommended_urgency": float(recommended_urgency),
         "recommended_confidence": float(recommended_confidence),
@@ -8094,6 +9852,7 @@ def _build_matrix_drift_mitigations(
     max_items: int = 3,
 ) -> list[str]:
     rows = [row for row in list(payload.get("comparisons") or []) if isinstance(row, dict)]
+    unmapped_runs = [row for row in list(payload.get("unmapped_runs") or []) if isinstance(row, dict)]
     mismatches = [row for row in rows if str(row.get("status") or "") == "mismatch"]
     missing = [row for row in rows if str(row.get("status") or "") == "missing_run"]
     invalid = [row for row in rows if str(row.get("status") or "") == "invalid_scenario"]
@@ -8121,6 +9880,22 @@ def _build_matrix_drift_mitigations(
         actions.append("Run missing controlled experiments before advancing operator-cycle promotions.")
     if invalid:
         actions.append("Fix invalid matrix scenarios (missing match fields or expected verdicts) to restore drift coverage.")
+    if unmapped_runs:
+        coverage_domains = sorted(
+            {
+                str(row.get("domain") or "").strip().lower()
+                for row in unmapped_runs
+                if str(row.get("domain") or "").strip()
+            }
+        )
+        if coverage_domains:
+            actions.append(
+                "Add matrix scenarios for unmapped experiment runs in domains: "
+                + ", ".join(coverage_domains[: max(1, int(max_items))])
+                + "."
+            )
+        else:
+            actions.append("Add matrix scenarios for unmapped experiment runs to restore controlled-test coverage.")
     if not actions:
         actions.append("No matrix drift detected; continue controlled validation cadence.")
     return actions
@@ -8166,6 +9941,11 @@ def cmd_improvement_verify_matrix_alert(args: argparse.Namespace) -> None:
     if verification_status != "ok":
         summary = dict(verification_payload.get("summary") or {})
         comparisons = [row for row in list(verification_payload.get("comparisons") or []) if isinstance(row, dict)]
+        unmapped_rows = [
+            row
+            for row in list(verification_payload.get("unmapped_runs") or [])
+            if isinstance(row, dict)
+        ][:top_items]
         mismatch_rows = [row for row in comparisons if str(row.get("status") or "") == "mismatch"][:top_items]
         missing_rows = [row for row in comparisons if str(row.get("status") or "") == "missing_run"][:top_items]
         invalid_rows = [row for row in comparisons if str(row.get("status") or "") == "invalid_scenario"][:top_items]
@@ -8174,6 +9954,16 @@ def cmd_improvement_verify_matrix_alert(args: argparse.Namespace) -> None:
             str(row.get("scenario_id") or f"scenario_{idx}")
             for idx, row in enumerate([*mismatch_rows, *missing_rows, *invalid_rows])
         ]
+        for row in unmapped_rows:
+            run_ref = str(row.get("run_id") or "").strip()
+            if run_ref:
+                scenario_refs.append(f"run:{run_ref}")
+                continue
+            hypothesis_ref = str(row.get("hypothesis_id") or "").strip()
+            if hypothesis_ref:
+                scenario_refs.append(f"hypothesis:{hypothesis_ref}")
+                continue
+            scenario_refs.append(f"unmapped_index:{int(row.get('index') or 0)}")
         compact_refs = ",".join(scenario_refs[:top_items]) if scenario_refs else "none"
         reason = (
             "matrix_drift_detected"
@@ -8181,6 +9971,7 @@ def cmd_improvement_verify_matrix_alert(args: argparse.Namespace) -> None:
             + f" mismatches={int(summary.get('mismatch_count') or 0)}"
             + f" missing={int(summary.get('missing_count') or 0)}"
             + f" invalid={int(summary.get('invalid_count') or 0)}"
+            + f" unmapped_runs={int(summary.get('unmapped_run_count') or 0)}"
             + f" guardrail_mismatches={int(severity_profile.get('guardrail_mismatch_count') or 0)}"
             + f" top={compact_refs}"
         )
@@ -8328,6 +10119,43 @@ def cmd_improvement_reconcile_codeowner_review_gate_outputs(args: argparse.Names
     desired_require_last_push_approval = bool(
         reviews.get("desired_require_last_push_approval", current_require_last_push_approval)
     )
+    status_checks = dict(loaded.get("required_status_checks") or {})
+    current_required_status_checks: list[str] = []
+    for value in list(
+        status_checks.get("current_contexts")
+        or status_checks.get("contexts")
+        or []
+    ):
+        _append_unique_string(current_required_status_checks, value)
+    current_required_status_checks = sorted(current_required_status_checks)
+
+    desired_required_status_checks: list[str] = []
+    for value in list(
+        status_checks.get("desired_contexts")
+        or current_required_status_checks
+        or []
+    ):
+        _append_unique_string(desired_required_status_checks, value)
+    desired_required_status_checks = sorted(desired_required_status_checks)
+    required_status_checks_change_needed = bool(status_checks.get("change_needed"))
+    current_required_status_checks_csv = ",".join(current_required_status_checks)
+    desired_required_status_checks_csv = ",".join(desired_required_status_checks)
+    provenance = dict(loaded.get("reconcile_provenance") or {})
+    source_workflow_run_id = str(
+        provenance.get("source_workflow_run_id", loaded.get("source_workflow_run_id")) or ""
+    ).strip()
+    source_workflow_run_conclusion = str(
+        provenance.get("source_workflow_run_conclusion", loaded.get("source_workflow_run_conclusion")) or ""
+    ).strip()
+    source_workflow_name = str(
+        provenance.get("source_workflow_name", loaded.get("source_workflow_name")) or ""
+    ).strip()
+    source_workflow_event = str(
+        provenance.get("source_workflow_event", loaded.get("source_workflow_event")) or ""
+    ).strip()
+    source_workflow_run_url = str(
+        provenance.get("source_workflow_run_url", loaded.get("source_workflow_run_url")) or ""
+    ).strip()
 
     payload: dict[str, Any] = {
         "report_path": str(report_path),
@@ -8338,6 +10166,16 @@ def cmd_improvement_reconcile_codeowner_review_gate_outputs(args: argparse.Names
         "desired_required_approving_review_count": desired_required_approving_review_count,
         "current_require_last_push_approval": current_require_last_push_approval,
         "desired_require_last_push_approval": desired_require_last_push_approval,
+        "current_required_status_checks": current_required_status_checks,
+        "desired_required_status_checks": desired_required_status_checks,
+        "current_required_status_checks_csv": current_required_status_checks_csv,
+        "desired_required_status_checks_csv": desired_required_status_checks_csv,
+        "required_status_checks_change_needed": required_status_checks_change_needed,
+        "source_workflow_run_id": source_workflow_run_id or None,
+        "source_workflow_run_conclusion": source_workflow_run_conclusion or None,
+        "source_workflow_name": source_workflow_name or None,
+        "source_workflow_event": source_workflow_event or None,
+        "source_workflow_run_url": source_workflow_run_url or None,
     }
 
     if bool(getattr(args, "emit_github_output", False)):
@@ -8355,6 +10193,17 @@ def cmd_improvement_reconcile_codeowner_review_gate_outputs(args: argparse.Names
             f"desired_required_approving_review_count={desired_required_approving_review_count}",
             "current_require_last_push_approval=" + ("true" if current_require_last_push_approval else "false"),
             "desired_require_last_push_approval=" + ("true" if desired_require_last_push_approval else "false"),
+            f"current_required_status_checks_csv={current_required_status_checks_csv}",
+            f"desired_required_status_checks_csv={desired_required_status_checks_csv}",
+            (
+                "required_status_checks_change_needed="
+                + ("true" if required_status_checks_change_needed else "false")
+            ),
+            f"source_workflow_run_id={source_workflow_run_id or 'none'}",
+            f"source_workflow_run_conclusion={source_workflow_run_conclusion or 'none'}",
+            f"source_workflow_name={source_workflow_name or 'none'}",
+            f"source_workflow_event={source_workflow_event or 'none'}",
+            f"source_workflow_run_url={source_workflow_run_url or 'none'}",
         ]
         github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
         if github_output:
@@ -8376,6 +10225,26 @@ def cmd_improvement_reconcile_codeowner_review_gate_outputs(args: argparse.Names
                     f"- desired_required_approving_review_count: `{desired_required_approving_review_count}`",
                     f"- current_require_last_push_approval: `{'true' if current_require_last_push_approval else 'false'}`",
                     f"- desired_require_last_push_approval: `{'true' if desired_require_last_push_approval else 'false'}`",
+                    (
+                        "- current_required_status_checks_csv: `"
+                        + (current_required_status_checks_csv or "none")
+                        + "`"
+                    ),
+                    (
+                        "- desired_required_status_checks_csv: `"
+                        + (desired_required_status_checks_csv or "none")
+                        + "`"
+                    ),
+                    (
+                        "- required_status_checks_change_needed: `"
+                        + ("true" if required_status_checks_change_needed else "false")
+                        + "`"
+                    ),
+                    f"- source_workflow_run_id: `{source_workflow_run_id or 'none'}`",
+                    f"- source_workflow_run_conclusion: `{source_workflow_run_conclusion or 'none'}`",
+                    f"- source_workflow_name: `{source_workflow_name or 'none'}`",
+                    f"- source_workflow_event: `{source_workflow_event or 'none'}`",
+                    f"- source_workflow_run_url: `{source_workflow_run_url or 'none'}`",
                     "",
                 ]
                 with summary_output.open("a", encoding="utf-8") as handle:
@@ -8385,6 +10254,296 @@ def cmd_improvement_reconcile_codeowner_review_gate_outputs(args: argparse.Names
         payload,
         compact=bool(getattr(args, "json_compact", False)),
     )
+
+
+def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse.Namespace) -> None:
+    report_path = args.report_path.resolve()
+    alert_path = (
+        args.output_path.resolve()
+        if getattr(args, "output_path", None) is not None
+        else (report_path.parent / "codeowner_review_reconcile_drift_alert.json").resolve()
+    )
+    alert_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path = (
+        args.db_path.resolve()
+        if getattr(args, "db_path", None) is not None
+        else (alert_path.parent / "jarvis.db").resolve()
+    )
+
+    loaded: dict[str, Any] = {}
+    report_missing = not report_path.exists()
+    if not report_missing:
+        parsed = json.loads(report_path.read_text(encoding="utf-8"))
+        if not isinstance(parsed, dict):
+            raise ValueError("invalid_reconcile_codeowner_review_gate_payload:expected_json_object")
+        loaded = dict(parsed)
+
+    collaborator_count = _coerce_int(loaded.get("collaborator_count"), default=0)
+    status_checks = dict(loaded.get("required_status_checks") or {})
+    provenance = dict(loaded.get("reconcile_provenance") or {})
+    source_workflow_run_id = str(
+        provenance.get("source_workflow_run_id", loaded.get("source_workflow_run_id")) or ""
+    ).strip()
+    source_workflow_run_conclusion = str(
+        provenance.get("source_workflow_run_conclusion", loaded.get("source_workflow_run_conclusion")) or ""
+    ).strip()
+    source_workflow_name = str(
+        provenance.get("source_workflow_name", loaded.get("source_workflow_name")) or ""
+    ).strip()
+    source_workflow_event = str(
+        provenance.get("source_workflow_event", loaded.get("source_workflow_event")) or ""
+    ).strip()
+    source_workflow_run_url = str(
+        provenance.get("source_workflow_run_url", loaded.get("source_workflow_run_url")) or ""
+    ).strip()
+
+    current_required_status_checks: list[str] = []
+    for value in list(
+        status_checks.get("current_contexts")
+        or status_checks.get("contexts")
+        or []
+    ):
+        _append_unique_string(current_required_status_checks, value)
+    current_required_status_checks = sorted(current_required_status_checks)
+
+    desired_required_status_checks: list[str] = []
+    for value in list(
+        status_checks.get("desired_contexts")
+        or status_checks.get("required_contexts")
+        or current_required_status_checks
+        or []
+    ):
+        _append_unique_string(desired_required_status_checks, value)
+    desired_required_status_checks = sorted(desired_required_status_checks)
+
+    missing_required_status_checks = sorted(
+        set(desired_required_status_checks) - set(current_required_status_checks)
+    )
+    extra_required_status_checks = sorted(
+        set(current_required_status_checks) - set(desired_required_status_checks)
+    )
+
+    required_status_checks_change_needed = bool(status_checks.get("change_needed"))
+    if current_required_status_checks != desired_required_status_checks:
+        required_status_checks_change_needed = True
+
+    current_required_status_checks_csv = ",".join(current_required_status_checks)
+    desired_required_status_checks_csv = ",".join(desired_required_status_checks)
+    missing_required_status_checks_csv = ",".join(missing_required_status_checks) or "none"
+    extra_required_status_checks_csv = ",".join(extra_required_status_checks) or "none"
+
+    rerun_command = str(getattr(args, "rerun_command", None) or "").strip()
+    if not rerun_command:
+        repo_slug = str(loaded.get("repo_slug") or "Dankerbadge/JARVIS").strip() or "Dankerbadge/JARVIS"
+        branch = str(loaded.get("branch") or "main").strip() or "main"
+        min_collaborators = max(1, _coerce_int(loaded.get("min_collaborators"), default=2))
+        rerun_parts = [
+            "bash ./scripts/reconcile_codeowner_review_gate.sh",
+            f"--repo-slug {repo_slug}",
+            f"--branch {branch}",
+            f"--min-collaborators {min_collaborators}",
+        ]
+        for context in desired_required_status_checks:
+            rerun_parts.append(f"--required-status-check {context}")
+        rerun_parts.append("--apply")
+        rerun_parts.append("> output/ci/codeowner_review_reconcile.json")
+        rerun_command = " ".join(rerun_parts)
+    rerun_command = rerun_command or "none"
+
+    reason = (
+        "codeowner_required_status_checks_drift"
+        + f" required_status_checks_change_needed={required_status_checks_change_needed}"
+        + f" missing_contexts={missing_required_status_checks_csv}"
+        + f" extra_contexts={extra_required_status_checks_csv}"
+    )
+    why_now = (
+        "required status-check drift means branch protection no longer enforces the baseline quality gates."
+    )
+    why_not_later = (
+        "deferring required status-check drift can allow unvalidated changes through before auto-apply reconciliation."
+    )
+
+    interrupt_id = ""
+    acknowledge_command = "none"
+    runtime_error = "none"
+    runtime = None
+    try:
+        if required_status_checks_change_needed:
+            runtime = JarvisRuntime(
+                db_path=db_path,
+                repo_path=args.repo_path.resolve(),
+            )
+            missing_count = len(missing_required_status_checks)
+            extra_count = len(extra_required_status_checks)
+            urgency_score = max(0.72, min(0.98, 0.78 + (0.04 * min(5, missing_count + extra_count))))
+            confidence = max(0.72, min(0.98, 0.86 + (0.02 * min(5, missing_count))))
+            decision = InterruptDecision(
+                interrupt_id=new_id("int"),
+                candidate_id=new_id("cand"),
+                domain="operations",
+                reason=reason,
+                urgency_score=urgency_score,
+                confidence=confidence,
+                suppression_window_hit=False,
+                delivered=True,
+                why_now=why_now,
+                why_not_later=why_not_later,
+                status="delivered",
+            )
+            runtime.interrupt_store.store(decision)
+            interrupt = runtime.interrupt_store.get(decision.interrupt_id) or decision.to_dict()
+            interrupt_id = str(interrupt.get("interrupt_id") or "").strip()
+            if interrupt_id:
+                acknowledge_command = (
+                    "python3 -m jarvis.cli interrupts acknowledge "
+                    f"{interrupt_id} --actor operator --db-path {db_path}"
+                )
+            runtime.memory.append_event(
+                "improvement.reconcile_codeowner_review_gate_runtime_alert_created",
+                {
+                    "interrupt_id": interrupt_id or None,
+                    "report_path": str(report_path),
+                    "required_status_checks_change_needed": bool(required_status_checks_change_needed),
+                    "current_required_status_checks": current_required_status_checks,
+                    "desired_required_status_checks": desired_required_status_checks,
+                    "missing_required_status_checks": missing_required_status_checks,
+                    "extra_required_status_checks": extra_required_status_checks,
+                    "rerun_command": rerun_command,
+                    "source_workflow_run_id": source_workflow_run_id or None,
+                    "source_workflow_run_conclusion": source_workflow_run_conclusion or None,
+                    "source_workflow_name": source_workflow_name or None,
+                    "source_workflow_event": source_workflow_event or None,
+                    "source_workflow_run_url": source_workflow_run_url or None,
+                },
+            )
+    except Exception as exc:
+        runtime_error = str(exc).strip() or "unknown_runtime_error"
+    finally:
+        if runtime is not None:
+            runtime.close()
+
+    status = "ok"
+    if report_missing:
+        status = "warning"
+    elif required_status_checks_change_needed:
+        status = "warning"
+
+    first_repair_command = acknowledge_command if acknowledge_command != "none" else rerun_command
+    if not first_repair_command:
+        first_repair_command = "none"
+
+    payload: dict[str, Any] = {
+        "generated_at": utc_now_iso(),
+        "status": status,
+        "report_path": str(report_path),
+        "report_missing": bool(report_missing),
+        "collaborator_count": collaborator_count,
+        "required_status_checks_change_needed": bool(required_status_checks_change_needed),
+        "current_required_status_checks": current_required_status_checks,
+        "desired_required_status_checks": desired_required_status_checks,
+        "missing_required_status_checks": missing_required_status_checks,
+        "extra_required_status_checks": extra_required_status_checks,
+        "current_required_status_checks_csv": current_required_status_checks_csv,
+        "desired_required_status_checks_csv": desired_required_status_checks_csv,
+        "missing_required_status_checks_csv": missing_required_status_checks_csv,
+        "extra_required_status_checks_csv": extra_required_status_checks_csv,
+        "source_workflow_run_id": source_workflow_run_id or None,
+        "source_workflow_run_conclusion": source_workflow_run_conclusion or None,
+        "source_workflow_name": source_workflow_name or None,
+        "source_workflow_event": source_workflow_event or None,
+        "source_workflow_run_url": source_workflow_run_url or None,
+        "alert_created": bool(interrupt_id),
+        "interrupt_id": interrupt_id or None,
+        "interrupt_db_path": str(db_path),
+        "acknowledge_command": None if acknowledge_command == "none" else acknowledge_command,
+        "rerun_command": None if rerun_command == "none" else rerun_command,
+        "first_repair_command": None if first_repair_command == "none" else first_repair_command,
+        "reason": reason,
+        "why_now": why_now,
+        "why_not_later": why_not_later,
+        "runtime_error": None if runtime_error == "none" else runtime_error,
+    }
+    alert_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    payload["codeowner_review_drift_alert_path"] = str(alert_path)
+    payload["codeowner_review_drift_interrupt_id"] = interrupt_id or "none"
+    payload["codeowner_review_drift_alert_created"] = 1 if interrupt_id else 0
+    payload["codeowner_review_drift_change_needed"] = 1 if required_status_checks_change_needed else 0
+    payload["codeowner_review_drift_acknowledge_command"] = acknowledge_command
+    payload["codeowner_review_drift_rerun_command"] = rerun_command
+    payload["codeowner_review_drift_first_repair_command"] = first_repair_command or "none"
+    payload["codeowner_review_drift_error"] = runtime_error
+    payload["codeowner_review_drift_current_contexts_csv"] = current_required_status_checks_csv or "none"
+    payload["codeowner_review_drift_desired_contexts_csv"] = desired_required_status_checks_csv or "none"
+    payload["codeowner_review_drift_missing_contexts_csv"] = missing_required_status_checks_csv
+    payload["codeowner_review_drift_extra_contexts_csv"] = extra_required_status_checks_csv
+    payload["codeowner_review_drift_source_workflow_run_id"] = source_workflow_run_id or "none"
+    payload["codeowner_review_drift_source_workflow_run_conclusion"] = source_workflow_run_conclusion or "none"
+    payload["codeowner_review_drift_source_workflow_name"] = source_workflow_name or "none"
+    payload["codeowner_review_drift_source_workflow_event"] = source_workflow_event or "none"
+    payload["codeowner_review_drift_source_workflow_run_url"] = source_workflow_run_url or "none"
+
+    if bool(getattr(args, "emit_github_output", False)):
+        output_lines = [
+            f"codeowner_review_drift_alert_path={payload['codeowner_review_drift_alert_path']}",
+            f"codeowner_review_drift_interrupt_id={payload['codeowner_review_drift_interrupt_id']}",
+            f"codeowner_review_drift_alert_created={payload['codeowner_review_drift_alert_created']}",
+            f"codeowner_review_drift_change_needed={payload['codeowner_review_drift_change_needed']}",
+            f"codeowner_review_drift_current_contexts_csv={payload['codeowner_review_drift_current_contexts_csv']}",
+            f"codeowner_review_drift_desired_contexts_csv={payload['codeowner_review_drift_desired_contexts_csv']}",
+            f"codeowner_review_drift_missing_contexts_csv={payload['codeowner_review_drift_missing_contexts_csv']}",
+            f"codeowner_review_drift_extra_contexts_csv={payload['codeowner_review_drift_extra_contexts_csv']}",
+            f"codeowner_review_drift_source_workflow_run_id={payload['codeowner_review_drift_source_workflow_run_id']}",
+            f"codeowner_review_drift_source_workflow_run_conclusion={payload['codeowner_review_drift_source_workflow_run_conclusion']}",
+            f"codeowner_review_drift_source_workflow_name={payload['codeowner_review_drift_source_workflow_name']}",
+            f"codeowner_review_drift_source_workflow_event={payload['codeowner_review_drift_source_workflow_event']}",
+            f"codeowner_review_drift_source_workflow_run_url={payload['codeowner_review_drift_source_workflow_run_url']}",
+            f"codeowner_review_drift_acknowledge_command={payload['codeowner_review_drift_acknowledge_command']}",
+            f"codeowner_review_drift_rerun_command={payload['codeowner_review_drift_rerun_command']}",
+            f"codeowner_review_drift_first_repair_command={payload['codeowner_review_drift_first_repair_command']}",
+            f"codeowner_review_drift_error={payload['codeowner_review_drift_error']}",
+        ]
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_output = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                    f"- change_needed: `{payload['codeowner_review_drift_change_needed']}`",
+                    f"- alert_created: `{payload['codeowner_review_drift_alert_created']}`",
+                    f"- interrupt_id: `{payload['codeowner_review_drift_interrupt_id']}`",
+                    f"- current_contexts_csv: `{payload['codeowner_review_drift_current_contexts_csv']}`",
+                    f"- desired_contexts_csv: `{payload['codeowner_review_drift_desired_contexts_csv']}`",
+                    f"- missing_contexts_csv: `{payload['codeowner_review_drift_missing_contexts_csv']}`",
+                    f"- extra_contexts_csv: `{payload['codeowner_review_drift_extra_contexts_csv']}`",
+                    f"- source_workflow_run_id: `{payload['codeowner_review_drift_source_workflow_run_id']}`",
+                    f"- source_workflow_run_conclusion: `{payload['codeowner_review_drift_source_workflow_run_conclusion']}`",
+                    f"- source_workflow_name: `{payload['codeowner_review_drift_source_workflow_name']}`",
+                    f"- source_workflow_event: `{payload['codeowner_review_drift_source_workflow_event']}`",
+                    f"- source_workflow_run_url: `{payload['codeowner_review_drift_source_workflow_run_url']}`",
+                    f"- first_repair_command: `{payload['codeowner_review_drift_first_repair_command']}`",
+                    f"- runtime_error: `{payload['codeowner_review_drift_error']}`",
+                    "",
+                ]
+                with summary_output.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if bool(getattr(args, "strict", False)):
+        if report_missing:
+            raise SystemExit(2)
+        if required_status_checks_change_needed and (runtime_error != "none" or not bool(interrupt_id)):
+            raise SystemExit(2)
 
 
 def cmd_improvement_domain_smoke_outputs(args: argparse.Namespace) -> None:
@@ -12350,6 +14509,7 @@ def _classify_knowledge_delta_alert_severity(
     min_urgency_delta: float = 0.25,
     min_failure_rate_delta: float = 0.05,
     min_blocked_guardrail_delta: int = 1,
+    evidence_runtime_history: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     status = str(delta_payload.get("status") or "").strip().lower()
     domain_deltas = [row for row in list(delta_payload.get("domain_deltas") or []) if isinstance(row, dict)]
@@ -12384,7 +14544,31 @@ def _classify_knowledge_delta_alert_severity(
         if blocked_guardrail_delta >= max(1, int(min_blocked_guardrail_delta)) or debug_hotspot_delta >= 2:
             critical_domains.append(row)
 
-    total_regression_signals = len(worsening_domains) + len(accelerating_frictions) + len(debug_regressions)
+    evidence_history = dict(evidence_runtime_history or {})
+    evidence_trend = str(evidence_history.get("trend") or "").strip().lower()
+    evidence_priority_boost = max(0.0, _coerce_float(evidence_history.get("priority_boost"), default=0.0))
+    evidence_recent_unresolved_runs = max(
+        0,
+        _coerce_int(evidence_history.get("recent_unresolved_runs"), default=0),
+    )
+    evidence_recurring_id_count = max(
+        0,
+        _coerce_int(evidence_history.get("recurring_missing_record_id_count"), default=0),
+    )
+    evidence_regression_signals = 0
+    if evidence_trend == "worsening":
+        evidence_regression_signals += 2
+    elif evidence_trend in {"persistent", "insufficient_history"} and evidence_recent_unresolved_runs > 0:
+        evidence_regression_signals += 1
+    if evidence_recurring_id_count >= 2:
+        evidence_regression_signals += 1
+
+    total_regression_signals = (
+        len(worsening_domains)
+        + len(accelerating_frictions)
+        + len(debug_regressions)
+        + evidence_regression_signals
+    )
     if total_regression_signals <= 0:
         return {
             "severity": "none",
@@ -12401,6 +14585,9 @@ def _classify_knowledge_delta_alert_severity(
             "worsening_domains": [],
             "accelerating_frictions": [],
             "debug_regressions": [],
+            "evidence_runtime_trend": evidence_trend or None,
+            "evidence_runtime_priority_boost": round(float(evidence_priority_boost), 4),
+            "evidence_runtime_history": evidence_history,
         }
 
     reasons: list[str] = []
@@ -12426,6 +14613,21 @@ def _classify_knowledge_delta_alert_severity(
     if critical_domains:
         score += 2
         reasons.append("critical_domain_regressions")
+    if evidence_trend == "worsening":
+        score += 2
+        reasons.append("evidence_lookup_runtime_worsening")
+    elif evidence_trend == "persistent" and evidence_recent_unresolved_runs > 0:
+        score += 1
+        reasons.append("evidence_lookup_runtime_persistent")
+    elif evidence_trend == "insufficient_history" and evidence_recent_unresolved_runs > 0:
+        score += 1
+        reasons.append("evidence_lookup_runtime_emerging")
+    if evidence_recurring_id_count >= 2:
+        score += 1
+        reasons.append("evidence_lookup_runtime_recurring_ids")
+    if evidence_priority_boost >= 0.75:
+        score += 1
+        reasons.append("evidence_lookup_runtime_priority_boost_high")
     if status != "ok":
         score += 1
         reasons.append("delta_payload_warning_status")
@@ -12446,6 +14648,9 @@ def _classify_knowledge_delta_alert_severity(
         "worsening_domains": worsening_domains,
         "accelerating_frictions": accelerating_frictions,
         "debug_regressions": debug_regressions,
+        "evidence_runtime_trend": evidence_trend or None,
+        "evidence_runtime_priority_boost": round(float(evidence_priority_boost), 4),
+        "evidence_runtime_history": evidence_history,
     }
 
 
@@ -12470,6 +14675,13 @@ def _build_knowledge_delta_mitigations(
         row
         for row in list(severity_profile.get("debug_regressions") or [])
         if isinstance(row, dict)
+    ]
+    evidence_runtime_trend = str(severity_profile.get("evidence_runtime_trend") or "").strip().lower()
+    evidence_history = dict(severity_profile.get("evidence_runtime_history") or {})
+    evidence_recurring_ids = [
+        str(item).strip()
+        for item in list(evidence_history.get("recurring_missing_record_ids") or [])[: max(1, int(max_items))]
+        if str(item).strip()
     ]
     actions: list[str] = []
     if severity == "critical":
@@ -12496,6 +14708,14 @@ def _build_knowledge_delta_mitigations(
             f"(failure_rate_delta={row.get('failure_rate_delta')}, "
             f"blocked_guardrail_count_delta={row.get('blocked_guardrail_count_delta')})."
         )
+    if evidence_runtime_trend in {"worsening", "persistent", "insufficient_history"}:
+        action = (
+            "Resolve recurring unresolved evidence lookup record IDs to prevent source-grounding blind spots "
+            f"(trend={evidence_runtime_trend})."
+        )
+        if evidence_recurring_ids:
+            action += f" Focus IDs: {','.join(evidence_recurring_ids)}."
+        actions.append(action)
     if not actions:
         actions.append("No high-priority knowledge delta regressions detected; continue monitoring and controlled validation cadence.")
     return actions
@@ -12508,6 +14728,21 @@ def cmd_improvement_knowledge_brief_delta_alert(args: argparse.Namespace) -> Non
     )
     top_limit = max(1, int(getattr(args, "top_limit", 10) or 10))
     alert_max_items = max(1, int(getattr(args, "alert_max_items", 3) or 3))
+    evidence_runtime_history_path_raw = getattr(args, "evidence_runtime_history_path", None)
+    evidence_runtime_history_path: Path | None = None
+    if evidence_runtime_history_path_raw is not None and str(evidence_runtime_history_path_raw).strip():
+        evidence_runtime_history_path = _resolve_path_from_base(
+            evidence_runtime_history_path_raw,
+            base_dir=Path.cwd(),
+        ).resolve()
+    evidence_runtime_history_window = max(
+        1,
+        _coerce_int(getattr(args, "evidence_runtime_history_window", 7), default=7),
+    )
+    evidence_runtime_history = _summarize_evidence_runtime_history(
+        history_path=evidence_runtime_history_path,
+        window=evidence_runtime_history_window,
+    )
 
     delta_args = argparse.Namespace(
         domains=getattr(args, "domains", None),
@@ -12536,6 +14771,7 @@ def cmd_improvement_knowledge_brief_delta_alert(args: argparse.Namespace) -> Non
             1,
             int(getattr(args, "min_blocked_guardrail_delta", 1) or 1),
         ),
+        evidence_runtime_history=evidence_runtime_history,
     )
     drift_severity = str(severity_profile.get("severity") or "none")
     mitigations = _build_knowledge_delta_mitigations(
@@ -12645,6 +14881,7 @@ def cmd_improvement_knowledge_brief_delta_alert(args: argparse.Namespace) -> Non
                     "accelerating_refs": accelerating_refs,
                     "debug_refs": debug_refs,
                     "mitigation_actions": mitigations,
+                    "evidence_lookup_runtime_history": evidence_runtime_history,
                 },
             )
             alert_payload = {
@@ -12688,13 +14925,17 @@ def cmd_improvement_knowledge_brief_delta_alert(args: argparse.Namespace) -> Non
         ),
         "mitigation_actions": mitigations,
         "delta": delta_payload,
+        "evidence_lookup_runtime_history": evidence_runtime_history,
         "thresholds": {
             "min_worsening_score": max(1, int(getattr(args, "min_worsening_score", 2) or 2)),
             "min_urgency_delta": max(0.0, float(getattr(args, "min_urgency_delta", 0.25) or 0.25)),
             "min_failure_rate_delta": max(0.0, float(getattr(args, "min_failure_rate_delta", 0.05) or 0.05)),
             "min_blocked_guardrail_delta": max(1, int(getattr(args, "min_blocked_guardrail_delta", 1) or 1)),
+            "evidence_runtime_history_window": int(evidence_runtime_history_window),
         },
     }
+    if evidence_runtime_history_path is not None:
+        payload["evidence_lookup_runtime_history_path"] = str(evidence_runtime_history_path)
 
     output_path = args.output_path.resolve() if args.output_path is not None else None
     if output_path is not None:
@@ -12823,6 +15064,69 @@ def _build_knowledge_bootstrap_route_payload(*, report_path: Path) -> dict[str, 
     bootstrap_required = bool(knowledge_bootstrap_state.get("bootstrap_required")) or phase == "bootstrap_pending"
     next_action_command = str(knowledge_bootstrap_state.get("next_action_command") or "").strip() or None
     next_action = str(knowledge_bootstrap_state.get("next_action") or "").strip() or None
+    draft_payload = dict(loaded.get("draft") or {})
+    benchmark_auto_reuse_status = str(draft_payload.get("benchmark_auto_reuse_status") or "").strip().lower()
+    benchmark_report_path_source = str(draft_payload.get("benchmark_report_path_source") or "").strip().lower()
+    benchmark_auto_reuse_stale = bool(draft_payload.get("benchmark_auto_reuse_stale"))
+    benchmark_stale_fallback = bool(
+        benchmark_auto_reuse_stale
+        or benchmark_auto_reuse_status == "stale_skipped"
+        or benchmark_report_path_source == "output_default_existing_stale_skipped"
+    )
+    benchmark_stale_reason = str(draft_payload.get("benchmark_auto_reuse_reason") or "").strip()
+    if benchmark_stale_fallback and not benchmark_stale_reason:
+        benchmark_stale_reason = "auto benchmark reuse skipped because artifact exceeded stale age limit"
+    benchmark_stale_age_hours_raw = draft_payload.get("benchmark_auto_reuse_age_hours")
+    benchmark_stale_age_hours = (
+        _coerce_float(benchmark_stale_age_hours_raw, default=0.0) if benchmark_stale_age_hours_raw is not None else None
+    )
+    benchmark_stale_max_age_hours_raw = draft_payload.get("benchmark_max_age_hours")
+    benchmark_stale_max_age_hours = (
+        _coerce_float(benchmark_stale_max_age_hours_raw, default=0.0)
+        if benchmark_stale_max_age_hours_raw is not None
+        else None
+    )
+    benchmark_stale_next_action = (
+        "Draft skipped stale benchmark reuse; use the refreshed benchmark artifact from this run on the next draft cycle."
+        if benchmark_stale_fallback
+        else "none"
+    )
+    benchmark_stale_history_window_raw = loaded.get("benchmark_stale_runtime_history_window")
+    benchmark_stale_history_window = (
+        max(1, _coerce_int(benchmark_stale_history_window_raw, default=7))
+        if benchmark_stale_history_window_raw is not None
+        else 7
+    )
+    benchmark_stale_history_window_source = (
+        str(loaded.get("benchmark_stale_runtime_history_window_source") or "").strip() or "builtin_default"
+    )
+    benchmark_stale_repeat_threshold_raw = loaded.get("benchmark_stale_runtime_repeat_threshold")
+    benchmark_stale_repeat_threshold = (
+        max(1, _coerce_int(benchmark_stale_repeat_threshold_raw, default=2))
+        if benchmark_stale_repeat_threshold_raw is not None
+        else 2
+    )
+    benchmark_stale_repeat_threshold_source = (
+        str(loaded.get("benchmark_stale_runtime_repeat_threshold_source") or "").strip() or "builtin_default"
+    )
+    benchmark_stale_rate_ceiling_raw = loaded.get("benchmark_stale_runtime_rate_ceiling")
+    benchmark_stale_rate_ceiling = (
+        min(1.0, max(0.0, _coerce_float(benchmark_stale_rate_ceiling_raw, default=0.6)))
+        if benchmark_stale_rate_ceiling_raw is not None
+        else 0.6
+    )
+    benchmark_stale_rate_ceiling_source = (
+        str(loaded.get("benchmark_stale_runtime_rate_ceiling_source") or "").strip() or "builtin_default"
+    )
+    benchmark_stale_rate_consecutive_runs_raw = loaded.get("benchmark_stale_runtime_consecutive_runs")
+    benchmark_stale_rate_consecutive_runs = (
+        max(1, _coerce_int(benchmark_stale_rate_consecutive_runs_raw, default=2))
+        if benchmark_stale_rate_consecutive_runs_raw is not None
+        else 2
+    )
+    benchmark_stale_rate_consecutive_runs_source = (
+        str(loaded.get("benchmark_stale_runtime_consecutive_runs_source") or "").strip() or "builtin_default"
+    )
 
     status = "ok"
     route = "noop"
@@ -12868,6 +15172,19 @@ def _build_knowledge_bootstrap_route_payload(*, report_path: Path) -> dict[str, 
         "bootstrap_required": bootstrap_required,
         "next_action": next_action,
         "next_action_command": next_action_command,
+        "benchmark_stale_fallback": int(benchmark_stale_fallback),
+        "benchmark_stale_reason": benchmark_stale_reason or "none",
+        "benchmark_stale_age_hours": benchmark_stale_age_hours,
+        "benchmark_stale_max_age_hours": benchmark_stale_max_age_hours,
+        "benchmark_stale_next_action": benchmark_stale_next_action,
+        "benchmark_stale_history_window": int(benchmark_stale_history_window),
+        "benchmark_stale_history_window_source": benchmark_stale_history_window_source,
+        "benchmark_stale_repeat_threshold": int(benchmark_stale_repeat_threshold),
+        "benchmark_stale_repeat_threshold_source": benchmark_stale_repeat_threshold_source,
+        "benchmark_stale_rate_ceiling": round(float(benchmark_stale_rate_ceiling), 4),
+        "benchmark_stale_rate_ceiling_source": benchmark_stale_rate_ceiling_source,
+        "benchmark_stale_rate_consecutive_runs": int(benchmark_stale_rate_consecutive_runs),
+        "benchmark_stale_rate_consecutive_runs_source": benchmark_stale_rate_consecutive_runs_source,
         "knowledge_bootstrap_state": knowledge_bootstrap_state,
     }
 
@@ -13001,6 +15318,60 @@ def _build_knowledge_bootstrap_route_outputs_payload(
     route = str(payload.get("route") or "noop").strip() or "noop"
     next_action = str(payload.get("next_action") or "").strip() or "none"
     next_action_command = str(payload.get("next_action_command") or "").strip() or "none"
+    benchmark_stale_fallback_raw = payload.get("benchmark_stale_fallback")
+    benchmark_stale_fallback = (
+        int(bool(benchmark_stale_fallback_raw))
+        if benchmark_stale_fallback_raw is not None
+        else 0
+    )
+    benchmark_stale_reason = str(payload.get("benchmark_stale_reason") or "").strip() or "none"
+    benchmark_stale_next_action = str(payload.get("benchmark_stale_next_action") or "").strip() or "none"
+    benchmark_stale_age_hours_raw = payload.get("benchmark_stale_age_hours")
+    benchmark_stale_age_hours = (
+        _coerce_float(benchmark_stale_age_hours_raw, default=0.0)
+        if benchmark_stale_age_hours_raw is not None
+        else None
+    )
+    benchmark_stale_max_age_hours_raw = payload.get("benchmark_stale_max_age_hours")
+    benchmark_stale_max_age_hours = (
+        _coerce_float(benchmark_stale_max_age_hours_raw, default=0.0)
+        if benchmark_stale_max_age_hours_raw is not None
+        else None
+    )
+    benchmark_stale_history_window = max(
+        1,
+        _coerce_int(payload.get("benchmark_stale_history_window"), default=7),
+    )
+    benchmark_stale_history_window_source = (
+        str(payload.get("benchmark_stale_history_window_source") or "").strip() or "builtin_default"
+    )
+    benchmark_stale_repeat_threshold = max(
+        1,
+        _coerce_int(payload.get("benchmark_stale_repeat_threshold"), default=2),
+    )
+    benchmark_stale_repeat_threshold_source = (
+        str(payload.get("benchmark_stale_repeat_threshold_source") or "").strip() or "builtin_default"
+    )
+    benchmark_stale_rate_ceiling = min(
+        1.0,
+        max(0.0, _coerce_float(payload.get("benchmark_stale_rate_ceiling"), default=0.6)),
+    )
+    benchmark_stale_rate_ceiling_source = (
+        str(payload.get("benchmark_stale_rate_ceiling_source") or "").strip() or "builtin_default"
+    )
+    benchmark_stale_rate_consecutive_runs = max(
+        1,
+        _coerce_int(payload.get("benchmark_stale_rate_consecutive_runs"), default=2),
+    )
+    benchmark_stale_rate_consecutive_runs_source = (
+        str(payload.get("benchmark_stale_rate_consecutive_runs_source") or "").strip() or "builtin_default"
+    )
+    if benchmark_stale_fallback != 0 and benchmark_stale_reason == "none":
+        benchmark_stale_reason = "auto benchmark reuse skipped because artifact exceeded stale age limit"
+    if benchmark_stale_fallback != 0 and benchmark_stale_next_action == "none":
+        benchmark_stale_next_action = (
+            "Draft skipped stale benchmark reuse; use the refreshed benchmark artifact from this run on the next draft cycle."
+        )
     route_blocking = status == "warning" and route != "bootstrap"
 
     result = {
@@ -13012,6 +15383,19 @@ def _build_knowledge_bootstrap_route_outputs_payload(
         "route_blocking": int(route_blocking),
         "next_action": next_action,
         "next_action_command": next_action_command,
+        "benchmark_stale_fallback": int(benchmark_stale_fallback),
+        "benchmark_stale_reason": benchmark_stale_reason,
+        "benchmark_stale_next_action": benchmark_stale_next_action,
+        "benchmark_stale_age_hours": benchmark_stale_age_hours,
+        "benchmark_stale_max_age_hours": benchmark_stale_max_age_hours,
+        "benchmark_stale_history_window": int(benchmark_stale_history_window),
+        "benchmark_stale_history_window_source": benchmark_stale_history_window_source,
+        "benchmark_stale_repeat_threshold": int(benchmark_stale_repeat_threshold),
+        "benchmark_stale_repeat_threshold_source": benchmark_stale_repeat_threshold_source,
+        "benchmark_stale_rate_ceiling": round(float(benchmark_stale_rate_ceiling), 4),
+        "benchmark_stale_rate_ceiling_source": benchmark_stale_rate_ceiling_source,
+        "benchmark_stale_rate_consecutive_runs": int(benchmark_stale_rate_consecutive_runs),
+        "benchmark_stale_rate_consecutive_runs_source": benchmark_stale_rate_consecutive_runs_source,
     }
     if artifact_source is not None:
         result["artifact_source"] = str(artifact_source).strip() or "unknown"
@@ -13046,6 +15430,46 @@ def cmd_improvement_knowledge_bootstrap_route_outputs(args: argparse.Namespace) 
         route_blocking_out = int(payload.get("route_blocking") or 0)
         next_action_out = str(payload.get("next_action") or "").strip() or "none"
         next_action_command_out = str(payload.get("next_action_command") or "").strip() or "none"
+        benchmark_stale_fallback_out = int(payload.get("benchmark_stale_fallback") or 0)
+        benchmark_stale_reason_out = str(payload.get("benchmark_stale_reason") or "").strip() or "none"
+        benchmark_stale_next_action_out = str(payload.get("benchmark_stale_next_action") or "").strip() or "none"
+        benchmark_stale_age_hours_raw = payload.get("benchmark_stale_age_hours")
+        benchmark_stale_age_hours_out = (
+            str(_coerce_float(benchmark_stale_age_hours_raw, default=0.0))
+            if benchmark_stale_age_hours_raw is not None
+            else "none"
+        )
+        benchmark_stale_max_age_hours_raw = payload.get("benchmark_stale_max_age_hours")
+        benchmark_stale_max_age_hours_out = (
+            str(_coerce_float(benchmark_stale_max_age_hours_raw, default=0.0))
+            if benchmark_stale_max_age_hours_raw is not None
+            else "none"
+        )
+        benchmark_stale_history_window_out = max(1, _coerce_int(payload.get("benchmark_stale_history_window"), default=7))
+        benchmark_stale_history_window_source_out = (
+            str(payload.get("benchmark_stale_history_window_source") or "").strip() or "builtin_default"
+        )
+        benchmark_stale_repeat_threshold_out = max(
+            1,
+            _coerce_int(payload.get("benchmark_stale_repeat_threshold"), default=2),
+        )
+        benchmark_stale_repeat_threshold_source_out = (
+            str(payload.get("benchmark_stale_repeat_threshold_source") or "").strip() or "builtin_default"
+        )
+        benchmark_stale_rate_ceiling_out = round(
+            min(1.0, max(0.0, _coerce_float(payload.get("benchmark_stale_rate_ceiling"), default=0.6))),
+            4,
+        )
+        benchmark_stale_rate_ceiling_source_out = (
+            str(payload.get("benchmark_stale_rate_ceiling_source") or "").strip() or "builtin_default"
+        )
+        benchmark_stale_rate_consecutive_runs_out = max(
+            1,
+            _coerce_int(payload.get("benchmark_stale_rate_consecutive_runs"), default=2),
+        )
+        benchmark_stale_rate_consecutive_runs_source_out = (
+            str(payload.get("benchmark_stale_rate_consecutive_runs_source") or "").strip() or "builtin_default"
+        )
         include_artifact_source = bool(getattr(args, "summary_include_artifact_source", False))
 
         output_lines = [
@@ -13056,6 +15480,19 @@ def cmd_improvement_knowledge_bootstrap_route_outputs(args: argparse.Namespace) 
             f"route_blocking={route_blocking_out}",
             f"next_action={next_action_out}",
             f"next_action_command={next_action_command_out}",
+            f"benchmark_stale_fallback={benchmark_stale_fallback_out}",
+            f"benchmark_stale_reason={benchmark_stale_reason_out}",
+            f"benchmark_stale_age_hours={benchmark_stale_age_hours_out}",
+            f"benchmark_stale_max_age_hours={benchmark_stale_max_age_hours_out}",
+            f"benchmark_stale_next_action={benchmark_stale_next_action_out}",
+            f"benchmark_stale_history_window={benchmark_stale_history_window_out}",
+            f"benchmark_stale_history_window_source={benchmark_stale_history_window_source_out}",
+            f"benchmark_stale_repeat_threshold={benchmark_stale_repeat_threshold_out}",
+            f"benchmark_stale_repeat_threshold_source={benchmark_stale_repeat_threshold_source_out}",
+            f"benchmark_stale_rate_ceiling={benchmark_stale_rate_ceiling_out}",
+            f"benchmark_stale_rate_ceiling_source={benchmark_stale_rate_ceiling_source_out}",
+            f"benchmark_stale_rate_consecutive_runs={benchmark_stale_rate_consecutive_runs_out}",
+            f"benchmark_stale_rate_consecutive_runs_source={benchmark_stale_rate_consecutive_runs_source_out}",
         ]
         if include_artifact_source:
             output_lines.insert(1, f"artifact_source={artifact_source_out}")
@@ -13084,6 +15521,19 @@ def cmd_improvement_knowledge_bootstrap_route_outputs(args: argparse.Namespace) 
                         f"- route_blocking: `{route_blocking_out}`",
                         f"- next_action: `{next_action_out}`",
                         f"- next_action_command: `{next_action_command_out}`",
+                        f"- benchmark_stale_fallback: `{benchmark_stale_fallback_out}`",
+                        f"- benchmark_stale_reason: `{benchmark_stale_reason_out}`",
+                        f"- benchmark_stale_age_hours: `{benchmark_stale_age_hours_out}`",
+                        f"- benchmark_stale_max_age_hours: `{benchmark_stale_max_age_hours_out}`",
+                        f"- benchmark_stale_next_action: `{benchmark_stale_next_action_out}`",
+                        f"- benchmark_stale_history_window: `{benchmark_stale_history_window_out}`",
+                        f"- benchmark_stale_history_window_source: `{benchmark_stale_history_window_source_out}`",
+                        f"- benchmark_stale_repeat_threshold: `{benchmark_stale_repeat_threshold_out}`",
+                        f"- benchmark_stale_repeat_threshold_source: `{benchmark_stale_repeat_threshold_source_out}`",
+                        f"- benchmark_stale_rate_ceiling: `{benchmark_stale_rate_ceiling_out}`",
+                        f"- benchmark_stale_rate_ceiling_source: `{benchmark_stale_rate_ceiling_source_out}`",
+                        f"- benchmark_stale_rate_consecutive_runs: `{benchmark_stale_rate_consecutive_runs_out}`",
+                        f"- benchmark_stale_rate_consecutive_runs_source: `{benchmark_stale_rate_consecutive_runs_source_out}`",
                         "",
                     ]
                 )
@@ -13098,12 +15548,1014 @@ def cmd_improvement_knowledge_bootstrap_route_outputs(args: argparse.Namespace) 
         raise SystemExit(2)
 
 
+def cmd_improvement_benchmark_stale_fallback_runtime_alert(args: argparse.Namespace) -> None:
+    route_output_path = args.route_output_path.resolve()
+    alert_path = (
+        args.output_path.resolve()
+        if args.output_path is not None
+        else (route_output_path.parent / "benchmark_stale_fallback_runtime_alert.json").resolve()
+    )
+    alert_path.parent.mkdir(parents=True, exist_ok=True)
+    history_path = _resolve_benchmark_stale_fallback_history_path(
+        raw_value=getattr(args, "history_path", None),
+        fallback_base_dir=alert_path.parent,
+    )
+    history_window = max(1, _coerce_int(getattr(args, "history_window", 7), default=7))
+    repeat_threshold = max(1, _coerce_int(getattr(args, "repeat_threshold", 2), default=2))
+    rate_ceiling = min(1.0, max(0.0, _coerce_float(getattr(args, "rate_ceiling", 0.6), default=0.6)))
+    consecutive_runs = max(1, _coerce_int(getattr(args, "consecutive_runs", 2), default=2))
+    db_path = (
+        args.db_path.resolve()
+        if getattr(args, "db_path", None) is not None
+        else (alert_path.parent / "jarvis.db").resolve()
+    )
+
+    loaded: dict[str, Any] = {}
+    route_missing = not route_output_path.exists()
+    if not route_missing:
+        parsed = json.loads(route_output_path.read_text(encoding="utf-8"))
+        if not isinstance(parsed, dict):
+            raise ValueError("invalid_knowledge_bootstrap_route_outputs:expected_json_object")
+        loaded = dict(parsed)
+
+    route_status = str(loaded.get("status") or "unknown").strip().lower() if not route_missing else "missing"
+    route_phase = str(loaded.get("phase") or "unknown").strip().lower() if not route_missing else "unknown"
+    route_value = str(loaded.get("route") or "noop").strip().lower() if not route_missing else "noop"
+    benchmark_stale_fallback = (
+        _coerce_bool(loaded.get("benchmark_stale_fallback"), default=False)
+        if not route_missing
+        else False
+    )
+    benchmark_stale_reason = (
+        str(loaded.get("benchmark_stale_reason") or "").strip() if not route_missing else ""
+    ) or "none"
+    benchmark_stale_next_action = (
+        str(loaded.get("benchmark_stale_next_action") or "").strip() if not route_missing else ""
+    ) or "none"
+    benchmark_stale_age_hours_raw = loaded.get("benchmark_stale_age_hours") if not route_missing else None
+    benchmark_stale_age_hours = (
+        _coerce_float(benchmark_stale_age_hours_raw, default=0.0)
+        if benchmark_stale_age_hours_raw is not None
+        else None
+    )
+    benchmark_stale_max_age_hours_raw = loaded.get("benchmark_stale_max_age_hours") if not route_missing else None
+    benchmark_stale_max_age_hours = (
+        _coerce_float(benchmark_stale_max_age_hours_raw, default=0.0)
+        if benchmark_stale_max_age_hours_raw is not None
+        else None
+    )
+    rerun_command = (
+        str(getattr(args, "rerun_command", None)).strip()
+        if getattr(args, "rerun_command", None) is not None
+        else ""
+    )
+    if not rerun_command and not route_missing:
+        rerun_command = str(loaded.get("next_action_command") or "").strip()
+    if not rerun_command:
+        rerun_command = "none"
+
+    generated_at = utc_now_iso()
+    history_entry = {
+        "generated_at": generated_at,
+        "route_output_path": str(route_output_path),
+        "alert_path": str(alert_path),
+        "route_status": route_status,
+        "route_phase": route_phase,
+        "route": route_value,
+        "benchmark_stale_fallback": bool(benchmark_stale_fallback),
+        "benchmark_stale_reason": benchmark_stale_reason,
+        "benchmark_stale_age_hours": benchmark_stale_age_hours,
+        "benchmark_stale_max_age_hours": benchmark_stale_max_age_hours,
+        "benchmark_stale_next_action": benchmark_stale_next_action,
+        "route_missing": bool(route_missing),
+    }
+    history_append_error = _append_evidence_runtime_history_row(history_path, history_entry)
+    history_summary = _summarize_benchmark_stale_fallback_history(
+        history_path=history_path,
+        window=history_window,
+    )
+    if history_append_error:
+        history_summary = dict(history_summary)
+        history_summary["append_error"] = history_append_error
+
+    recent_stale_runs = max(0, _coerce_int(history_summary.get("recent_stale_runs"), default=0))
+    recent_stale_rate = max(0.0, _coerce_float(history_summary.get("recent_stale_rate"), default=0.0))
+    history_trend = str(history_summary.get("trend") or "").strip().lower() or "unknown"
+    should_alert = bool(benchmark_stale_fallback) and recent_stale_runs >= repeat_threshold
+    history_rows = _load_evidence_runtime_history_rows(history_path.resolve())
+
+    def _row_is_stale_fallback(row: dict[str, Any]) -> bool:
+        if row.get("benchmark_stale_fallback") is not None:
+            return _coerce_bool(row.get("benchmark_stale_fallback"), default=False)
+        if row.get("stale_fallback") is not None:
+            return _coerce_bool(row.get("stale_fallback"), default=False)
+        return False
+
+    def _rolling_stale_rate(rows: list[dict[str, Any]], index: int, window_size: int) -> float:
+        if not rows:
+            return 0.0
+        start = max(0, int(index) - int(window_size) + 1)
+        subset = rows[start : index + 1]
+        if not subset:
+            return 0.0
+        stale_runs = sum(1 for item in subset if _row_is_stale_fallback(item))
+        return float(stale_runs) / float(len(subset))
+
+    consecutive_rate_breach_runs = 0
+    latest_rolling_rate = 0.0
+    if history_rows:
+        last_index = len(history_rows) - 1
+        latest_rolling_rate = _rolling_stale_rate(history_rows, last_index, history_window)
+        for index in range(last_index, -1, -1):
+            rate_value = _rolling_stale_rate(history_rows, index, history_window)
+            if rate_value + 1e-12 >= rate_ceiling:
+                consecutive_rate_breach_runs += 1
+                continue
+            break
+    rate_gate_blocking = bool(
+        latest_rolling_rate + 1e-12 >= rate_ceiling
+        and consecutive_rate_breach_runs >= consecutive_runs
+    )
+    rate_gate_reason = "none"
+    if rate_gate_blocking:
+        rate_gate_reason = (
+            "benchmark_stale_recent_rate_above_ceiling_consecutive_runs "
+            + f"(rate={round(float(latest_rolling_rate), 4)} "
+            + f"ceiling={round(float(rate_ceiling), 4)} "
+            + f"streak={int(consecutive_rate_breach_runs)} "
+            + f"required={int(consecutive_runs)})"
+        )
+    reason = (
+        "benchmark_stale_fallback_repeated"
+        + f" recent_stale_runs={recent_stale_runs}"
+        + f" repeat_threshold={repeat_threshold}"
+        + f" recent_stale_rate={round(float(recent_stale_rate), 4)}"
+        + f" route_phase={route_phase}"
+        + f" route={route_value}"
+    )
+    why_now = (
+        "repeated stale benchmark fallback means draft prioritization is operating without fresh benchmark context."
+    )
+    why_not_later = (
+        "deferring stale benchmark fallback remediation can compound prioritization drift across operator cycles."
+    )
+
+    interrupt_id = ""
+    acknowledge_command = "none"
+    runtime_error = "none"
+    runtime = None
+    try:
+        if should_alert:
+            runtime = JarvisRuntime(
+                db_path=db_path,
+                repo_path=args.repo_path.resolve(),
+            )
+            urgency_score = max(0.68, min(0.98, 0.72 + (0.18 * recent_stale_rate)))
+            confidence = max(0.7, min(0.98, 0.82 + (0.12 * recent_stale_rate)))
+            decision = InterruptDecision(
+                interrupt_id=new_id("int"),
+                candidate_id=new_id("cand"),
+                domain="operations",
+                reason=reason,
+                urgency_score=urgency_score,
+                confidence=confidence,
+                suppression_window_hit=False,
+                delivered=True,
+                why_now=why_now,
+                why_not_later=why_not_later,
+                status="delivered",
+            )
+            runtime.interrupt_store.store(decision)
+            interrupt = runtime.interrupt_store.get(decision.interrupt_id) or decision.to_dict()
+            interrupt_id = str(interrupt.get("interrupt_id") or "").strip()
+            if interrupt_id:
+                acknowledge_command = (
+                    "python3 -m jarvis.cli interrupts acknowledge "
+                    f"{interrupt_id} --actor operator --db-path {db_path}"
+                )
+            runtime.memory.append_event(
+                "improvement.benchmark_stale_fallback_runtime_alert_created",
+                {
+                    "interrupt_id": interrupt_id or None,
+                    "route_output_path": str(route_output_path),
+                    "benchmark_stale_fallback": bool(benchmark_stale_fallback),
+                    "benchmark_stale_reason": benchmark_stale_reason,
+                    "benchmark_stale_age_hours": benchmark_stale_age_hours,
+                    "benchmark_stale_max_age_hours": benchmark_stale_max_age_hours,
+                    "history_trend": history_trend,
+                    "recent_stale_runs": int(recent_stale_runs),
+                    "repeat_threshold": int(repeat_threshold),
+                    "rerun_command": rerun_command,
+                },
+            )
+    except Exception as exc:
+        runtime_error = str(exc).strip() or "unknown_runtime_error"
+    finally:
+        if runtime is not None:
+            runtime.close()
+
+    status = "ok"
+    if route_missing:
+        status = "warning"
+    elif benchmark_stale_fallback:
+        status = "warning"
+
+    first_repair_command = (
+        acknowledge_command
+        if acknowledge_command != "none"
+        else rerun_command
+    )
+    if not first_repair_command:
+        first_repair_command = "none"
+
+    payload: dict[str, Any] = {
+        "generated_at": generated_at,
+        "status": status,
+        "route_output_path": str(route_output_path),
+        "route_missing": bool(route_missing),
+        "route_status": route_status,
+        "route_phase": route_phase,
+        "route": route_value,
+        "benchmark_stale_fallback": bool(benchmark_stale_fallback),
+        "benchmark_stale_reason": benchmark_stale_reason,
+        "benchmark_stale_age_hours": benchmark_stale_age_hours,
+        "benchmark_stale_max_age_hours": benchmark_stale_max_age_hours,
+        "benchmark_stale_next_action": benchmark_stale_next_action,
+        "repeat_threshold": int(repeat_threshold),
+        "rate_ceiling": round(float(rate_ceiling), 4),
+        "consecutive_runs": int(consecutive_runs),
+        "should_alert": bool(should_alert),
+        "alert_created": bool(interrupt_id),
+        "rate_gate_blocking": bool(rate_gate_blocking),
+        "rate_gate_reason": rate_gate_reason,
+        "consecutive_rate_breach_runs": int(consecutive_rate_breach_runs),
+        "latest_rolling_rate": round(float(latest_rolling_rate), 4),
+        "interrupt_id": interrupt_id or None,
+        "interrupt_db_path": str(db_path),
+        "acknowledge_command": None if acknowledge_command == "none" else acknowledge_command,
+        "rerun_command": None if rerun_command == "none" else rerun_command,
+        "first_repair_command": None if first_repair_command == "none" else first_repair_command,
+        "reason": reason,
+        "why_now": why_now,
+        "why_not_later": why_not_later,
+        "runtime_error": None if runtime_error == "none" else runtime_error,
+        "benchmark_stale_fallback_history_path": str(history_path),
+        "benchmark_stale_fallback_history_window": int(history_window),
+        "benchmark_stale_fallback_history": history_summary,
+    }
+    alert_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    payload["benchmark_stale_runtime_alert_path"] = str(alert_path)
+    payload["benchmark_stale_runtime_interrupt_id"] = interrupt_id or "none"
+    payload["benchmark_stale_runtime_alert_created"] = 1 if interrupt_id else 0
+    payload["benchmark_stale_runtime_should_alert"] = 1 if should_alert else 0
+    payload["benchmark_stale_runtime_acknowledge_command"] = acknowledge_command
+    payload["benchmark_stale_runtime_rerun_command"] = rerun_command
+    payload["benchmark_stale_runtime_first_repair_command"] = first_repair_command or "none"
+    payload["benchmark_stale_runtime_error"] = runtime_error
+    payload["benchmark_stale_runtime_history_trend"] = history_trend
+    payload["benchmark_stale_recent_count"] = int(recent_stale_runs)
+    payload["benchmark_stale_recent_rate"] = round(float(recent_stale_rate), 4)
+    payload["benchmark_stale_repeat_threshold"] = int(repeat_threshold)
+    payload["benchmark_stale_rate_ceiling"] = round(float(rate_ceiling), 4)
+    payload["benchmark_stale_rate_consecutive_runs"] = int(consecutive_runs)
+    payload["benchmark_stale_runtime_consecutive_rate_breach_runs"] = int(consecutive_rate_breach_runs)
+    payload["benchmark_stale_runtime_latest_rolling_rate"] = round(float(latest_rolling_rate), 4)
+    payload["benchmark_stale_runtime_rate_gate_blocking"] = 1 if rate_gate_blocking else 0
+    payload["benchmark_stale_runtime_rate_gate_reason"] = rate_gate_reason
+    payload["benchmark_stale_fallback_current"] = 1 if benchmark_stale_fallback else 0
+    payload["benchmark_stale_history_append_error"] = history_append_error
+
+    if bool(getattr(args, "emit_github_output", False)):
+        alert_path_out = str(payload.get("benchmark_stale_runtime_alert_path") or str(alert_path)).strip() or str(alert_path)
+        interrupt_id_out = (
+            str(payload.get("benchmark_stale_runtime_interrupt_id") or payload.get("interrupt_id") or "none").strip()
+            or "none"
+        )
+        alert_created_out = _coerce_int(
+            payload.get("benchmark_stale_runtime_alert_created")
+            if payload.get("benchmark_stale_runtime_alert_created") is not None
+            else payload.get("alert_created"),
+            default=0,
+        )
+        should_alert_out = _coerce_int(payload.get("benchmark_stale_runtime_should_alert"), default=0)
+        acknowledge_out = (
+            str(
+                payload.get("benchmark_stale_runtime_acknowledge_command")
+                or payload.get("acknowledge_command")
+                or "none"
+            ).strip()
+            or "none"
+        )
+        rerun_out = (
+            str(payload.get("benchmark_stale_runtime_rerun_command") or payload.get("rerun_command") or "none").strip()
+            or "none"
+        )
+        first_repair_out = (
+            str(
+                payload.get("benchmark_stale_runtime_first_repair_command")
+                or payload.get("first_repair_command")
+                or ""
+            ).strip()
+        )
+        if not first_repair_out:
+            first_repair_out = acknowledge_out if acknowledge_out != "none" else rerun_out
+        first_repair_out = first_repair_out or "none"
+        runtime_error_out = (
+            str(payload.get("benchmark_stale_runtime_error") or payload.get("runtime_error") or "none").strip()
+            or "none"
+        )
+        history_trend_out = str(payload.get("benchmark_stale_runtime_history_trend") or history_trend).strip() or "none"
+        recent_count_out = _coerce_int(payload.get("benchmark_stale_recent_count"), default=recent_stale_runs)
+        recent_rate_out = round(_coerce_float(payload.get("benchmark_stale_recent_rate"), default=recent_stale_rate), 4)
+        repeat_threshold_out = _coerce_int(payload.get("benchmark_stale_repeat_threshold"), default=repeat_threshold)
+        rate_ceiling_out = round(_coerce_float(payload.get("benchmark_stale_rate_ceiling"), default=rate_ceiling), 4)
+        consecutive_runs_out = _coerce_int(payload.get("benchmark_stale_rate_consecutive_runs"), default=consecutive_runs)
+        consecutive_rate_breach_runs_out = _coerce_int(
+            payload.get("benchmark_stale_runtime_consecutive_rate_breach_runs"),
+            default=consecutive_rate_breach_runs,
+        )
+        latest_rolling_rate_out = round(
+            _coerce_float(payload.get("benchmark_stale_runtime_latest_rolling_rate"), default=latest_rolling_rate),
+            4,
+        )
+        rate_gate_blocking_out = _coerce_int(
+            payload.get("benchmark_stale_runtime_rate_gate_blocking"),
+            default=1 if rate_gate_blocking else 0,
+        )
+        rate_gate_reason_out = (
+            str(payload.get("benchmark_stale_runtime_rate_gate_reason") or rate_gate_reason).strip()
+            or "none"
+        )
+        stale_current_out = _coerce_int(payload.get("benchmark_stale_fallback_current"), default=0)
+
+        output_lines = [
+            f"benchmark_stale_runtime_alert_path={alert_path_out}",
+            f"benchmark_stale_runtime_interrupt_id={interrupt_id_out}",
+            f"benchmark_stale_runtime_alert_created={alert_created_out}",
+            f"benchmark_stale_runtime_should_alert={should_alert_out}",
+            f"benchmark_stale_runtime_acknowledge_command={acknowledge_out}",
+            f"benchmark_stale_runtime_rerun_command={rerun_out}",
+            f"benchmark_stale_runtime_first_repair_command={first_repair_out}",
+            f"benchmark_stale_runtime_error={runtime_error_out}",
+            f"benchmark_stale_runtime_history_trend={history_trend_out}",
+            f"benchmark_stale_recent_count={recent_count_out}",
+            f"benchmark_stale_recent_rate={recent_rate_out}",
+            f"benchmark_stale_repeat_threshold={repeat_threshold_out}",
+            f"benchmark_stale_rate_ceiling={rate_ceiling_out}",
+            f"benchmark_stale_rate_consecutive_runs={consecutive_runs_out}",
+            f"benchmark_stale_runtime_consecutive_rate_breach_runs={consecutive_rate_breach_runs_out}",
+            f"benchmark_stale_runtime_latest_rolling_rate={latest_rolling_rate_out}",
+            f"benchmark_stale_runtime_rate_gate_blocking={rate_gate_blocking_out}",
+            f"benchmark_stale_runtime_rate_gate_reason={rate_gate_reason_out}",
+            f"benchmark_stale_fallback_current={stale_current_out}",
+        ]
+
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_path = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                    f"- interrupt_id: `{interrupt_id_out}`",
+                    f"- alert_created: `{alert_created_out}`",
+                    f"- should_alert: `{should_alert_out}`",
+                    f"- stale_fallback_current: `{stale_current_out}`",
+                    f"- history_trend: `{history_trend_out}`",
+                    f"- recent_stale_count: `{recent_count_out}`",
+                    f"- recent_stale_rate: `{recent_rate_out}`",
+                    f"- repeat_threshold: `{repeat_threshold_out}`",
+                    f"- rate_ceiling: `{rate_ceiling_out}`",
+                    f"- consecutive_runs: `{consecutive_runs_out}`",
+                    f"- consecutive_rate_breach_runs: `{consecutive_rate_breach_runs_out}`",
+                    f"- latest_rolling_rate: `{latest_rolling_rate_out}`",
+                    f"- rate_gate_blocking: `{rate_gate_blocking_out}`",
+                    f"- rate_gate_reason: `{rate_gate_reason_out}`",
+                    f"- acknowledge_command: `{acknowledge_out}`",
+                    f"- rerun_command: `{rerun_out}`",
+                    f"- first_repair_command: `{first_repair_out}`",
+                    f"- runtime_error: `{runtime_error_out}`",
+                    "",
+                ]
+                with summary_path.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if bool(getattr(args, "strict", False)):
+        if route_missing:
+            raise SystemExit(2)
+        if should_alert and (runtime_error != "none" or not bool(interrupt_id)):
+            raise SystemExit(2)
+
+
+def _build_evidence_lookup_batch_outputs_payload(
+    *,
+    report_path: Path,
+    report_source: str | None = None,
+) -> dict[str, Any]:
+    resolved_report_path = report_path.resolve()
+    if not resolved_report_path.exists():
+        result = {
+            "generated_at": utc_now_iso(),
+            "report_path": str(resolved_report_path),
+            "status": "warning",
+            "reason": "operator_cycle_report_missing",
+            "blocking": 1,
+            "report_status": "unknown",
+            "source_report_type": "missing_report",
+            "ready": 0,
+            "record_ids": [],
+            "record_count": 0,
+            "first_record_id": "none",
+            "record_ids_csv": "none",
+            "command": "none",
+            "evidence_report_path": "none",
+            "next_action": "operator cycle report missing; rerun operator-cycle before evidence lookup batch.",
+            "has_explicit_batch": 0,
+        }
+        if report_source is not None:
+            result["report_source"] = str(report_source).strip() or "unknown"
+        return result
+
+    loaded = json.loads(resolved_report_path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise ValueError("invalid_operator_cycle_report:expected_json_object")
+
+    source_report_type = (
+        "operator_cycle_report"
+        if isinstance(loaded.get("summary"), dict)
+        or str(loaded.get("operator_report_path") or "").strip()
+        or str(loaded.get("inbox_summary_path") or "").strip()
+        else "operator_inbox_summary"
+    )
+    report_status = str(loaded.get("status") or "unknown").strip() or "unknown"
+    has_explicit_batch = isinstance(loaded.get("evidence_lookup_batch"), dict)
+    batch_block = dict(loaded.get("evidence_lookup_batch") or {})
+
+    record_ids = _normalize_record_id_list(batch_block.get("record_ids"))
+    if not record_ids:
+        record_ids = _extract_evidence_record_ids_from_payload(loaded)
+    record_count = _coerce_int(batch_block.get("record_count"), default=len(record_ids))
+    if record_count <= 0 or record_count < len(record_ids):
+        record_count = len(record_ids)
+    first_record_id = record_ids[0] if record_ids else "none"
+    record_ids_csv = ",".join(record_ids) if record_ids else "none"
+
+    evidence_report_path = "none"
+    evidence_report_path_value: Path | None = None
+    evidence_report_path_raw = str(
+        batch_block.get("output_path") or loaded.get("evidence_lookup_report_path") or ""
+    ).strip()
+    if evidence_report_path_raw:
+        evidence_report_path_value = Path(evidence_report_path_raw).expanduser()
+        if not evidence_report_path_value.is_absolute():
+            evidence_report_path_value = (Path.cwd() / evidence_report_path_value).resolve()
+        else:
+            evidence_report_path_value = evidence_report_path_value.resolve()
+        evidence_report_path = str(evidence_report_path_value)
+
+    config_path_value: Path | None = None
+    config_path_raw = str(loaded.get("config_path") or "").strip()
+    if config_path_raw:
+        config_path_value = Path(config_path_raw).expanduser()
+        if not config_path_value.is_absolute():
+            config_path_value = (Path.cwd() / config_path_value).resolve()
+        else:
+            config_path_value = config_path_value.resolve()
+
+    command = str(batch_block.get("command") or "").strip()
+    if (not command or command == "none") and config_path_value is not None and record_ids:
+        command = _build_operator_evidence_lookup_command(
+            config_path=config_path_value,
+            record_ids=record_ids,
+            output_path=evidence_report_path_value,
+        )
+    command = command or "none"
+
+    ready = bool(batch_block.get("ready"))
+    if not has_explicit_batch:
+        ready = bool(record_ids and command != "none")
+    ready = bool(ready and record_ids and command != "none")
+
+    next_action = str(batch_block.get("next_action") or "").strip()
+    if not next_action:
+        next_action = (
+            "Run the batch evidence lookup command to resolve unresolved blocker/retest source records."
+            if ready
+            else "No unresolved blocker/retest evidence record IDs detected."
+        )
+
+    status = "ok"
+    reason = "ok" if has_explicit_batch else "derived_from_report_without_explicit_batch"
+    blocking = 0
+    if record_ids and command == "none":
+        status = "warning"
+        reason = "missing_evidence_lookup_command_for_nonempty_record_ids"
+        blocking = 1
+
+    result = {
+        "generated_at": utc_now_iso(),
+        "report_path": str(resolved_report_path),
+        "status": status,
+        "reason": reason,
+        "blocking": int(blocking),
+        "report_status": report_status,
+        "source_report_type": source_report_type,
+        "ready": 1 if ready else 0,
+        "record_ids": list(record_ids),
+        "record_count": int(record_count),
+        "first_record_id": first_record_id,
+        "record_ids_csv": record_ids_csv,
+        "command": command,
+        "evidence_report_path": evidence_report_path,
+        "next_action": next_action,
+        "has_explicit_batch": 1 if has_explicit_batch else 0,
+    }
+    if report_source is not None:
+        result["report_source"] = str(report_source).strip() or "unknown"
+    return result
+
+
+def cmd_improvement_evidence_lookup_batch_outputs(args: argparse.Namespace) -> None:
+    report_path = args.report_path.resolve()
+    report_source_value = getattr(args, "report_source", None)
+    report_source = (
+        str(report_source_value).strip()
+        if report_source_value is not None and str(report_source_value).strip()
+        else None
+    )
+    payload = _build_evidence_lookup_batch_outputs_payload(
+        report_path=report_path,
+        report_source=report_source,
+    )
+
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    if bool(getattr(args, "emit_github_output", False)):
+        report_path_out = str(payload.get("report_path") or "").strip() or "none"
+        report_source_out = str(payload.get("report_source") or "unknown").strip() or "unknown"
+        status_out = str(payload.get("status") or "warning").strip() or "warning"
+        reason_out = str(payload.get("reason") or "unknown").strip() or "unknown"
+        blocking_out = int(payload.get("blocking") or 0)
+        report_status_out = str(payload.get("report_status") or "unknown").strip() or "unknown"
+        ready_out = int(payload.get("ready") or 0)
+        record_count_out = int(payload.get("record_count") or 0)
+        first_record_id_out = str(payload.get("first_record_id") or "none").strip() or "none"
+        record_ids_csv_out = str(payload.get("record_ids_csv") or "none").strip() or "none"
+        command_out = str(payload.get("command") or "none").strip() or "none"
+        evidence_report_path_out = str(payload.get("evidence_report_path") or "none").strip() or "none"
+        next_action_out = str(payload.get("next_action") or "none").strip() or "none"
+        include_report_source = bool(getattr(args, "summary_include_report_source", False))
+        include_record_ids = bool(getattr(args, "summary_include_record_ids", False))
+
+        output_lines = [
+            f"report_path={report_path_out}",
+            f"status={status_out}",
+            f"reason={reason_out}",
+            f"blocking={blocking_out}",
+            f"report_status={report_status_out}",
+            f"evidence_lookup_ready={ready_out}",
+            f"ready={ready_out}",
+            f"evidence_lookup_record_count={record_count_out}",
+            f"record_count={record_count_out}",
+            f"evidence_lookup_first_record_id={first_record_id_out}",
+            f"first_record_id={first_record_id_out}",
+            f"evidence_lookup_record_ids_csv={record_ids_csv_out}",
+            f"evidence_lookup_command={command_out}",
+            f"command={command_out}",
+            f"evidence_lookup_report_path={evidence_report_path_out}",
+            f"next_action={next_action_out}",
+        ]
+        if include_report_source:
+            output_lines.insert(1, f"report_source={report_source_out}")
+
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_path = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                ]
+                if include_report_source:
+                    summary_lines.append(f"- report_source: `{report_source_out}`")
+                summary_lines.extend(
+                    [
+                        f"- status: `{status_out}`",
+                        f"- reason: `{reason_out}`",
+                        f"- blocking: `{blocking_out}`",
+                        f"- report_status: `{report_status_out}`",
+                        f"- ready: `{ready_out}`",
+                        f"- record_count: `{record_count_out}`",
+                        f"- first_record_id: `{first_record_id_out}`",
+                    ]
+                )
+                if include_record_ids:
+                    summary_lines.append(f"- record_ids_csv: `{record_ids_csv_out}`")
+                summary_lines.extend(
+                    [
+                        f"- command: `{command_out}`",
+                        f"- evidence_report_path: `{evidence_report_path_out}`",
+                        f"- next_action: `{next_action_out}`",
+                        "",
+                    ]
+                )
+                with summary_path.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if bool(getattr(args, "strict", False)) and int(payload.get("blocking") or 0) != 0:
+        raise SystemExit(2)
+
+
+def cmd_improvement_evidence_lookup_runtime_alert(args: argparse.Namespace) -> None:
+    report_path = args.report_path.resolve()
+    alert_path = (
+        args.output_path.resolve()
+        if args.output_path is not None
+        else (report_path.parent / "evidence_lookup_runtime_alert.json").resolve()
+    )
+    alert_path.parent.mkdir(parents=True, exist_ok=True)
+    history_path = _resolve_evidence_runtime_history_path(
+        raw_value=getattr(args, "history_path", None),
+        fallback_base_dir=alert_path.parent,
+    )
+    history_window = max(1, _coerce_int(getattr(args, "history_window", 7), default=7))
+    db_path = (
+        args.db_path.resolve()
+        if getattr(args, "db_path", None) is not None
+        else (alert_path.parent / "jarvis.db").resolve()
+    )
+
+    loaded: dict[str, Any] = {}
+    report_missing = not report_path.exists()
+    if not report_missing:
+        parsed = json.loads(report_path.read_text(encoding="utf-8"))
+        if not isinstance(parsed, dict):
+            raise ValueError("invalid_evidence_lookup_report:expected_json_object")
+        loaded = dict(parsed)
+
+    lookup_status = (
+        "missing_report"
+        if report_missing
+        else str(loaded.get("status") or "unknown").strip().lower() or "unknown"
+    )
+    record_ids = _normalize_record_id_list(loaded.get("record_ids"))
+    requested_count = (
+        _coerce_int(loaded.get("requested_count"), default=len(record_ids))
+        if not report_missing
+        else 0
+    )
+    if requested_count <= 0:
+        requested_count = len(record_ids)
+    missing_record_ids = _normalize_record_id_list(loaded.get("missing_record_ids"))
+    missing_count = (
+        _coerce_int(loaded.get("missing_count"), default=len(missing_record_ids))
+        if not report_missing
+        else 0
+    )
+    if missing_count <= 0 or missing_count < len(missing_record_ids):
+        missing_count = len(missing_record_ids)
+    first_missing_record_id = missing_record_ids[0] if missing_record_ids else "none"
+    missing_record_ids_csv = ",".join(missing_record_ids) if missing_record_ids else "none"
+    resolved_record_id_count = (
+        _coerce_int(loaded.get("resolved_record_id_count"), default=max(0, requested_count - missing_count))
+        if not report_missing
+        else 0
+    )
+
+    rerun_command = (
+        str(getattr(args, "rerun_command", None)).strip()
+        if getattr(args, "rerun_command", None) is not None
+        else ""
+    )
+    if not rerun_command and not report_missing:
+        config_path_raw = str(loaded.get("config_path") or "").strip()
+        if config_path_raw and record_ids:
+            config_path = Path(config_path_raw).expanduser()
+            if not config_path.is_absolute():
+                config_path = (Path.cwd() / config_path).resolve()
+            else:
+                config_path = config_path.resolve()
+            rerun_command = _build_operator_evidence_lookup_command(
+                config_path=config_path,
+                record_ids=record_ids,
+                output_path=report_path,
+            )
+    if not rerun_command:
+        rerun_command = "none"
+
+    reason = (
+        "evidence_lookup_unresolved_records"
+        + f" missing_count={missing_count}"
+        + f" missing_record_ids={missing_record_ids_csv}"
+        + f" lookup_status={lookup_status}"
+    )
+    why_now = (
+        "unresolved evidence record IDs block source-grounded triage for blocker and retest decisions."
+    )
+    why_not_later = (
+        "deferring unresolved evidence records can compound hypothesis drift and hide repeated source gaps."
+    )
+
+    interrupt_id = ""
+    acknowledge_command = "none"
+    runtime_error = "none"
+    runtime = None
+    try:
+        if missing_count > 0:
+            runtime = JarvisRuntime(
+                db_path=db_path,
+                repo_path=args.repo_path.resolve(),
+            )
+            missing_rate = float(missing_count) / float(max(1, requested_count))
+            urgency_score = max(0.7, min(0.98, 0.78 + (0.2 * missing_rate)))
+            confidence = max(0.7, min(0.98, 0.84 + (0.12 * missing_rate)))
+            decision = InterruptDecision(
+                interrupt_id=new_id("int"),
+                candidate_id=new_id("cand"),
+                domain="operations",
+                reason=reason,
+                urgency_score=urgency_score,
+                confidence=confidence,
+                suppression_window_hit=False,
+                delivered=True,
+                why_now=why_now,
+                why_not_later=why_not_later,
+                status="delivered",
+            )
+            runtime.interrupt_store.store(decision)
+            interrupt = runtime.interrupt_store.get(decision.interrupt_id) or decision.to_dict()
+            interrupt_id = str(interrupt.get("interrupt_id") or "").strip()
+            if interrupt_id:
+                acknowledge_command = (
+                    "python3 -m jarvis.cli interrupts acknowledge "
+                    f"{interrupt_id} --actor operator --db-path {db_path}"
+                )
+            runtime.memory.append_event(
+                "improvement.evidence_lookup_runtime_alert_created",
+                {
+                    "interrupt_id": interrupt_id or None,
+                    "report_path": str(report_path),
+                    "lookup_status": lookup_status,
+                    "requested_count": requested_count,
+                    "resolved_record_id_count": resolved_record_id_count,
+                    "missing_count": missing_count,
+                    "missing_record_ids": missing_record_ids,
+                    "rerun_command": rerun_command,
+                },
+            )
+    except Exception as exc:
+        runtime_error = str(exc).strip() or "unknown_runtime_error"
+    finally:
+        if runtime is not None:
+            runtime.close()
+
+    status = "ok"
+    if report_missing:
+        status = "warning"
+    elif missing_count > 0:
+        status = "warning"
+
+    first_repair_command = (
+        acknowledge_command
+        if acknowledge_command != "none"
+        else rerun_command
+    )
+    if not first_repair_command:
+        first_repair_command = "none"
+    generated_at = utc_now_iso()
+
+    history_entry = {
+        "generated_at": generated_at,
+        "report_path": str(report_path),
+        "alert_path": str(alert_path),
+        "status": status,
+        "lookup_status": lookup_status,
+        "report_missing": bool(report_missing),
+        "requested_count": int(requested_count),
+        "resolved_record_id_count": int(resolved_record_id_count),
+        "missing_count": int(missing_count),
+        "missing_record_ids": list(missing_record_ids),
+        "missing_record_ids_csv": missing_record_ids_csv,
+        "first_missing_record_id": first_missing_record_id,
+        "alert_created": bool(interrupt_id),
+        "interrupt_id": interrupt_id or None,
+        "runtime_error": None if runtime_error == "none" else runtime_error,
+    }
+    history_append_error = _append_evidence_runtime_history_row(history_path, history_entry)
+    history_summary = _summarize_evidence_runtime_history(
+        history_path=history_path,
+        window=history_window,
+    )
+    if history_append_error:
+        history_summary = dict(history_summary)
+        history_summary["append_error"] = history_append_error
+
+    payload: dict[str, Any] = {
+        "generated_at": generated_at,
+        "status": status,
+        "report_path": str(report_path),
+        "lookup_status": lookup_status,
+        "report_missing": bool(report_missing),
+        "requested_count": int(requested_count),
+        "resolved_record_id_count": int(resolved_record_id_count),
+        "missing_count": int(missing_count),
+        "missing_record_ids": missing_record_ids,
+        "missing_record_ids_csv": missing_record_ids_csv,
+        "first_missing_record_id": first_missing_record_id,
+        "alert_created": bool(interrupt_id),
+        "interrupt_id": interrupt_id or None,
+        "interrupt_db_path": str(db_path),
+        "acknowledge_command": None if acknowledge_command == "none" else acknowledge_command,
+        "rerun_command": None if rerun_command == "none" else rerun_command,
+        "first_repair_command": None if first_repair_command == "none" else first_repair_command,
+        "reason": reason,
+        "why_now": why_now,
+        "why_not_later": why_not_later,
+        "runtime_error": None if runtime_error == "none" else runtime_error,
+        "evidence_lookup_runtime_history_path": str(history_path),
+        "evidence_lookup_runtime_history_window": int(history_window),
+        "evidence_lookup_runtime_history": history_summary,
+    }
+    alert_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    payload["evidence_lookup_runtime_alert_path"] = str(alert_path)
+    payload["evidence_lookup_runtime_interrupt_id"] = interrupt_id or "none"
+    payload["evidence_lookup_runtime_alert_created"] = 1 if interrupt_id else 0
+    payload["evidence_lookup_runtime_acknowledge_command"] = acknowledge_command
+    payload["evidence_lookup_runtime_rerun_command"] = rerun_command
+    payload["evidence_lookup_runtime_first_repair_command"] = first_repair_command or "none"
+    payload["evidence_lookup_runtime_error"] = runtime_error
+    payload["evidence_lookup_missing_count"] = int(missing_count)
+    payload["evidence_lookup_first_missing_record_id"] = first_missing_record_id
+    payload["evidence_lookup_missing_record_ids_csv"] = missing_record_ids_csv
+    payload["evidence_lookup_runtime_history_trend"] = str(history_summary.get("trend") or "")
+    payload["evidence_lookup_runtime_priority_boost"] = _coerce_float(
+        history_summary.get("priority_boost"),
+        default=0.0,
+    )
+    payload["evidence_lookup_runtime_history_append_error"] = history_append_error
+
+    if bool(getattr(args, "emit_github_output", False)):
+        alert_path_out = str(payload.get("evidence_lookup_runtime_alert_path") or str(alert_path)).strip() or str(alert_path)
+        interrupt_id_out = (
+            str(payload.get("evidence_lookup_runtime_interrupt_id") or payload.get("interrupt_id") or "none").strip()
+            or "none"
+        )
+        alert_created_out = _coerce_int(
+            payload.get("evidence_lookup_runtime_alert_created")
+            if payload.get("evidence_lookup_runtime_alert_created") is not None
+            else payload.get("alert_created"),
+            default=0,
+        )
+        acknowledge_out = (
+            str(
+                payload.get("evidence_lookup_runtime_acknowledge_command")
+                or payload.get("acknowledge_command")
+                or "none"
+            ).strip()
+            or "none"
+        )
+        rerun_out = (
+            str(payload.get("evidence_lookup_runtime_rerun_command") or payload.get("rerun_command") or "none").strip()
+            or "none"
+        )
+        first_repair_out = (
+            str(
+                payload.get("evidence_lookup_runtime_first_repair_command")
+                or payload.get("first_repair_command")
+                or ""
+            ).strip()
+        )
+        if not first_repair_out:
+            first_repair_out = acknowledge_out if acknowledge_out != "none" else rerun_out
+        first_repair_out = first_repair_out or "none"
+        runtime_error_out = (
+            str(payload.get("evidence_lookup_runtime_error") or payload.get("runtime_error") or "none").strip()
+            or "none"
+        )
+        missing_count_out = _coerce_int(payload.get("evidence_lookup_missing_count"), default=missing_count)
+        first_missing_record_out = (
+            str(payload.get("evidence_lookup_first_missing_record_id") or first_missing_record_id).strip()
+            or "none"
+        )
+        missing_record_ids_csv_out = (
+            str(payload.get("evidence_lookup_missing_record_ids_csv") or missing_record_ids_csv).strip()
+            or "none"
+        )
+        history_trend_out = str(payload.get("evidence_lookup_runtime_history_trend") or "none").strip() or "none"
+        history_priority_boost_out = round(
+            _coerce_float(payload.get("evidence_lookup_runtime_priority_boost"), default=0.0),
+            4,
+        )
+
+        output_lines = [
+            f"evidence_lookup_runtime_alert_path={alert_path_out}",
+            f"evidence_lookup_runtime_interrupt_id={interrupt_id_out}",
+            f"evidence_lookup_runtime_alert_created={alert_created_out}",
+            f"evidence_lookup_runtime_acknowledge_command={acknowledge_out}",
+            f"evidence_lookup_runtime_rerun_command={rerun_out}",
+            f"evidence_lookup_runtime_first_repair_command={first_repair_out}",
+            f"evidence_lookup_runtime_error={runtime_error_out}",
+            f"evidence_lookup_missing_count={missing_count_out}",
+            f"evidence_lookup_first_missing_record_id={first_missing_record_out}",
+            f"evidence_lookup_missing_record_ids_csv={missing_record_ids_csv_out}",
+            f"evidence_lookup_runtime_history_trend={history_trend_out}",
+            f"evidence_lookup_runtime_priority_boost={history_priority_boost_out}",
+        ]
+
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_path = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                    f"- interrupt_id: `{interrupt_id_out}`",
+                    f"- alert_created: `{alert_created_out}`",
+                    f"- missing_count: `{missing_count_out}`",
+                    f"- first_missing_record_id: `{first_missing_record_out}`",
+                    f"- missing_record_ids_csv: `{missing_record_ids_csv_out}`",
+                    f"- runtime_history_trend: `{history_trend_out}`",
+                    f"- runtime_priority_boost: `{history_priority_boost_out}`",
+                    f"- acknowledge_command: `{acknowledge_out}`",
+                    f"- rerun_command: `{rerun_out}`",
+                    f"- first_repair_command: `{first_repair_out}`",
+                    f"- runtime_error: `{runtime_error_out}`",
+                    "",
+                ]
+                with summary_path.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if bool(getattr(args, "strict", False)):
+        if report_missing:
+            raise SystemExit(2)
+        if missing_count > 0 and (runtime_error != "none" or not bool(interrupt_id)):
+            raise SystemExit(2)
+
+
 def cmd_improvement_benchmark_frustrations(args: argparse.Namespace) -> None:
     report_path = args.report_path.resolve()
     daily_report, resolved_daily_report_path, operator_payload = _resolve_daily_report_from_improvement_report(
         report_path=report_path
     )
     top_limit = max(1, int(getattr(args, "top_limit", 10) or 10))
+    evidence_runtime_history_window = max(
+        1,
+        _coerce_int(getattr(args, "evidence_runtime_history_window", 7), default=7),
+    )
+    evidence_runtime_history_path_value = getattr(args, "evidence_runtime_history_path", None)
+    if evidence_runtime_history_path_value is None:
+        evidence_runtime_history_path_value = operator_payload.get("evidence_runtime_history_path")
+    evidence_runtime_history_path = _resolve_evidence_runtime_history_path(
+        raw_value=evidence_runtime_history_path_value,
+        fallback_base_dir=report_path.parent,
+        resolve_relative_to=report_path.parent,
+    )
+    evidence_runtime_history = _summarize_evidence_runtime_history(
+        history_path=evidence_runtime_history_path,
+        window=evidence_runtime_history_window,
+    )
+    evidence_runtime_priority_boost = max(
+        0.0,
+        _coerce_float(evidence_runtime_history.get("priority_boost"), default=0.0),
+    )
+    evidence_runtime_trend = str(evidence_runtime_history.get("trend") or "").strip().lower()
+    evidence_runtime_multiplier = 1.0 + min(0.75, evidence_runtime_priority_boost)
 
     recurring_rows = _collect_recurring_pain_rows(operator_payload)
     hypothesis_context_by_id = _collect_seed_hypothesis_context(operator_payload)
@@ -13190,6 +16642,7 @@ def cmd_improvement_benchmark_frustrations(args: argparse.Namespace) -> None:
         uncertainty_bonus = max(0.0, (1.0 - confidence_score) * 0.25) if implementation_run_count > 0 else 0.0
         effective_gap = max(0.0, (1.0 - adjusted_win_rate) + uncertainty_bonus)
         opportunity_score = (float(recurrence_score) + trend_delta) * trend_boost * effective_gap
+        opportunity_score = opportunity_score * evidence_runtime_multiplier
         priority_rows.append(
             {
                 "domain": domain,
@@ -13209,6 +16662,8 @@ def cmd_improvement_benchmark_frustrations(args: argparse.Namespace) -> None:
                 "implementation_match_strategy": match_strategy if implementation else None,
                 "implementation_matched_hypothesis_id": matched_hypothesis_id,
                 "implementation_effective_gap": round(float(effective_gap), 4),
+                "evidence_runtime_trend": evidence_runtime_trend or None,
+                "evidence_runtime_priority_boost": round(float(evidence_runtime_priority_boost), 4),
                 "opportunity_score": round(float(opportunity_score), 4),
             }
         )
@@ -13264,6 +16719,8 @@ def cmd_improvement_benchmark_frustrations(args: argparse.Namespace) -> None:
         )
         if implementation_rows
         else 0.0,
+        "evidence_runtime_history_trend": evidence_runtime_trend,
+        "evidence_runtime_priority_boost": round(float(evidence_runtime_priority_boost), 4),
     }
 
     suggested_actions: list[str] = []
@@ -13283,6 +16740,10 @@ def cmd_improvement_benchmark_frustrations(args: argparse.Namespace) -> None:
         )
     if not suggested_actions:
         suggested_actions.append("Benchmark has no ranked rows yet; run operator-cycle with seed+draft enabled first.")
+    if evidence_runtime_trend in {"worsening", "persistent"}:
+        suggested_actions.append(
+            "Escalate unresolved evidence lookup IDs first; runtime trend indicates recurring knowledge-source gaps."
+        )
 
     status = "ok" if not data_gaps else "warning"
     payload = {
@@ -13297,6 +16758,7 @@ def cmd_improvement_benchmark_frustrations(args: argparse.Namespace) -> None:
         "implementation_win_rates": win_rate_top,
         "implementation_laggards": laggard_top,
         "priority_board": priority_top,
+        "evidence_lookup_runtime_history": evidence_runtime_history,
         "data_gaps": data_gaps,
         "suggested_actions": suggested_actions,
     }
@@ -14894,6 +18356,12 @@ def main() -> None:
     improvement_fitness_leaderboard.add_argument("--leaderboard-limit", type=int, default=12)
     improvement_fitness_leaderboard.add_argument("--cooling-limit", type=int, default=10)
     improvement_fitness_leaderboard.add_argument(
+        "--evidence-sample-limit",
+        type=int,
+        default=3,
+        help="Maximum evidence drilldown rows to include per cluster and window",
+    )
+    improvement_fitness_leaderboard.add_argument(
         "--app-fields",
         type=str,
         default=DEFAULT_FITNESS_APP_FIELDS_CSV,
@@ -14931,6 +18399,93 @@ def main() -> None:
     improvement_fitness_leaderboard.add_argument("--strict", action="store_true")
     improvement_fitness_leaderboard.add_argument("--output-path", type=Path, default=None)
     improvement_fitness_leaderboard.add_argument("--json-compact", action="store_true")
+
+    improvement_evidence_lookup = improvement_sub.add_parser(
+        "evidence-lookup",
+        help="Resolve seed evidence record IDs into source snippets/provenance for operator triage",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--record-ids",
+        type=str,
+        default=None,
+        help="Optional CSV record IDs to resolve (can be combined with --operator-report-path extraction)",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--operator-report-path",
+        type=Path,
+        default=None,
+        help="Optional operator-cycle report/summary JSON to extract record IDs from evidence fields",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--config-path",
+        type=Path,
+        default=None,
+        help="Optional pipeline config path used to derive feedback_jobs input sources",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--input-path",
+        dest="input_paths",
+        action="append",
+        type=Path,
+        default=None,
+        help="Optional explicit feedback input path (repeat flag to scan multiple files)",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--input-format",
+        type=str,
+        default=None,
+        choices=("json", "jsonl", "ndjson", "csv"),
+        help="Optional explicit format for --input-path files",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--id-fields",
+        type=str,
+        default=DEFAULT_EVIDENCE_LOOKUP_ID_FIELDS_CSV,
+        help="CSV field-path priority list used to resolve record IDs",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--summary-fields",
+        type=str,
+        default=DEFAULT_EVIDENCE_LOOKUP_SUMMARY_FIELDS_CSV,
+        help="CSV field-path priority list used to extract summary/snippet text",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--timestamp-fields",
+        type=str,
+        default=DEFAULT_EVIDENCE_LOOKUP_TIMESTAMP_FIELDS_CSV,
+        help="CSV field-path priority list used to extract timestamps",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--context-fields",
+        type=str,
+        default=DEFAULT_EVIDENCE_LOOKUP_CONTEXT_FIELDS_CSV,
+        help="CSV field-paths included in match context payloads",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--snippet-max-chars",
+        type=int,
+        default=280,
+        help="Maximum snippet length per matched record",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--limit-per-id",
+        type=int,
+        default=5,
+        help="Maximum match rows emitted per requested record ID",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--include-record",
+        action="store_true",
+        help="Include full matched raw record objects in output payload",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--allow-missing-inputs",
+        action="store_true",
+        help="Skip missing input files instead of counting them as lookup errors",
+    )
+    improvement_evidence_lookup.add_argument("--strict", action="store_true")
+    improvement_evidence_lookup.add_argument("--output-path", type=Path, default=None)
+    improvement_evidence_lookup.add_argument("--json-compact", action="store_true")
 
     improvement_seed_from_leaderboard = improvement_sub.add_parser(
         "seed-from-leaderboard",
@@ -15058,11 +18613,54 @@ def main() -> None:
         default=100,
         help="Fallback sample-size target when hypothesis success criteria omit min_sample_size",
     )
+    improvement_draft_experiments.add_argument(
+        "--evidence-runtime-history-path",
+        type=Path,
+        default=None,
+        help="Optional evidence runtime history JSONL path used for pressure-aware draft prioritization",
+    )
+    improvement_draft_experiments.add_argument(
+        "--evidence-runtime-history-window",
+        type=int,
+        default=7,
+        help="History window size used for evidence runtime trend scoring",
+    )
+    improvement_draft_experiments.add_argument(
+        "--evidence-pressure-enable",
+        dest="evidence_pressure_enable",
+        action="store_true",
+        help="Enable pressure-aware draft prioritization from evidence runtime trend signals (default)",
+    )
+    improvement_draft_experiments.add_argument(
+        "--no-evidence-pressure-enable",
+        dest="evidence_pressure_enable",
+        action="store_false",
+        help="Disable pressure-aware draft prioritization from evidence runtime trend signals",
+    )
+    improvement_draft_experiments.add_argument(
+        "--evidence-pressure-min-priority-boost",
+        type=float,
+        default=0.35,
+        help="Minimum runtime history priority_boost required to apply pressure scheduling",
+    )
+    improvement_draft_experiments.add_argument(
+        "--evidence-pressure-limit-increase",
+        type=int,
+        default=2,
+        help="Additional draft limit applied when evidence pressure scheduling is triggered",
+    )
+    improvement_draft_experiments.add_argument(
+        "--evidence-pressure-statuses",
+        type=str,
+        default="queued,testing",
+        help="CSV statuses merged into --statuses when evidence pressure scheduling is triggered",
+    )
     improvement_draft_experiments.add_argument("--strict", action="store_true")
     improvement_draft_experiments.add_argument("--output-path", type=Path, default=None)
     improvement_draft_experiments.add_argument("--json-compact", action="store_true")
     improvement_draft_experiments.add_argument("--repo-path", type=Path, default=_default_repo_path())
     improvement_draft_experiments.add_argument("--db-path", type=Path, default=_default_db_path())
+    improvement_draft_experiments.set_defaults(evidence_pressure_enable=True)
 
     improvement_pipeline = improvement_sub.add_parser(
         "daily-pipeline",
@@ -15371,10 +18969,112 @@ def main() -> None:
         ),
     )
     improvement_operator_cycle.add_argument(
+        "--draft-benchmark-report-path",
+        type=Path,
+        default=None,
+        help=(
+            "Optional benchmark-frustrations report path used by draft stage to prioritize high-pressure hypotheses "
+            "(supports prior-cycle artifacts)"
+        ),
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-benchmark-min-opportunity",
+        type=float,
+        default=None,
+        help="Optional minimum opportunity_score threshold used with --draft-benchmark-report-path",
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-benchmark-max-age-hours",
+        type=float,
+        default=None,
+        help=(
+            "Optional max-age guard for auto-reused output benchmark report "
+            "(<=0 disables; defaults to config or 96 hours)"
+        ),
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-evidence-pressure-enable",
+        dest="draft_evidence_pressure_enable",
+        action="store_true",
+        help=(
+            "Enable pressure-aware draft prioritization using evidence runtime trend signals "
+            "(defaults to config or enabled)"
+        ),
+    )
+    improvement_operator_cycle.add_argument(
+        "--no-draft-evidence-pressure-enable",
+        dest="draft_evidence_pressure_enable",
+        action="store_false",
+        help="Disable pressure-aware draft prioritization using evidence runtime trend signals",
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-evidence-pressure-min-priority-boost",
+        type=float,
+        default=None,
+        help="Optional minimum evidence runtime priority_boost needed to trigger draft pressure scheduling",
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-evidence-pressure-limit-increase",
+        type=int,
+        default=None,
+        help="Optional draft limit increment when pressure scheduling is triggered",
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-evidence-pressure-statuses",
+        type=str,
+        default=None,
+        help="Optional CSV statuses merged into draft status filters when pressure scheduling is triggered",
+    )
+    improvement_operator_cycle.add_argument(
         "--operator-report-path",
         type=Path,
         default=None,
         help="Optional path for persisted operator-cycle report (defaults under output-dir)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--evidence-lookup-report-path",
+        type=Path,
+        default=None,
+        help="Optional report path used by the precomputed evidence-lookup batch command (defaults under output-dir)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--evidence-runtime-history-path",
+        type=Path,
+        default=None,
+        help=(
+            "Optional evidence-lookup runtime history JSONL path used by benchmark and knowledge-delta alert "
+            "(defaults to <output-dir>/evidence_lookup_runtime_history.jsonl)"
+        ),
+    )
+    improvement_operator_cycle.add_argument(
+        "--evidence-runtime-history-window",
+        type=int,
+        default=None,
+        help="Optional window size used when summarizing evidence runtime history (defaults to config or 7)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--benchmark-stale-runtime-history-window",
+        type=int,
+        default=None,
+        help="Optional window size for benchmark stale fallback runtime history trend (defaults to config or 7)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--benchmark-stale-runtime-repeat-threshold",
+        type=int,
+        default=None,
+        help="Optional repeat threshold for benchmark stale fallback runtime alerting (defaults to config or 2)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--benchmark-stale-runtime-rate-ceiling",
+        type=float,
+        default=None,
+        help="Optional rolling-rate ceiling for benchmark stale fallback gate (defaults to config or 0.6)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--benchmark-stale-runtime-consecutive-runs",
+        type=int,
+        default=None,
+        help="Optional consecutive-run threshold for benchmark stale fallback rate gate (defaults to config or 2)",
     )
     improvement_operator_cycle.add_argument(
         "--benchmark-enable",
@@ -15571,6 +19271,7 @@ def main() -> None:
         allow_missing_feeds=True,
         allow_missing_inputs=True,
         allow_missing_retests=True,
+        draft_evidence_pressure_enable=None,
     )
 
     improvement_verify_matrix = improvement_sub.add_parser(
@@ -15641,6 +19342,48 @@ def main() -> None:
         help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
     )
     improvement_reconcile_codeowner_review_gate_outputs.add_argument("--json-compact", action="store_true")
+
+    improvement_reconcile_codeowner_review_gate_runtime_alert = improvement_sub.add_parser(
+        "reconcile-codeowner-review-gate-runtime-alert",
+        help="Create required-status-check drift interrupt artifact from reconcile-codeowner-review-gate output payload",
+    )
+    improvement_reconcile_codeowner_review_gate_runtime_alert.add_argument(
+        "--report-path",
+        type=Path,
+        default=Path("output/ci/codeowner_review_reconcile_drift_check.json"),
+        help="Path to reconcile_codeowner_review_gate dry-run payload",
+    )
+    improvement_reconcile_codeowner_review_gate_runtime_alert.add_argument(
+        "--rerun-command",
+        type=str,
+        default=None,
+        help="Optional explicit reconcile apply command to emit as repair guidance",
+    )
+    improvement_reconcile_codeowner_review_gate_runtime_alert.add_argument(
+        "--output-path",
+        type=Path,
+        default=None,
+        help="Path for reconcile drift runtime alert artifact",
+    )
+    improvement_reconcile_codeowner_review_gate_runtime_alert.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit reconcile drift runtime alert fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_reconcile_codeowner_review_gate_runtime_alert.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
+    )
+    improvement_reconcile_codeowner_review_gate_runtime_alert.add_argument("--strict", action="store_true")
+    improvement_reconcile_codeowner_review_gate_runtime_alert.add_argument("--json-compact", action="store_true")
+    improvement_reconcile_codeowner_review_gate_runtime_alert.add_argument(
+        "--repo-path",
+        type=Path,
+        default=_default_repo_path(),
+    )
+    improvement_reconcile_codeowner_review_gate_runtime_alert.add_argument("--db-path", type=Path, default=None)
 
     improvement_domain_smoke_outputs = improvement_sub.add_parser(
         "domain-smoke-outputs",
@@ -15977,6 +19720,18 @@ def main() -> None:
         default=10,
         help="Number of ranked rows to include per section",
     )
+    improvement_benchmark_frustrations.add_argument(
+        "--evidence-runtime-history-path",
+        type=Path,
+        default=None,
+        help="Optional evidence runtime history JSONL path (defaults near report path)",
+    )
+    improvement_benchmark_frustrations.add_argument(
+        "--evidence-runtime-history-window",
+        type=int,
+        default=7,
+        help="History window size used for unresolved evidence trend scoring",
+    )
     improvement_benchmark_frustrations.add_argument("--output-path", type=Path, default=None)
     improvement_benchmark_frustrations.add_argument("--strict", action="store_true")
     improvement_benchmark_frustrations.add_argument("--json-compact", action="store_true")
@@ -16126,6 +19881,18 @@ def main() -> None:
     improvement_knowledge_brief_delta_alert.add_argument("--min-urgency-delta", type=float, default=0.25)
     improvement_knowledge_brief_delta_alert.add_argument("--min-failure-rate-delta", type=float, default=0.05)
     improvement_knowledge_brief_delta_alert.add_argument("--min-blocked-guardrail-delta", type=int, default=1)
+    improvement_knowledge_brief_delta_alert.add_argument(
+        "--evidence-runtime-history-path",
+        type=Path,
+        default=None,
+        help="Optional evidence runtime history JSONL path used for severity amplification",
+    )
+    improvement_knowledge_brief_delta_alert.add_argument(
+        "--evidence-runtime-history-window",
+        type=int,
+        default=7,
+        help="History window size used when summarizing runtime evidence trend",
+    )
     improvement_knowledge_brief_delta_alert.add_argument("--output-path", type=Path, default=None)
     improvement_knowledge_brief_delta_alert.add_argument("--strict", action="store_true")
     improvement_knowledge_brief_delta_alert.add_argument("--json-compact", action="store_true")
@@ -16218,6 +19985,173 @@ def main() -> None:
     improvement_knowledge_bootstrap_route_outputs.add_argument("--output-path", type=Path, default=None)
     improvement_knowledge_bootstrap_route_outputs.add_argument("--strict", action="store_true")
     improvement_knowledge_bootstrap_route_outputs.add_argument("--json-compact", action="store_true")
+
+    improvement_benchmark_stale_fallback_runtime_alert = improvement_sub.add_parser(
+        "benchmark-stale-fallback-runtime-alert",
+        help="Create an operator interrupt when benchmark stale fallback repeats across route runs",
+    )
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument(
+        "--route-output-path",
+        type=Path,
+        required=True,
+        help="Path to normalized knowledge-bootstrap route outputs JSON",
+    )
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument(
+        "--output-path",
+        type=Path,
+        default=None,
+        help="Path for benchmark stale fallback runtime alert artifact",
+    )
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument(
+        "--rerun-command",
+        type=str,
+        default=None,
+        help="Optional explicit rerun command to include in alert payload/outputs",
+    )
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument(
+        "--history-path",
+        type=Path,
+        default=None,
+        help="Optional JSONL path used to persist benchmark stale fallback history rows",
+    )
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument(
+        "--history-window",
+        type=int,
+        default=7,
+        help="Window size used when summarizing benchmark stale fallback history trend",
+    )
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument(
+        "--repeat-threshold",
+        type=int,
+        default=2,
+        help="Minimum recent stale fallback count required before creating an interrupt",
+    )
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument(
+        "--rate-ceiling",
+        type=float,
+        default=0.6,
+        help="Recent stale fallback rolling-rate ceiling used by the consecutive-run gate (0-1)",
+    )
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument(
+        "--consecutive-runs",
+        type=int,
+        default=2,
+        help="Required number of consecutive runs above rate ceiling before rate gate blocks",
+    )
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit runtime alert fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
+    )
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument("--strict", action="store_true")
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument("--json-compact", action="store_true")
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument(
+        "--repo-path",
+        type=Path,
+        default=_default_repo_path(),
+    )
+    improvement_benchmark_stale_fallback_runtime_alert.add_argument("--db-path", type=Path, default=None)
+
+    improvement_evidence_lookup_batch_outputs = improvement_sub.add_parser(
+        "evidence-lookup-batch-outputs",
+        help="Normalize operator-cycle batch evidence lookup fields for automation outputs",
+    )
+    improvement_evidence_lookup_batch_outputs.add_argument(
+        "--report-path",
+        type=Path,
+        default=Path("output/ci/operator_cycle/operator_cycle_report.json"),
+        help="Path to operator-cycle report or operator inbox summary report",
+    )
+    improvement_evidence_lookup_batch_outputs.add_argument(
+        "--report-source",
+        type=str,
+        default=None,
+        help="Optional report source label (for example: initial, post_bootstrap)",
+    )
+    improvement_evidence_lookup_batch_outputs.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit normalized evidence lookup fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_evidence_lookup_batch_outputs.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
+    )
+    improvement_evidence_lookup_batch_outputs.add_argument(
+        "--summary-include-report-source",
+        action="store_true",
+        help="Include report_source in emitted output lines and summary rows",
+    )
+    improvement_evidence_lookup_batch_outputs.add_argument(
+        "--summary-include-record-ids",
+        action="store_true",
+        help="Include record_ids_csv in step summary rows",
+    )
+    improvement_evidence_lookup_batch_outputs.add_argument("--output-path", type=Path, default=None)
+    improvement_evidence_lookup_batch_outputs.add_argument("--strict", action="store_true")
+    improvement_evidence_lookup_batch_outputs.add_argument("--json-compact", action="store_true")
+
+    improvement_evidence_lookup_runtime_alert = improvement_sub.add_parser(
+        "evidence-lookup-runtime-alert",
+        help="Create an operator interrupt when evidence lookup still has unresolved record IDs",
+    )
+    improvement_evidence_lookup_runtime_alert.add_argument(
+        "--report-path",
+        type=Path,
+        required=True,
+        help="Path to evidence-lookup report JSON",
+    )
+    improvement_evidence_lookup_runtime_alert.add_argument(
+        "--output-path",
+        type=Path,
+        default=None,
+        help="Path for runtime alert artifact (defaults near report path)",
+    )
+    improvement_evidence_lookup_runtime_alert.add_argument(
+        "--rerun-command",
+        type=str,
+        default=None,
+        help="Optional explicit rerun command to include in alert payload/outputs",
+    )
+    improvement_evidence_lookup_runtime_alert.add_argument(
+        "--history-path",
+        type=Path,
+        default=None,
+        help="Optional JSONL path used to persist evidence runtime history rows",
+    )
+    improvement_evidence_lookup_runtime_alert.add_argument(
+        "--history-window",
+        type=int,
+        default=7,
+        help="Window size used when summarizing runtime history trend in payload/outputs",
+    )
+    improvement_evidence_lookup_runtime_alert.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit runtime alert fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_evidence_lookup_runtime_alert.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
+    )
+    improvement_evidence_lookup_runtime_alert.add_argument("--strict", action="store_true")
+    improvement_evidence_lookup_runtime_alert.add_argument("--json-compact", action="store_true")
+    improvement_evidence_lookup_runtime_alert.add_argument(
+        "--repo-path",
+        type=Path,
+        default=_default_repo_path(),
+    )
+    improvement_evidence_lookup_runtime_alert.add_argument("--db-path", type=Path, default=None)
 
     args = parser.parse_args()
 
@@ -16405,6 +20339,15 @@ def main() -> None:
     if args.cmd == "improvement" and args.improvement_cmd == "fitness-leaderboard":
         cmd_improvement_fitness_leaderboard(args)
         return
+    if args.cmd == "improvement" and args.improvement_cmd == "evidence-lookup":
+        cmd_improvement_evidence_lookup(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "evidence-lookup-batch-outputs":
+        cmd_improvement_evidence_lookup_batch_outputs(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "evidence-lookup-runtime-alert":
+        cmd_improvement_evidence_lookup_runtime_alert(args)
+        return
     if args.cmd == "improvement" and args.improvement_cmd == "seed-from-leaderboard":
         cmd_improvement_seed_from_leaderboard(args)
         return
@@ -16428,6 +20371,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "reconcile-codeowner-review-gate-outputs":
         cmd_improvement_reconcile_codeowner_review_gate_outputs(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "reconcile-codeowner-review-gate-runtime-alert":
+        cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args)
         return
     if args.cmd == "improvement" and args.improvement_cmd == "domain-smoke-outputs":
         cmd_improvement_domain_smoke_outputs(args)
@@ -16476,6 +20422,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "knowledge-bootstrap-route-outputs":
         cmd_improvement_knowledge_bootstrap_route_outputs(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "benchmark-stale-fallback-runtime-alert":
+        cmd_improvement_benchmark_stale_fallback_runtime_alert(args)
         return
 
     raise ValueError("Unsupported command")
