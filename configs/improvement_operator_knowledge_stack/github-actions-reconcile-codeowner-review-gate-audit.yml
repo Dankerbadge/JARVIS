@@ -45,6 +45,7 @@ jobs:
             --reconcile-workflow-file reconcile-codeowner-review-gate.yml \
             --recent-runs-limit 20 \
             --expected-trigger-event workflow_run \
+            --event-audit-since 2026-04-23T00:00:00Z \
             --source-workflow-run-id "${{ github.run_id }}" \
             --source-workflow-run-conclusion in_progress \
             --source-workflow-name "${{ github.workflow }}" \
