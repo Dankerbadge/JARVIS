@@ -2228,6 +2228,329 @@ class CliImprovementPipelineTests(unittest.TestCase):
             debug_report_path = Path(str((experiment_runs[0] or {}).get("debug_report_path") or ""))
             self.assertTrue(debug_report_path.exists())
 
+    def test_daily_pipeline_falls_back_to_selector_when_explicit_hypothesis_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Selector fallback hypothesis",
+                    statement="Selector fallback should recover when explicit hypothesis id is stale.",
+                    proposed_change="Resolve by domain and friction key.",
+                    friction_key="false_positive_drift",
+                )
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(hypothesis_id))
+            finally:
+                runtime.close()
+
+            artifact_path = root / "artifacts" / "fallback_eval.json"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "environment": "offline_backtest",
+                        "baseline": {
+                            "metrics": {
+                                "precision_at_k": 0.29,
+                                "false_positive_rate": 0.21,
+                                "inference_latency_ms_p95": 240,
+                            }
+                        },
+                        "candidate": {
+                            "metrics": {
+                                "precision_at_k": 0.34,
+                                "false_positive_rate": 0.18,
+                                "inference_latency_ms_p95": 225,
+                            },
+                            "sample_size": 420,
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "pipeline_selector_fallback_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "collect_experiment_debug": True,
+                            "experiment_debug_output_dir": "reports/debug",
+                            "include_decision_timeline": False,
+                        },
+                        "experiment_jobs": [
+                            {
+                                "hypothesis_id": "hyp_missing_selector_fallback",
+                                "domain": "market_ml",
+                                "friction_key": "false_positive_drift",
+                                "artifact_path": "artifacts/fallback_eval.json",
+                            }
+                        ],
+                        "output_path": "reports/daily_pipeline_selector_fallback.json",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                config_path=config_path,
+                allow_missing_inputs=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_daily_pipeline(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(int(payload.get("error_count") or 0), 0)
+            self.assertEqual(int(payload.get("experiment_runs_count") or 0), 1)
+            experiment_runs = list(payload.get("experiment_runs") or [])
+            self.assertTrue(bool(experiment_runs))
+            self.assertEqual(str((experiment_runs[0] or {}).get("hypothesis_id") or ""), hypothesis_id)
+
+            resolution = dict((experiment_runs[0] or {}).get("resolution") or {})
+            self.assertEqual(str(resolution.get("strategy") or ""), "selector")
+            self.assertEqual(
+                str(resolution.get("requested_hypothesis_id") or ""),
+                "hyp_missing_selector_fallback",
+            )
+            self.assertEqual(bool(resolution.get("requested_hypothesis_found")), False)
+            self.assertEqual(str(resolution.get("fallback_strategy") or ""), "selector")
+
+    def test_daily_pipeline_reports_missing_explicit_hypothesis_without_selector(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            artifact_path = root / "artifacts" / "missing_explicit_eval.json"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "environment": "offline_backtest",
+                        "baseline": {"metrics": {"precision_at_k": 0.30}},
+                        "candidate": {"metrics": {"precision_at_k": 0.34}, "sample_size": 180},
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "pipeline_missing_explicit_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "experiment_jobs": [
+                            {
+                                "hypothesis_id": "hyp_missing_only",
+                                "artifact_path": "artifacts/missing_explicit_eval.json",
+                            }
+                        ],
+                        "output_path": "reports/daily_pipeline_missing_explicit.json",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                config_path=config_path,
+                allow_missing_inputs=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_daily_pipeline(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(int(payload.get("error_count") or 0), 1)
+            self.assertEqual(int(payload.get("experiment_runs_count") or 0), 0)
+
+            errors = list(payload.get("errors") or [])
+            self.assertTrue(bool(errors))
+            self.assertEqual(str((errors[0] or {}).get("error") or ""), "explicit_hypothesis_id_not_found")
+
+            resolution = dict((errors[0] or {}).get("resolution") or {})
+            self.assertEqual(str(resolution.get("strategy") or ""), "explicit_hypothesis_id")
+            self.assertEqual(str(resolution.get("hypothesis_id") or ""), "hyp_missing_only")
+            self.assertEqual(bool(resolution.get("hypothesis_found")), False)
+            self.assertEqual(bool(resolution.get("fallback_attempted")), False)
+
+    def test_daily_pipeline_reports_missing_explicit_hypothesis_when_selector_also_misses(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            artifact_path = root / "artifacts" / "missing_selector_eval.json"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "environment": "offline_backtest",
+                        "baseline": {"metrics": {"precision_at_k": 0.30}},
+                        "candidate": {"metrics": {"precision_at_k": 0.34}, "sample_size": 220},
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "pipeline_missing_selector_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "experiment_jobs": [
+                            {
+                                "hypothesis_id": "hyp_missing_selector_miss",
+                                "domain": "market_ml",
+                                "friction_key": "never_seen_friction_key",
+                                "artifact_path": "artifacts/missing_selector_eval.json",
+                            }
+                        ],
+                        "output_path": "reports/daily_pipeline_missing_selector.json",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                config_path=config_path,
+                allow_missing_inputs=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_daily_pipeline(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(int(payload.get("error_count") or 0), 1)
+            self.assertEqual(int(payload.get("experiment_runs_count") or 0), 0)
+
+            errors = list(payload.get("errors") or [])
+            self.assertTrue(bool(errors))
+            self.assertEqual(
+                str((errors[0] or {}).get("error") or ""),
+                "explicit_hypothesis_id_not_found_and_selector_no_match",
+            )
+            resolution = dict((errors[0] or {}).get("resolution") or {})
+            self.assertEqual(str(resolution.get("strategy") or ""), "selector")
+            self.assertEqual(
+                str(resolution.get("requested_hypothesis_id") or ""),
+                "hyp_missing_selector_miss",
+            )
+            self.assertEqual(bool(resolution.get("requested_hypothesis_found")), False)
+            self.assertEqual(str(resolution.get("fallback_attempted") or ""), "selector")
+            self.assertEqual(int(resolution.get("candidate_count") or 0), 0)
+
+    def test_daily_pipeline_prefers_valid_explicit_hypothesis_when_selector_fields_present(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                explicit_hypothesis = runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Explicit hypothesis should win",
+                    statement="Resolver should keep explicit id when it exists.",
+                    proposed_change="Prefer explicit id over selector.",
+                    friction_key="explicit_hypothesis_wins",
+                )
+                explicit_hypothesis_id = str(explicit_hypothesis.get("hypothesis_id") or "")
+                self.assertTrue(bool(explicit_hypothesis_id))
+                runtime.register_hypothesis(
+                    domain="market_ml",
+                    title="Competing selector hypothesis",
+                    statement="Used only to verify explicit still wins.",
+                    proposed_change="No-op",
+                    friction_key="selector_competitor",
+                )
+            finally:
+                runtime.close()
+
+            artifact_path = root / "artifacts" / "explicit_wins_eval.json"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "environment": "offline_backtest",
+                        "baseline": {"metrics": {"precision_at_k": 0.27}},
+                        "candidate": {"metrics": {"precision_at_k": 0.33}, "sample_size": 360},
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            config_path = root / "pipeline_explicit_wins_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "experiment_jobs": [
+                            {
+                                "hypothesis_id": explicit_hypothesis_id,
+                                "domain": "market_ml",
+                                "friction_key": "selector_competitor",
+                                "artifact_path": "artifacts/explicit_wins_eval.json",
+                            }
+                        ],
+                        "output_path": "reports/daily_pipeline_explicit_wins.json",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                config_path=config_path,
+                allow_missing_inputs=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_daily_pipeline(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(int(payload.get("error_count") or 0), 0)
+            self.assertEqual(int(payload.get("experiment_runs_count") or 0), 1)
+            experiment_runs = list(payload.get("experiment_runs") or [])
+            self.assertTrue(bool(experiment_runs))
+            self.assertEqual(
+                str((experiment_runs[0] or {}).get("hypothesis_id") or ""),
+                explicit_hypothesis_id,
+            )
+            resolution = dict((experiment_runs[0] or {}).get("resolution") or {})
+            self.assertEqual(str(resolution.get("strategy") or ""), "explicit_hypothesis_id")
+            self.assertEqual(str(resolution.get("hypothesis_id") or ""), explicit_hypothesis_id)
+            self.assertEqual(bool(resolution.get("hypothesis_found")), True)
+
     def test_daily_pipeline_blocked_experiment_writes_debug_report(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

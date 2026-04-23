@@ -5286,21 +5286,35 @@ def _resolve_pipeline_hypothesis_id(
     defaults: dict[str, Any],
 ) -> tuple[str | None, dict[str, Any], str | None]:
     explicit_hypothesis_id = str(raw_job.get("hypothesis_id") or "").strip()
-    if explicit_hypothesis_id:
-        return (
-            explicit_hypothesis_id,
-            {
-                "strategy": "explicit_hypothesis_id",
-                "hypothesis_id": explicit_hypothesis_id,
-            },
-            None,
-        )
-
     selector_domain = str(raw_job.get("domain") or defaults.get("domain") or "").strip().lower()
     selector_friction_key_raw = str(raw_job.get("friction_key") or "").strip()
     selector_friction_key = _normalize_friction_key(selector_friction_key_raw)
     selector_title_contains = str(raw_job.get("title_contains") or "").strip().lower()
     selector_status = str(raw_job.get("hypothesis_status") or "").strip().lower()
+
+    if explicit_hypothesis_id:
+        explicit_hypothesis = runtime.hypothesis_lab.get_hypothesis(explicit_hypothesis_id)
+        if isinstance(explicit_hypothesis, dict):
+            return (
+                explicit_hypothesis_id,
+                {
+                    "strategy": "explicit_hypothesis_id",
+                    "hypothesis_id": explicit_hypothesis_id,
+                    "hypothesis_found": True,
+                },
+                None,
+            )
+        if not selector_domain or (not selector_friction_key and not selector_title_contains):
+            return (
+                None,
+                {
+                    "strategy": "explicit_hypothesis_id",
+                    "hypothesis_id": explicit_hypothesis_id,
+                    "hypothesis_found": False,
+                    "fallback_attempted": False,
+                },
+                "explicit_hypothesis_id_not_found",
+            )
 
     if not selector_domain:
         return None, {}, "missing_hypothesis_selector_domain"
@@ -5354,41 +5368,63 @@ def _resolve_pipeline_hypothesis_id(
         )
 
     if not filtered:
+        selector_resolution = {
+            "strategy": "selector",
+            "domain": selector_domain,
+            "friction_key": selector_friction_key or None,
+            "title_contains": selector_title_contains or None,
+            "hypothesis_status": selector_status or None,
+            "candidate_count": 0,
+            "preferred_statuses": preferred_statuses,
+        }
+        if explicit_hypothesis_id:
+            selector_resolution.update(
+                {
+                    "requested_hypothesis_id": explicit_hypothesis_id,
+                    "requested_hypothesis_found": False,
+                    "fallback_attempted": "selector",
+                }
+            )
         return (
             None,
-            {
-                "strategy": "selector",
-                "domain": selector_domain,
-                "friction_key": selector_friction_key or None,
-                "title_contains": selector_title_contains or None,
-                "hypothesis_status": selector_status or None,
-                "candidate_count": 0,
-                "preferred_statuses": preferred_statuses,
-            },
-            "hypothesis_selector_no_match",
+            selector_resolution,
+            (
+                "explicit_hypothesis_id_not_found_and_selector_no_match"
+                if explicit_hypothesis_id
+                else "hypothesis_selector_no_match"
+            ),
         )
 
     selected = filtered[0]
     resolved_hypothesis_id = str(selected.get("hypothesis_id") or "").strip()
     if not resolved_hypothesis_id:
         return None, {}, "resolved_hypothesis_missing_id"
+    selector_resolution = {
+        "strategy": "selector",
+        "domain": selector_domain,
+        "friction_key": selector_friction_key or None,
+        "title_contains": selector_title_contains or None,
+        "hypothesis_status": selector_status or None,
+        "candidate_count": len(filtered),
+        "preferred_statuses": preferred_statuses,
+        "selected": {
+            "hypothesis_id": resolved_hypothesis_id,
+            "title": str(selected.get("title") or ""),
+            "status": str(selected.get("status") or ""),
+            "friction_key": selected.get("friction_key"),
+        },
+    }
+    if explicit_hypothesis_id:
+        selector_resolution.update(
+            {
+                "requested_hypothesis_id": explicit_hypothesis_id,
+                "requested_hypothesis_found": False,
+                "fallback_strategy": "selector",
+            }
+        )
     return (
         resolved_hypothesis_id,
-        {
-            "strategy": "selector",
-            "domain": selector_domain,
-            "friction_key": selector_friction_key or None,
-            "title_contains": selector_title_contains or None,
-            "hypothesis_status": selector_status or None,
-            "candidate_count": len(filtered),
-            "preferred_statuses": preferred_statuses,
-            "selected": {
-                "hypothesis_id": resolved_hypothesis_id,
-                "title": str(selected.get("title") or ""),
-                "status": str(selected.get("status") or ""),
-                "friction_key": selected.get("friction_key"),
-            },
-        },
+        selector_resolution,
         None,
     )
 
