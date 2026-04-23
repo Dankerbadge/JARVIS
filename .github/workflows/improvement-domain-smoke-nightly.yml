@@ -509,6 +509,12 @@ jobs:
             if per_domain_acknowledge_commands
             else "none"
           )
+          per_domain_acknowledge_command_count = len(per_domain_acknowledge_commands)
+          first_per_domain_acknowledge_command = (
+            per_domain_acknowledge_commands[0]
+            if per_domain_acknowledge_commands
+            else "none"
+          )
 
           payload = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -528,16 +534,21 @@ jobs:
             "suggested_actions": suggested_actions,
             "operator_ack_bundle": {
               "status": "ready" if per_domain_acknowledge_commands else "empty",
-              "command_count": len(per_domain_acknowledge_commands),
+              "command_count": per_domain_acknowledge_command_count,
               "commands": per_domain_acknowledge_commands,
               "command_sequence": per_domain_acknowledge_sequence,
-              "per_domain_command_count": len(per_domain_acknowledge_commands),
+              "first_command": None
+              if first_per_domain_acknowledge_command == "none"
+              else first_per_domain_acknowledge_command,
+              "per_domain_command_count": per_domain_acknowledge_command_count,
               "cross_domain_command_count": 0,
               "cross_domain_interrupt_id": None,
               "cross_domain_acknowledge_command": None,
             },
             "acknowledge_bundle_commands": per_domain_acknowledge_commands,
             "acknowledge_bundle_command_sequence": per_domain_acknowledge_sequence,
+            "acknowledge_command_count": per_domain_acknowledge_command_count,
+            "first_acknowledge_command": first_per_domain_acknowledge_command,
           }
 
           summary_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -581,6 +592,8 @@ jobs:
           print(f"alerts_created_count={alerts_created_count}")
           print(f"top_domain={top_domain}")
           print(f"top_risk_score={top_risk_score}")
+          print(f"acknowledge_command_count={per_domain_acknowledge_command_count}")
+          print(f"first_acknowledge_command={first_per_domain_acknowledge_command}")
           print(f"acknowledge_bundle_command_sequence={per_domain_acknowledge_sequence}")
 
           github_output = Path(os.environ["GITHUB_OUTPUT"])
@@ -594,6 +607,8 @@ jobs:
             handle.write(f"alerts_created_count={alerts_created_count}\n")
             handle.write(f"top_domain={top_domain}\n")
             handle.write(f"top_risk_score={top_risk_score}\n")
+            handle.write(f"acknowledge_command_count={per_domain_acknowledge_command_count}\n")
+            handle.write(f"first_acknowledge_command={first_per_domain_acknowledge_command}\n")
             handle.write(f"acknowledge_bundle_command_sequence={per_domain_acknowledge_sequence}\n")
 
           github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
@@ -609,6 +624,8 @@ jobs:
               f"- alerts_created_count: `{alerts_created_count}`",
               f"- top_domain: `{top_domain}`",
               f"- top_risk_score: `{top_risk_score}`",
+              f"- acknowledge_command_count: `{per_domain_acknowledge_command_count}`",
+              f"- first_acknowledge_command: `{first_per_domain_acknowledge_command}`",
               f"- acknowledge_bundle_command_sequence: `{per_domain_acknowledge_sequence}`",
               f"- summary_path: `{summary_output_path}`",
               "",
@@ -792,12 +809,15 @@ jobs:
           if acknowledge_command != "none" and acknowledge_command not in bundle_commands:
             bundle_commands.append(acknowledge_command)
           cross_domain_command_count = 1 if acknowledge_command != "none" and acknowledge_command in bundle_commands else 0
+          bundle_command_count = len(bundle_commands)
+          first_acknowledge_command = bundle_commands[0] if bundle_commands else "none"
           bundle_sequence = " && ".join(bundle_commands) if bundle_commands else "none"
           summary_payload["operator_ack_bundle"] = {
             "status": "ready" if bundle_commands else "empty",
-            "command_count": len(bundle_commands),
+            "command_count": bundle_command_count,
             "commands": bundle_commands,
             "command_sequence": bundle_sequence,
+            "first_command": None if first_acknowledge_command == "none" else first_acknowledge_command,
             "per_domain_command_count": per_domain_command_count,
             "cross_domain_command_count": cross_domain_command_count,
             "cross_domain_interrupt_id": interrupt_id or None,
@@ -805,6 +825,8 @@ jobs:
           }
           summary_payload["acknowledge_bundle_commands"] = bundle_commands
           summary_payload["acknowledge_bundle_command_sequence"] = bundle_sequence
+          summary_payload["acknowledge_command_count"] = bundle_command_count
+          summary_payload["first_acknowledge_command"] = first_acknowledge_command
           summary_payload["cross_domain_interrupt_id"] = interrupt_id or None
           summary_payload["cross_domain_alert_path"] = str(alert_path)
           if summary_path:
@@ -813,6 +835,8 @@ jobs:
 
           payload["acknowledge_bundle_commands"] = bundle_commands
           payload["acknowledge_bundle_command_sequence"] = bundle_sequence
+          payload["acknowledge_command_count"] = bundle_command_count
+          payload["first_acknowledge_command"] = first_acknowledge_command
           alert_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
           print(f"cross_domain_alert_path={alert_path}")
@@ -820,6 +844,8 @@ jobs:
           print(f"cross_domain_alert_created={1 if interrupt_id else 0}")
           print(f"cross_domain_acknowledge_command={acknowledge_command}")
           print(f"cross_domain_rerun_command={rerun_command}")
+          print(f"acknowledge_command_count={bundle_command_count}")
+          print(f"first_acknowledge_command={first_acknowledge_command}")
           print(f"acknowledge_bundle_command_sequence={bundle_sequence}")
           print(f"cross_domain_runtime_error={runtime_error}")
 
@@ -830,6 +856,8 @@ jobs:
             handle.write(f"cross_domain_alert_created={1 if interrupt_id else 0}\n")
             handle.write(f"cross_domain_acknowledge_command={acknowledge_command}\n")
             handle.write(f"cross_domain_rerun_command={rerun_command}\n")
+            handle.write(f"acknowledge_command_count={bundle_command_count}\n")
+            handle.write(f"first_acknowledge_command={first_acknowledge_command}\n")
             handle.write(f"acknowledge_bundle_command_sequence={bundle_sequence}\n")
             handle.write(f"cross_domain_runtime_error={runtime_error}\n")
 
@@ -847,6 +875,8 @@ jobs:
               f"- top_risk_score: `{top_risk_score}`",
               f"- rerun_command: `{rerun_command}`",
               f"- acknowledge_command: `{acknowledge_command}`",
+              f"- acknowledge_command_count: `{bundle_command_count}`",
+              f"- first_acknowledge_command: `{first_acknowledge_command}`",
               f"- acknowledge_bundle_command_sequence: `{bundle_sequence}`",
               f"- runtime_error: `{runtime_error}`",
               "",
