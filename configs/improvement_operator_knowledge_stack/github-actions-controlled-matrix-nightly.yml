@@ -1,0 +1,286 @@
+name: improvement-controlled-matrix-nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "20 5 * * 1-5"
+
+jobs:
+  controlled-matrix-validation:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Run controlled daily pipeline
+        id: daily
+        run: |
+          mkdir -p output/ci/controlled_matrix
+          ./scripts/run_improvement_daily_pipeline.sh \
+            ./configs/improvement_operator_knowledge_stack.json \
+            --strict \
+            --allow-missing-inputs \
+            --output-path output/ci/controlled_matrix/daily_pipeline_report.json \
+            --json-compact
+
+      - name: Verify controlled experiment matrix drift alert
+        id: matrix_alert
+        if: ${{ steps.daily.outcome == 'success' }}
+        run: |
+          ./scripts/run_improvement_verify_matrix_alert.sh \
+            ./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json \
+            output/ci/controlled_matrix/daily_pipeline_report.json \
+            --output-path output/ci/controlled_matrix/verify_matrix_alert_report.json \
+            --json-compact \
+            --alert-domain operations \
+            --alert-max-items 4
+
+      - name: Build controlled matrix compact summary
+        id: matrix
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          def _to_int(value, default=0):
+            try:
+              return int(float(str(value).strip()))
+            except Exception:
+              return default
+
+          artifact_root = Path("output/ci/controlled_matrix").resolve()
+          artifact_root.mkdir(parents=True, exist_ok=True)
+          daily_report_path = (artifact_root / "daily_pipeline_report.json").resolve()
+          verify_alert_path = (artifact_root / "verify_matrix_alert_report.json").resolve()
+          summary_path = (artifact_root / "controlled_matrix_summary.json").resolve()
+          summary_markdown_path = (artifact_root / "controlled_matrix_summary.md").resolve()
+
+          payload = {}
+          if verify_alert_path.exists():
+            try:
+              loaded = json.loads(verify_alert_path.read_text(encoding="utf-8"))
+            except Exception:
+              loaded = {}
+            if isinstance(loaded, dict):
+              payload = loaded
+
+          matrix_status = str(payload.get("status") or "warning").strip() or "warning"
+          drift_severity = str(payload.get("drift_severity") or "unknown").strip() or "unknown"
+          severity_profile = dict(payload.get("severity_profile") or {})
+          mismatch_count = _to_int(severity_profile.get("mismatch_count"), default=0)
+          missing_count = _to_int(severity_profile.get("missing_count"), default=0)
+          invalid_count = _to_int(severity_profile.get("invalid_count"), default=0)
+          guardrail_mismatch_count = _to_int(severity_profile.get("guardrail_mismatch_count"), default=0)
+          drift_score = _to_int(severity_profile.get("score"), default=0)
+
+          alert = dict(payload.get("alert") or {})
+          alert_created = bool(payload.get("alert_created"))
+          interrupt_id = str(alert.get("interrupt_id") or "").strip()
+          interrupt_id_output = interrupt_id if interrupt_id else "none"
+
+          acknowledge_commands = [
+            str(command).strip()
+            for command in list(payload.get("acknowledge_commands") or [])
+            if str(command).strip()
+          ]
+          acknowledge_command_count = len(acknowledge_commands)
+          first_acknowledge_command = acknowledge_commands[0] if acknowledge_commands else "none"
+
+          mitigation_actions = [
+            str(action).strip()
+            for action in list(payload.get("mitigation_actions") or [])
+            if str(action).strip()
+          ]
+          mitigation_action_count = len(mitigation_actions)
+          first_mitigation_action = mitigation_actions[0] if mitigation_actions else "none"
+
+          top_scenarios = [
+            str(item).strip()
+            for item in list(alert.get("top_scenarios") or [])
+            if str(item).strip()
+          ]
+          top_scenario_count = len(top_scenarios)
+          first_top_scenario = top_scenarios[0] if top_scenarios else "none"
+
+          rerun_command = (
+            "./scripts/run_improvement_verify_matrix_alert.sh "
+            "./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json "
+            "output/ci/controlled_matrix/daily_pipeline_report.json "
+            "--output-path output/ci/controlled_matrix/verify_matrix_alert_report.json "
+            "--json-compact --alert-domain operations --alert-max-items 4"
+          )
+
+          summary_payload = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "status": matrix_status,
+            "drift_severity": drift_severity,
+            "drift_score": drift_score,
+            "mismatch_count": mismatch_count,
+            "missing_count": missing_count,
+            "invalid_count": invalid_count,
+            "guardrail_mismatch_count": guardrail_mismatch_count,
+            "alert_created": alert_created,
+            "interrupt_id": interrupt_id if interrupt_id else None,
+            "daily_report_path": str(daily_report_path),
+            "verify_matrix_alert_report_path": str(verify_alert_path),
+            "verify_matrix_alert_report_present": verify_alert_path.exists(),
+            "daily_report_present": daily_report_path.exists(),
+            "acknowledge_commands": acknowledge_commands,
+            "acknowledge_command_count": acknowledge_command_count,
+            "first_acknowledge_command": first_acknowledge_command,
+            "mitigation_actions": mitigation_actions,
+            "mitigation_action_count": mitigation_action_count,
+            "first_mitigation_action": first_mitigation_action,
+            "top_scenarios": top_scenarios,
+            "top_scenario_count": top_scenario_count,
+            "first_top_scenario": first_top_scenario,
+            "rerun_command": rerun_command,
+          }
+          summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
+
+          markdown_lines = [
+            "# Controlled Matrix Summary",
+            "",
+            f"- status: `{matrix_status}`",
+            f"- drift_severity: `{drift_severity}`",
+            f"- drift_score: `{drift_score}`",
+            f"- mismatch_count: `{mismatch_count}`",
+            f"- missing_count: `{missing_count}`",
+            f"- invalid_count: `{invalid_count}`",
+            f"- guardrail_mismatch_count: `{guardrail_mismatch_count}`",
+            f"- alert_created: `{int(alert_created)}`",
+            f"- interrupt_id: `{interrupt_id_output}`",
+            f"- acknowledge_command_count: `{acknowledge_command_count}`",
+            f"- first_acknowledge_command: `{first_acknowledge_command}`",
+            f"- mitigation_action_count: `{mitigation_action_count}`",
+            f"- first_mitigation_action: `{first_mitigation_action}`",
+            f"- top_scenario_count: `{top_scenario_count}`",
+            f"- first_top_scenario: `{first_top_scenario}`",
+            f"- rerun_command: `{rerun_command}`",
+            "",
+            "## Top Scenarios",
+            "",
+          ]
+          if top_scenarios:
+            for scenario in top_scenarios:
+              markdown_lines.append(f"- {scenario}")
+          else:
+            markdown_lines.append("- none")
+          markdown_lines.extend(["", "## Mitigation Actions", ""])
+          if mitigation_actions:
+            for action in mitigation_actions:
+              markdown_lines.append(f"- {action}")
+          else:
+            markdown_lines.append("- none")
+          summary_markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+
+          print(f"matrix_summary_path={summary_path}")
+          print(f"matrix_summary_markdown_path={summary_markdown_path}")
+          print(f"matrix_status={matrix_status}")
+          print(f"drift_severity={drift_severity}")
+          print(f"drift_score={drift_score}")
+          print(f"mismatch_count={mismatch_count}")
+          print(f"missing_count={missing_count}")
+          print(f"invalid_count={invalid_count}")
+          print(f"guardrail_mismatch_count={guardrail_mismatch_count}")
+          print(f"alert_created={int(alert_created)}")
+          print(f"matrix_interrupt_id={interrupt_id_output}")
+          print(f"acknowledge_command_count={acknowledge_command_count}")
+          print(f"first_acknowledge_command={first_acknowledge_command}")
+          print(f"mitigation_action_count={mitigation_action_count}")
+          print(f"first_mitigation_action={first_mitigation_action}")
+          print(f"top_scenario_count={top_scenario_count}")
+          print(f"first_top_scenario={first_top_scenario}")
+          print(f"rerun_command={rerun_command}")
+
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as handle:
+            handle.write(f"matrix_summary_path={summary_path}\n")
+            handle.write(f"matrix_summary_markdown_path={summary_markdown_path}\n")
+            handle.write(f"matrix_status={matrix_status}\n")
+            handle.write(f"drift_severity={drift_severity}\n")
+            handle.write(f"drift_score={drift_score}\n")
+            handle.write(f"mismatch_count={mismatch_count}\n")
+            handle.write(f"missing_count={missing_count}\n")
+            handle.write(f"invalid_count={invalid_count}\n")
+            handle.write(f"guardrail_mismatch_count={guardrail_mismatch_count}\n")
+            handle.write(f"alert_created={int(alert_created)}\n")
+            handle.write(f"matrix_interrupt_id={interrupt_id_output}\n")
+            handle.write(f"acknowledge_command_count={acknowledge_command_count}\n")
+            handle.write(f"first_acknowledge_command={first_acknowledge_command}\n")
+            handle.write(f"mitigation_action_count={mitigation_action_count}\n")
+            handle.write(f"first_mitigation_action={first_mitigation_action}\n")
+            handle.write(f"top_scenario_count={top_scenario_count}\n")
+            handle.write(f"first_top_scenario={first_top_scenario}\n")
+            handle.write(f"rerun_command={rerun_command}\n")
+
+          github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+          if github_step_summary:
+            summary_output = Path(github_step_summary).expanduser()
+            summary_lines = [
+              "## Controlled Matrix Drift Summary",
+              "",
+              f"- status: `{matrix_status}`",
+              f"- drift_severity: `{drift_severity}`",
+              f"- drift_score: `{drift_score}`",
+              f"- mismatch_count: `{mismatch_count}`",
+              f"- missing_count: `{missing_count}`",
+              f"- invalid_count: `{invalid_count}`",
+              f"- guardrail_mismatch_count: `{guardrail_mismatch_count}`",
+              f"- alert_created: `{int(alert_created)}`",
+              f"- interrupt_id: `{interrupt_id_output}`",
+              f"- acknowledge_command_count: `{acknowledge_command_count}`",
+              f"- first_acknowledge_command: `{first_acknowledge_command}`",
+              f"- mitigation_action_count: `{mitigation_action_count}`",
+              f"- first_mitigation_action: `{first_mitigation_action}`",
+              f"- top_scenario_count: `{top_scenario_count}`",
+              f"- first_top_scenario: `{first_top_scenario}`",
+              f"- rerun_command: `{rerun_command}`",
+              "",
+            ]
+            with summary_output.open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(summary_lines) + "\n")
+          PY
+
+      - name: Collect debug trace artifacts
+        if: always()
+        run: |
+          mkdir -p output/ci/debug_runs output/ci/knowledge_snapshots
+          if [ -d "./configs/improvement_operator_knowledge_stack/output/debug_runs" ]; then
+            cp -R "./configs/improvement_operator_knowledge_stack/output/debug_runs/." output/ci/debug_runs/
+          fi
+          if [ -d "./analysis/improvement/knowledge_snapshots" ]; then
+            cp -R "./analysis/improvement/knowledge_snapshots/." output/ci/knowledge_snapshots/
+          fi
+
+      - name: Upload controlled matrix artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: controlled-matrix-validation
+          path: |
+            output/ci/controlled_matrix/
+            output/ci/debug_runs
+            output/ci/knowledge_snapshots
+
+      - name: Fail on controlled matrix drift
+        if: ${{ always() && (steps.daily.outcome != 'success' || steps.matrix.outputs.matrix_status != 'ok') }}
+        run: |
+          echo "controlled matrix drift gate failed (daily_outcome=${{ steps.daily.outcome }}, matrix_status=${{ steps.matrix.outputs.matrix_status }})"
+          exit 1

@@ -372,6 +372,32 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("actions/upload-artifact@v7", content)
         self.assertIn("steps.smoke.outputs.smoke_blocking == '1'", content)
 
+    def test_controlled_matrix_nightly_workflow_template_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        workflow_path = (
+            repo_root
+            / "configs"
+            / "improvement_operator_knowledge_stack"
+            / "github-actions-controlled-matrix-nightly.yml"
+        )
+        self.assertTrue(workflow_path.exists())
+        content = workflow_path.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", content)
+        self.assertIn("schedule:", content)
+        self.assertIn("run_improvement_daily_pipeline.sh", content)
+        self.assertIn("run_improvement_verify_matrix_alert.sh", content)
+        self.assertIn("controlled_experiment_matrix.json", content)
+        self.assertIn("verify_matrix_alert_report.json", content)
+        self.assertIn("controlled_matrix_summary.json", content)
+        self.assertIn("id: matrix", content)
+        self.assertIn("matrix_status", content)
+        self.assertIn("acknowledge_command_count", content)
+        self.assertIn("first_mitigation_action", content)
+        self.assertIn("first_top_scenario", content)
+        self.assertIn("Collect debug trace artifacts", content)
+        self.assertIn("controlled-matrix-validation", content)
+        self.assertIn("Fail on controlled matrix drift", content)
+
     def test_active_knowledge_bootstrap_route_workflow_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         workflow_path = (
@@ -453,6 +479,32 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("Collect debug trace artifacts", content)
         self.assertIn("actions/upload-artifact@v7", content)
         self.assertIn("steps.smoke.outputs.smoke_blocking == '1'", content)
+
+    def test_active_controlled_matrix_nightly_workflow_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        workflow_path = (
+            repo_root
+            / ".github"
+            / "workflows"
+            / "improvement-controlled-matrix-nightly.yml"
+        )
+        self.assertTrue(workflow_path.exists())
+        content = workflow_path.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", content)
+        self.assertIn("schedule:", content)
+        self.assertIn("run_improvement_daily_pipeline.sh", content)
+        self.assertIn("run_improvement_verify_matrix_alert.sh", content)
+        self.assertIn("controlled_experiment_matrix.json", content)
+        self.assertIn("verify_matrix_alert_report.json", content)
+        self.assertIn("controlled_matrix_summary.json", content)
+        self.assertIn("id: matrix", content)
+        self.assertIn("matrix_status", content)
+        self.assertIn("acknowledge_command_count", content)
+        self.assertIn("first_mitigation_action", content)
+        self.assertIn("first_top_scenario", content)
+        self.assertIn("Collect debug trace artifacts", content)
+        self.assertIn("controlled-matrix-validation", content)
+        self.assertIn("Fail on controlled matrix drift", content)
 
     def test_active_reconcile_codeowner_workflow_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

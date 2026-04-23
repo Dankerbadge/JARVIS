@@ -223,12 +223,14 @@ GitHub Actions template for compact JSON branching:
 - `./configs/improvement_operator_knowledge_stack/github-actions-gate-status-compact.yml`
 - `./configs/improvement_operator_knowledge_stack/github-actions-knowledge-bootstrap-route.yml`
 - `./configs/improvement_operator_knowledge_stack/github-actions-domain-smoke-nightly.yml`
+- `./configs/improvement_operator_knowledge_stack/github-actions-controlled-matrix-nightly.yml`
 
 Active workflow in this repo:
 
 - `./.github/workflows/improvement-gate-status-compact.yml`
 - `./.github/workflows/improvement-knowledge-bootstrap-route.yml`
 - `./.github/workflows/improvement-domain-smoke-nightly.yml`
+- `./.github/workflows/improvement-controlled-matrix-nightly.yml`
 - `./.github/workflows/reconcile-codeowner-review-gate.yml`
 
 `improvement-knowledge-bootstrap-route.yml` runs on weekdays at `13:25 UTC`
@@ -274,6 +276,26 @@ When `warning_count > 0`, it also writes
 single delivered cross-domain interrupt with aggregate acknowledge/rerun
 commands, then updates `operator_ack_bundle` so that same command sequence
 includes the cross-domain interrupt acknowledge command at the end.
+
+`improvement-controlled-matrix-nightly.yml` runs on weekdays at `05:20 UTC`,
+executes `run_improvement_daily_pipeline.sh` in strict mode, and then runs
+`run_improvement_verify_matrix_alert.sh` against
+`matrices/controlled_experiment_matrix.json` using the freshly generated
+`daily_pipeline_report.json`.
+It writes compact controlled-validation artifacts to
+`output/ci/controlled_matrix/`:
+
+- `daily_pipeline_report.json`
+- `verify_matrix_alert_report.json`
+- `controlled_matrix_summary.json`
+- `controlled_matrix_summary.md`
+
+For compact triage, the summary includes `acknowledge_command_count` and
+`first_acknowledge_command`, plus `mitigation_action_count` /
+`first_mitigation_action` and `top_scenario_count` / `first_top_scenario`.
+The workflow uploads those artifacts under `controlled-matrix-validation` and
+fails when either the daily pipeline step fails or controlled matrix status is
+not `ok`.
 
 Copy that file into `.github/workflows/` to run `plans gate-status-all`, read
 `output/ci/gate_status_all_compact.json`, and branch on:
