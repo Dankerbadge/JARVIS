@@ -12691,6 +12691,75 @@ class CliImprovementPipelineTests(unittest.TestCase):
             finally:
                 runtime.close()
 
+    def test_evidence_lookup_runtime_alert_accepts_noop_batch_outputs_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            report_path = root / "reports" / "evidence_lookup_batch_outputs.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "reason": "derived_from_report_without_explicit_batch",
+                        "ready": 0,
+                        "record_ids": [],
+                        "record_count": 0,
+                        "first_record_id": "none",
+                        "record_ids_csv": "none",
+                        "command": "none",
+                        "evidence_report_path": "none",
+                        "next_action": "No unresolved blocker/retest evidence record IDs detected.",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            alert_path = root / "reports" / "evidence_lookup_runtime_alert.json"
+            history_path = root / "reports" / "evidence_lookup_runtime_history.jsonl"
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=alert_path,
+                rerun_command=None,
+                history_path=history_path,
+                history_window=7,
+                emit_github_output=False,
+                summary_heading=None,
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_evidence_lookup_runtime_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("lookup_status") or ""), "ok")
+            self.assertEqual(int(payload.get("missing_count") or 0), 0)
+            self.assertFalse(bool(payload.get("alert_created")))
+            self.assertEqual(int(payload.get("evidence_lookup_runtime_alert_created") or 0), 0)
+            self.assertEqual(str(payload.get("evidence_lookup_runtime_interrupt_id") or ""), "none")
+            self.assertEqual(str(payload.get("evidence_lookup_runtime_rerun_command") or ""), "none")
+            self.assertEqual(str(payload.get("evidence_lookup_runtime_first_repair_command") or ""), "none")
+            self.assertTrue(history_path.exists())
+
+            history_summary = dict(payload.get("evidence_lookup_runtime_history") or {})
+            self.assertEqual(str(history_summary.get("status") or ""), "ok")
+            self.assertEqual(str(history_summary.get("trend") or ""), "clear")
+            self.assertEqual(int(history_summary.get("row_count") or 0), 1)
+            self.assertEqual(int(history_summary.get("recent_unresolved_runs") or 0), 0)
+            self.assertEqual(float(payload.get("evidence_lookup_runtime_priority_boost") or 0.0), 0.0)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                interrupts = runtime.list_interrupts(status="all", limit=20)
+                self.assertEqual(len(interrupts), 0)
+            finally:
+                runtime.close()
+
     def test_evidence_lookup_runtime_alert_strict_raises_when_report_missing(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
