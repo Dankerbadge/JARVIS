@@ -12505,6 +12505,9 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(history_summary.get("trend") or ""), "clear")
             self.assertEqual(int(history_summary.get("row_count") or 0), 1)
             self.assertEqual(int(history_summary.get("recent_unresolved_runs") or 0), 0)
+            expected_lock_mode = "fcntl" if cli_module.fcntl is not None else "unavailable"
+            self.assertEqual(str(payload.get("lock_mode") or ""), expected_lock_mode)
+            self.assertTrue(str(payload.get("lock_path") or "").endswith(".seed.lock"))
 
     def test_seed_evidence_runtime_history_for_noop_batch_skips_when_batch_ready(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -12530,6 +12533,61 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(history_summary.get("status") or ""), "missing_history")
             self.assertEqual(str(history_summary.get("trend") or ""), "missing_history")
             self.assertEqual(int(history_summary.get("row_count") or 0), 0)
+            expected_lock_mode = "fcntl" if cli_module.fcntl is not None else "unavailable"
+            self.assertEqual(str(payload.get("lock_mode") or ""), expected_lock_mode)
+            self.assertTrue(str(payload.get("lock_path") or "").endswith(".seed.lock"))
+
+    def test_seed_evidence_runtime_history_for_noop_batch_fallback_when_lock_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            history_path = root / "reports" / "evidence_lookup_runtime_history.jsonl"
+            report_path = root / "reports" / "operator_cycle_report.json"
+
+            with patch.object(cli_module, "fcntl", None):
+                payload = cli_module._seed_evidence_runtime_history_for_noop_batch(
+                    history_path=history_path,
+                    history_window=7,
+                    evidence_lookup_batch={
+                        "ready": False,
+                        "record_ids": [],
+                        "record_count": 0,
+                        "command": "none",
+                    },
+                    report_path=report_path,
+                )
+
+            self.assertEqual(str(payload.get("status") or ""), "seeded_noop_baseline")
+            self.assertTrue(bool(payload.get("seeded")))
+            self.assertEqual(str(payload.get("lock_mode") or ""), "unavailable")
+            self.assertTrue(str(payload.get("lock_path") or "").endswith(".seed.lock"))
+            self.assertTrue(history_path.exists())
+
+    def test_seed_evidence_runtime_history_for_noop_batch_lock_error_fallback(self) -> None:
+        if cli_module.fcntl is None:
+            self.skipTest("fcntl unavailable on this platform")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            history_path = root / "reports" / "evidence_lookup_runtime_history.jsonl"
+            report_path = root / "reports" / "operator_cycle_report.json"
+
+            with patch.object(cli_module.fcntl, "flock", side_effect=RuntimeError("lock_failed")):
+                payload = cli_module._seed_evidence_runtime_history_for_noop_batch(
+                    history_path=history_path,
+                    history_window=7,
+                    evidence_lookup_batch={
+                        "ready": False,
+                        "record_ids": [],
+                        "record_count": 0,
+                        "command": "none",
+                    },
+                    report_path=report_path,
+                )
+
+            self.assertEqual(str(payload.get("status") or ""), "seeded_noop_baseline")
+            self.assertTrue(bool(payload.get("seeded")))
+            self.assertEqual(str(payload.get("lock_mode") or ""), "lock_error_fallback")
+            self.assertIn("lock_failed", str(payload.get("lock_error") or ""))
+            self.assertTrue(history_path.exists())
 
     def test_summarize_evidence_runtime_history_treats_seed_only_previous_as_insufficient(self) -> None:
         with tempfile.TemporaryDirectory() as td:

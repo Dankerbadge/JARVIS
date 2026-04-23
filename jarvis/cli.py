@@ -39,6 +39,11 @@ from .runtime import JarvisRuntime
 from .security import ActionClass, SecurityManager
 from .server import run_operator_server
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - fcntl is unavailable on some platforms (for example Windows)
+    fcntl = None  # type: ignore[assignment]
+
 
 PROJECT_BACKFILL_PRESETS: dict[str, dict[str, Any]] = {
     "quick": {
@@ -4934,6 +4939,7 @@ def _seed_evidence_runtime_history_for_noop_batch(
     ready = _coerce_bool(batch_block.get("ready"), default=False)
     if not ready and command and command != "none" and record_ids:
         ready = True
+    lock_path_value: Path | None = None
 
     if history_path is None:
         return {
@@ -4943,80 +4949,116 @@ def _seed_evidence_runtime_history_for_noop_batch(
             "history_window": int(effective_window),
             "record_count": int(record_count),
             "ready": bool(ready),
+            "lock_mode": "not_required",
+            "lock_path": None,
         }
 
     resolved_history_path = history_path.resolve()
-    existing_rows = _load_evidence_runtime_history_rows(resolved_history_path)
-    if existing_rows:
-        return {
-            "status": "existing_history",
-            "seeded": False,
-            "history_path": str(resolved_history_path),
-            "history_window": int(effective_window),
-            "existing_row_count": len(existing_rows),
-            "record_count": int(record_count),
-            "ready": bool(ready),
-            "history_summary": _summarize_evidence_runtime_history(
-                history_path=resolved_history_path,
-                window=effective_window,
-            ),
-        }
+    lock_path_value = (resolved_history_path.parent / f"{resolved_history_path.name}.seed.lock").resolve()
 
-    if ready or record_ids:
-        return {
-            "status": "skipped_pending_batch",
-            "seeded": False,
+    def _evaluate_seed_state() -> dict[str, Any]:
+        existing_rows = _load_evidence_runtime_history_rows(resolved_history_path)
+        if existing_rows:
+            return {
+                "status": "existing_history",
+                "seeded": False,
+                "history_path": str(resolved_history_path),
+                "history_window": int(effective_window),
+                "existing_row_count": len(existing_rows),
+                "record_count": int(record_count),
+                "ready": bool(ready),
+                "history_summary": _summarize_evidence_runtime_history(
+                    history_path=resolved_history_path,
+                    window=effective_window,
+                ),
+            }
+
+        if ready or record_ids:
+            return {
+                "status": "skipped_pending_batch",
+                "seeded": False,
+                "history_path": str(resolved_history_path),
+                "history_window": int(effective_window),
+                "existing_row_count": 0,
+                "record_count": int(record_count),
+                "ready": bool(ready),
+                "history_summary": _summarize_evidence_runtime_history(
+                    history_path=resolved_history_path,
+                    window=effective_window,
+                ),
+            }
+
+        generated_at = utc_now_iso()
+        report_path_value = str(report_path.resolve()) if report_path is not None else "none"
+        seed_row = {
+            "generated_at": generated_at,
+            "report_path": report_path_value,
+            "alert_path": None,
+            "status": "ok",
+            "lookup_status": "ok",
+            "report_missing": False,
+            "requested_count": int(record_count),
+            "resolved_record_id_count": int(record_count),
+            "missing_count": 0,
+            "missing_record_ids": [],
+            "missing_record_ids_csv": "none",
+            "first_missing_record_id": "none",
+            "alert_created": False,
+            "interrupt_id": None,
+            "runtime_error": None,
+            "source": "operator_cycle_noop_batch_seed",
+        }
+        append_error = _append_evidence_runtime_history_row(resolved_history_path, seed_row)
+        seeded = append_error is None
+        history_summary = _summarize_evidence_runtime_history(
+            history_path=resolved_history_path,
+            window=effective_window,
+        )
+        result = {
+            "status": "seeded_noop_baseline" if seeded else "seed_error",
+            "seeded": bool(seeded),
             "history_path": str(resolved_history_path),
             "history_window": int(effective_window),
             "existing_row_count": 0,
             "record_count": int(record_count),
             "ready": bool(ready),
-            "history_summary": _summarize_evidence_runtime_history(
-                history_path=resolved_history_path,
-                window=effective_window,
-            ),
+            "seed_row": seed_row,
+            "history_summary": history_summary,
         }
+        if append_error is not None:
+            result["append_error"] = append_error
+        return result
 
-    generated_at = utc_now_iso()
-    report_path_value = str(report_path.resolve()) if report_path is not None else "none"
-    seed_row = {
-        "generated_at": generated_at,
-        "report_path": report_path_value,
-        "alert_path": None,
-        "status": "ok",
-        "lookup_status": "ok",
-        "report_missing": False,
-        "requested_count": int(record_count),
-        "resolved_record_id_count": int(record_count),
-        "missing_count": 0,
-        "missing_record_ids": [],
-        "missing_record_ids_csv": "none",
-        "first_missing_record_id": "none",
-        "alert_created": False,
-        "interrupt_id": None,
-        "runtime_error": None,
-        "source": "operator_cycle_noop_batch_seed",
-    }
-    append_error = _append_evidence_runtime_history_row(resolved_history_path, seed_row)
-    seeded = append_error is None
-    history_summary = _summarize_evidence_runtime_history(
-        history_path=resolved_history_path,
-        window=effective_window,
-    )
-    result = {
-        "status": "seeded_noop_baseline" if seeded else "seed_error",
-        "seeded": bool(seeded),
-        "history_path": str(resolved_history_path),
-        "history_window": int(effective_window),
-        "existing_row_count": 0,
-        "record_count": int(record_count),
-        "ready": bool(ready),
-        "seed_row": seed_row,
-        "history_summary": history_summary,
-    }
-    if append_error is not None:
-        result["append_error"] = append_error
-    return result
+    if fcntl is None:
+        result = _evaluate_seed_state()
+        result["lock_mode"] = "unavailable"
+        result["lock_path"] = str(lock_path_value)
+        return result
+
+    lock_file = None
+    lock_error = None
+    try:
+        lock_path_value.parent.mkdir(parents=True, exist_ok=True)
+        lock_file = lock_path_value.open("a+", encoding="utf-8")
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        result = _evaluate_seed_state()
+        result["lock_mode"] = "fcntl"
+        result["lock_path"] = str(lock_path_value)
+        return result
+    except Exception as exc:
+        lock_error = str(exc).strip() or "history_seed_lock_error"
+        result = _evaluate_seed_state()
+        result["lock_mode"] = "lock_error_fallback"
+        result["lock_path"] = str(lock_path_value)
+        result["lock_error"] = lock_error
+        return result
+    finally:
+        if lock_file is not None:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+            lock_file.close()
 
 
 def _summarize_evidence_runtime_history(
