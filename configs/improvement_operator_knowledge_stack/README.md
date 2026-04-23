@@ -255,6 +255,11 @@ uploads per-domain artifacts from `output/ci/domain_smoke/<domain>/`.
 When a lane is blocking, it also writes `<domain>_smoke_alert.json`,
 auto-creates a delivered interrupt in lane-local `jarvis.db`, and emits both
 an `acknowledge_command` and a direct smoke-loop `rerun_command`.
+After matrix lanes complete, `domain-smoke-aggregate` downloads
+`domain-smoke-*` artifacts and writes cross-domain triage outputs:
+`output/ci/domain_smoke/domain_smoke_cross_domain_summary.json` and
+`output/ci/domain_smoke/domain_smoke_cross_domain_summary.md`, including ranked
+`top_risks` with rerun/acknowledge commands.
 
 Copy that file into `.github/workflows/` to run `plans gate-status-all`, read
 `output/ci/gate_status_all_compact.json`, and branch on:
