@@ -198,6 +198,8 @@ It can also emit per-experiment debug artifacts (`failed_checks`, `root_cause_hi
 and optional reasoning timelines) for controlled-environment iteration.
 Daily experiment rows and queued/executed retest rows now include
 `seed_evidence_record_ids` when available so triage can jump directly to source records.
+Operator-cycle inbox summaries also emit `evidence_lookup_refs` for blocker/retest/promotion
+rows so operators can follow those IDs without manual cross-referencing.
 It now includes an auto-retest lane: `blocked_guardrail` and `insufficient_data`
 outcomes can be re-queued with recommended cohort-size and guardrail-safety targets,
 plus side-by-side comparison summaries versus previous runs.

@@ -2279,6 +2279,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             repo, db = self._make_repo(root)
+            expected_seed_evidence_record_ids = ["seed_op_1", "seed_op_2"]
 
             runtime = JarvisRuntime(db_path=db, repo_path=repo)
             try:
@@ -2288,6 +2289,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                     statement="Operator cycle should run pull/daily/retest and summarize outputs.",
                     proposed_change="Tighten threshold controls after guardrail violations.",
                     friction_key="false_positive_drift",
+                    metadata={"seed_evidence_record_ids": expected_seed_evidence_record_ids},
                 )
                 hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
                 self.assertTrue(bool(hypothesis_id))
@@ -2455,6 +2457,27 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertFalse(bool((summary.get("promotion_lock") or {}).get("active")))
             self.assertEqual(int((summary.get("metrics") or {}).get("blocked_promotion_count") or 0), 0)
             self.assertEqual(len(list(summary.get("blocked_promotions") or [])), 0)
+            blockers = [dict(item) for item in list(summary.get("blockers") or []) if isinstance(item, dict)]
+            self.assertTrue(
+                any(
+                    list(row.get("seed_evidence_record_ids") or []) == expected_seed_evidence_record_ids
+                    for row in blockers
+                )
+            )
+            retest_deltas = [dict(item) for item in list(summary.get("retest_deltas") or []) if isinstance(item, dict)]
+            self.assertGreaterEqual(len(retest_deltas), 1)
+            self.assertEqual(
+                list(retest_deltas[0].get("seed_evidence_record_ids") or []),
+                expected_seed_evidence_record_ids,
+            )
+            self.assertEqual(
+                [
+                    str(item.get("record_id") or "")
+                    for item in list(retest_deltas[0].get("evidence_lookup_refs") or [])
+                    if isinstance(item, dict)
+                ],
+                expected_seed_evidence_record_ids,
+            )
             self.assertGreaterEqual(len(list(summary.get("suggested_actions") or [])), 1)
 
     def test_operator_cycle_runs_benchmark_stage_with_cli_top_limit_override(self) -> None:
@@ -2852,6 +2875,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             repo, db = self._make_repo(root)
+            expected_seed_evidence_record_ids = ["seed_verify_alert_1", "seed_verify_alert_2"]
 
             runtime = JarvisRuntime(db_path=db, repo_path=repo)
             try:
@@ -2861,6 +2885,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                     statement="Operator cycle should raise a verify-matrix alert when drift is detected.",
                     proposed_change="Escalate controlled-experiment matrix drift into interrupts.",
                     friction_key="false_positive_drift_in_high_volatility_windows",
+                    metadata={"seed_evidence_record_ids": expected_seed_evidence_record_ids},
                 )
                 hypothesis_id = str(hypothesis.get("hypothesis_id") or "")
                 self.assertTrue(bool(hypothesis_id))
@@ -3067,6 +3092,18 @@ class CliImprovementPipelineTests(unittest.TestCase):
             blocked_promotions = [dict(item) for item in list(payload.get("blocked_promotions") or []) if isinstance(item, dict)]
             self.assertEqual(len(blocked_promotions), 1)
             self.assertEqual(str(blocked_promotions[0].get("blocked_by") or ""), "verify_matrix_alert")
+            self.assertEqual(
+                list(blocked_promotions[0].get("seed_evidence_record_ids") or []),
+                expected_seed_evidence_record_ids,
+            )
+            self.assertEqual(
+                [
+                    str(item.get("record_id") or "")
+                    for item in list(blocked_promotions[0].get("evidence_lookup_refs") or [])
+                    if isinstance(item, dict)
+                ],
+                expected_seed_evidence_record_ids,
+            )
             unlock_readiness = dict(blocked_promotions[0].get("unlock_readiness") or {})
             self.assertFalse(bool(unlock_readiness.get("unlock_ready")))
             self.assertTrue(bool(unlock_readiness.get("requires_acknowledgement")))
@@ -3130,6 +3167,18 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 dict(item) for item in list(inbox_summary.get("blocked_promotions") or []) if isinstance(item, dict)
             ]
             self.assertEqual(len(summary_blocked_promotions), 1)
+            self.assertEqual(
+                list(summary_blocked_promotions[0].get("seed_evidence_record_ids") or []),
+                expected_seed_evidence_record_ids,
+            )
+            self.assertEqual(
+                [
+                    str(item.get("record_id") or "")
+                    for item in list(summary_blocked_promotions[0].get("evidence_lookup_refs") or [])
+                    if isinstance(item, dict)
+                ],
+                expected_seed_evidence_record_ids,
+            )
             summary_unlock = dict(summary_blocked_promotions[0].get("unlock_readiness") or {})
             self.assertEqual(str(summary_unlock.get("recheck_command") or ""), recheck_command)
             self.assertEqual(

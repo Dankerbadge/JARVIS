@@ -102,6 +102,8 @@ drafted experiment artifact metadata so cross-domain controlled tests preserve
 source-record traceability.
 The same IDs now flow through daily-pipeline/retest outputs for faster
 debug-to-source navigation during operator triage.
+Operator-cycle inbox summaries include `evidence_lookup_refs` on blocker/retest/promotion
+rows so triage can pivot into concrete source records quickly.
 
 ## 2) Run full operator cycle
 

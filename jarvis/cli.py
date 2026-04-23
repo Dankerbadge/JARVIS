@@ -4349,6 +4349,19 @@ def _normalize_record_id_list(value: Any) -> list[str]:
     return out
 
 
+def _build_evidence_lookup_refs(seed_evidence_record_ids: Any) -> list[dict[str, str]]:
+    refs: list[dict[str, str]] = []
+    for record_id in _normalize_record_id_list(seed_evidence_record_ids):
+        refs.append(
+            {
+                "lookup_type": "source_record_id",
+                "record_id": record_id,
+                "lookup_key": f"record_id:{record_id}",
+            }
+        )
+    return refs
+
+
 def _resolve_pipeline_hypothesis_id(
     *,
     runtime: JarvisRuntime,
@@ -6974,6 +6987,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
     blockers: list[dict[str, Any]] = []
     for row in daily_experiment_runs:
         verdict = str(row.get("verdict") or "").strip().lower()
+        seed_evidence_record_ids = _normalize_record_id_list(row.get("seed_evidence_record_ids"))
+        evidence_lookup_refs = _build_evidence_lookup_refs(seed_evidence_record_ids)
         if verdict in {"blocked_guardrail", "insufficient_data", "needs_iteration", "invalid_measurement"}:
             blockers.append(
                 {
@@ -6982,6 +6997,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "run_id": row.get("run_id"),
                     "verdict": verdict,
                     "root_cause_hints": list(row.get("root_cause_hints") or []),
+                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
+                    "evidence_lookup_refs": list(evidence_lookup_refs),
                 }
             )
     retest_deltas: list[dict[str, Any]] = []
@@ -6994,6 +7011,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         )
         previous_verdict = str(transition.get("previous") or "").strip().lower() or None
         current_verdict = str(transition.get("current") or row.get("verdict") or "").strip().lower() or None
+        seed_evidence_record_ids = _normalize_record_id_list(row.get("seed_evidence_record_ids"))
+        evidence_lookup_refs = _build_evidence_lookup_refs(seed_evidence_record_ids)
         retest_deltas.append(
             {
                 "hypothesis_id": row.get("hypothesis_id"),
@@ -7003,6 +7022,8 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                 "current_verdict": current_verdict,
                 "metric_transition": side_by_side.get("metric_transition"),
                 "sample_transition": side_by_side.get("sample_transition"),
+                "seed_evidence_record_ids": list(seed_evidence_record_ids),
+                "evidence_lookup_refs": list(evidence_lookup_refs),
             }
         )
         if current_verdict in {"blocked_guardrail", "insufficient_data", "needs_iteration", "invalid_measurement"}:
@@ -7013,26 +7034,36 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "run_id": row.get("run_id"),
                     "verdict": current_verdict,
                     "root_cause_hints": [],
+                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
+                    "evidence_lookup_refs": list(evidence_lookup_refs),
                 }
             )
 
     promotion_candidates: list[dict[str, Any]] = []
     for row in daily_experiment_runs:
         if str(row.get("verdict") or "").strip().lower() == "promote":
+            seed_evidence_record_ids = _normalize_record_id_list(row.get("seed_evidence_record_ids"))
+            evidence_lookup_refs = _build_evidence_lookup_refs(seed_evidence_record_ids)
             promotion_candidates.append(
                 {
                     "stage": "daily_pipeline",
                     "hypothesis_id": row.get("hypothesis_id"),
                     "run_id": row.get("run_id"),
+                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
+                    "evidence_lookup_refs": list(evidence_lookup_refs),
                 }
             )
     for row in retest_runs:
         if str(row.get("verdict") or "").strip().lower() == "promote":
+            seed_evidence_record_ids = _normalize_record_id_list(row.get("seed_evidence_record_ids"))
+            evidence_lookup_refs = _build_evidence_lookup_refs(seed_evidence_record_ids)
             promotion_candidates.append(
                 {
                     "stage": "execute_retests",
                     "hypothesis_id": row.get("hypothesis_id"),
                     "run_id": row.get("run_id"),
+                    "seed_evidence_record_ids": list(seed_evidence_record_ids),
+                    "evidence_lookup_refs": list(evidence_lookup_refs),
                 }
             )
 
