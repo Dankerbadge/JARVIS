@@ -244,9 +244,12 @@ and fails when either:
 When initial route is `bootstrap`, it executes one follow-up rerun from
 `next_action_command` via `improvement knowledge-bootstrap-followup-rerun`,
 regenerates `output/ci/knowledge_bootstrap_route_post_bootstrap.json`, writes
-`output/ci/knowledge_bootstrap_followup_rerun.json`, appends a
-`Bootstrap Follow-Up` step summary section, and then branches on the effective
-post-follow-up route payload.
+`output/ci/knowledge_bootstrap_followup_rerun.json`, emits follow-up outputs
+(`bootstrap_followup_command`, `bootstrap_followup_status`,
+`bootstrap_followup_phase`, `bootstrap_followup_route`) via
+`--emit-github-output`, writes the `Bootstrap Follow-Up` step summary via
+`--summary-heading`, and then branches on the effective post-follow-up route
+payload.
 Route output extraction for both `route_initial` and effective `route` is now
 fully command-driven via `improvement knowledge-bootstrap-route-outputs`, which
 emits step outputs with `--emit-github-output` and writes route step summaries

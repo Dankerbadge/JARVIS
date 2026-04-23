@@ -74,45 +74,9 @@ jobs:
             --operator-report-path "${OPERATOR_REPORT_PATH}" \
             --post-route-artifact-path "${POST_ROUTE_ARTIFACT_PATH}" \
             --output-path "${FOLLOWUP_RERUN_OUTPUT_PATH}" \
+            --emit-github-output \
+            --summary-heading "Bootstrap Follow-Up" \
             --json-compact > /dev/null
-
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          output_path = Path("output/ci/knowledge_bootstrap_followup_rerun.json").resolve()
-          if not output_path.exists():
-            raise SystemExit(f"missing_knowledge_bootstrap_followup_rerun_output:{output_path}")
-
-          payload = json.loads(output_path.read_text(encoding="utf-8"))
-          if not isinstance(payload, dict):
-            raise SystemExit("invalid_knowledge_bootstrap_followup_rerun_output:expected_json_object")
-
-          next_action_command = str(payload.get("next_action_command") or "none").strip() or "none"
-          post_status = str(payload.get("post_status") or "warning").strip() or "warning"
-          post_phase = str(payload.get("post_phase") or "unknown").strip() or "unknown"
-          post_route = str(payload.get("post_route") or "noop").strip() or "noop"
-          print(f"bootstrap_followup_command={next_action_command}")
-          print(f"bootstrap_followup_status={post_status}")
-          print(f"bootstrap_followup_phase={post_phase}")
-          print(f"bootstrap_followup_route={post_route}")
-
-          github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
-          if github_step_summary:
-            summary_path = Path(github_step_summary).expanduser()
-            summary_lines = [
-              "## Bootstrap Follow-Up",
-              "",
-              f"- command: `{next_action_command}`",
-              f"- post_status: `{post_status}`",
-              f"- post_phase: `{post_phase}`",
-              f"- post_route: `{post_route}`",
-              "",
-            ]
-            with summary_path.open("a", encoding="utf-8") as handle:
-              handle.write("\n".join(summary_lines) + "\n")
-          PY
 
       - name: Extract effective knowledge route outputs
         id: route

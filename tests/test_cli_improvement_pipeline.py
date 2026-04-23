@@ -8688,6 +8688,100 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 f"missing_operator_report_after_bootstrap_followup:{operator_report_path.resolve()}",
             )
 
+    def test_knowledge_bootstrap_followup_rerun_emits_github_outputs_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            route_artifact_path = root / "artifacts" / "knowledge_bootstrap_route.json"
+            route_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            operator_report_path = root / "output" / "ci" / "operator_cycle" / "operator_cycle_report.json"
+            post_route_artifact_path = root / "output" / "ci" / "knowledge_bootstrap_route_post_bootstrap.json"
+
+            write_report_script = root / "scripts" / "write_operator_report.py"
+            write_report_script.parent.mkdir(parents=True, exist_ok=True)
+            write_report_script.write_text(
+                "\n".join(
+                    [
+                        "import json",
+                        "from pathlib import Path",
+                        "",
+                        f"report_path = Path({str(operator_report_path)!r})",
+                        "report_path.parent.mkdir(parents=True, exist_ok=True)",
+                        "report_path.write_text(",
+                        "    json.dumps(",
+                        "        {",
+                        "            'knowledge_bootstrap_state': {",
+                        "                'phase': 'ready',",
+                        "                'bootstrap_required': False,",
+                        "                'next_action': 'Knowledge bootstrap ready; continue cadence.',",
+                        "                'next_action_command': 'python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable --knowledge-delta-alert-enable',",
+                        "            },",
+                        "            'stage_statuses': {",
+                        "                'knowledge_brief': 'ok',",
+                        "                'knowledge_brief_delta_alert': 'ok',",
+                        "            },",
+                        "        },",
+                        "        indent=2,",
+                        "    ),",
+                        "    encoding='utf-8',",
+                        ")",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            next_action_command = f'python3 "{write_report_script}"'
+            route_artifact_path.write_text(
+                json.dumps({"next_action_command": next_action_command}, indent=2),
+                encoding="utf-8",
+            )
+
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            args = argparse.Namespace(
+                route_artifact_path=route_artifact_path,
+                operator_report_path=operator_report_path,
+                post_route_artifact_path=post_route_artifact_path,
+                emit_github_output=True,
+                summary_heading="Bootstrap Follow-Up",
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_knowledge_bootstrap_followup_rerun(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("post_status") or ""), "ok")
+            self.assertEqual(str(payload.get("post_phase") or ""), "ready")
+            self.assertEqual(str(payload.get("post_route") or ""), "run_cycle")
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"bootstrap_followup_command={next_action_command}", output_lines)
+            self.assertIn("bootstrap_followup_status=ok", output_lines)
+            self.assertIn("bootstrap_followup_phase=ready", output_lines)
+            self.assertIn("bootstrap_followup_route=run_cycle", output_lines)
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Bootstrap Follow-Up", summary)
+            self.assertIn(f"- command: `{next_action_command}`", summary)
+            self.assertIn("- post_status: `ok`", summary)
+            self.assertIn("- post_phase: `ready`", summary)
+            self.assertIn("- post_route: `run_cycle`", summary)
+
     def test_knowledge_bootstrap_route_outputs_normalizes_bootstrap_artifact_and_writes_output(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

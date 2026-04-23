@@ -11051,6 +11051,40 @@ def cmd_improvement_knowledge_bootstrap_followup_rerun(args: argparse.Namespace)
         output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         payload["output_path"] = str(output_path)
 
+    if bool(getattr(args, "emit_github_output", False)):
+        bootstrap_followup_command = str(payload.get("next_action_command") or "").strip() or "none"
+        bootstrap_followup_status = str(payload.get("post_status") or "warning").strip() or "warning"
+        bootstrap_followup_phase = str(payload.get("post_phase") or "unknown").strip() or "unknown"
+        bootstrap_followup_route = str(payload.get("post_route") or "noop").strip() or "noop"
+        output_lines = [
+            f"bootstrap_followup_command={bootstrap_followup_command}",
+            f"bootstrap_followup_status={bootstrap_followup_status}",
+            f"bootstrap_followup_phase={bootstrap_followup_phase}",
+            f"bootstrap_followup_route={bootstrap_followup_route}",
+        ]
+
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_path = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                    f"- command: `{bootstrap_followup_command}`",
+                    f"- post_status: `{bootstrap_followup_status}`",
+                    f"- post_phase: `{bootstrap_followup_phase}`",
+                    f"- post_route: `{bootstrap_followup_route}`",
+                    "",
+                ]
+                with summary_path.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
     _print_json_payload(
         payload,
         compact=bool(getattr(args, "json_compact", False)),
@@ -13957,6 +13991,17 @@ def main() -> None:
         type=Path,
         default=Path("output/ci/knowledge_bootstrap_route_post_bootstrap.json"),
         help="Path for regenerated post-bootstrap route artifact JSON",
+    )
+    improvement_knowledge_bootstrap_followup_rerun.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit bootstrap follow-up fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_knowledge_bootstrap_followup_rerun.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
     )
     improvement_knowledge_bootstrap_followup_rerun.add_argument("--output-path", type=Path, default=None)
     improvement_knowledge_bootstrap_followup_rerun.add_argument("--strict", action="store_true")
