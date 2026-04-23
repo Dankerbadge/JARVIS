@@ -64,6 +64,11 @@ jobs:
             except Exception:
               return default
 
+          def _append_unique(items, value):
+            value = str(value or "").strip()
+            if value and value not in items:
+              items.append(value)
+
           artifact_root = Path("output/ci/controlled_matrix").resolve()
           artifact_root.mkdir(parents=True, exist_ok=True)
           daily_report_path = (artifact_root / "daily_pipeline_report.json").resolve()
@@ -125,6 +130,35 @@ jobs:
             "--output-path output/ci/controlled_matrix/verify_matrix_alert_report.json "
             "--json-compact --alert-domain operations --alert-max-items 4"
           )
+          repair_commands = list(acknowledge_commands)
+          _append_unique(repair_commands, rerun_command)
+          repair_command_count = len(repair_commands)
+          first_repair_command = repair_commands[0] if repair_commands else "none"
+          operator_ack_bundle_command_sequence = (
+            " && ".join(repair_commands) if repair_commands else "none"
+          )
+
+          suggested_actions = []
+          for action in mitigation_actions:
+            _append_unique(suggested_actions, action)
+          if acknowledge_commands:
+            _append_unique(
+              suggested_actions,
+              f"[matrix] acknowledge alert: {first_acknowledge_command}",
+            )
+          _append_unique(
+            suggested_actions,
+            f"[matrix] rerun controlled matrix alert: {rerun_command}",
+          )
+          suggested_action_count = len(suggested_actions)
+          first_suggested_action = suggested_actions[0] if suggested_actions else "none"
+          operator_ack_bundle = {
+            "status": "ready" if repair_commands else "empty",
+            "command_count": repair_command_count,
+            "commands": repair_commands,
+            "command_sequence": operator_ack_bundle_command_sequence,
+            "first_command": None if first_repair_command == "none" else first_repair_command,
+          }
 
           summary_payload = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -144,9 +178,17 @@ jobs:
             "acknowledge_commands": acknowledge_commands,
             "acknowledge_command_count": acknowledge_command_count,
             "first_acknowledge_command": first_acknowledge_command,
+            "repair_commands": repair_commands,
+            "repair_command_count": repair_command_count,
+            "first_repair_command": first_repair_command,
+            "operator_ack_bundle": operator_ack_bundle,
+            "operator_ack_bundle_command_sequence": operator_ack_bundle_command_sequence,
             "mitigation_actions": mitigation_actions,
             "mitigation_action_count": mitigation_action_count,
             "first_mitigation_action": first_mitigation_action,
+            "suggested_actions": suggested_actions,
+            "suggested_action_count": suggested_action_count,
+            "first_suggested_action": first_suggested_action,
             "top_scenarios": top_scenarios,
             "top_scenario_count": top_scenario_count,
             "first_top_scenario": first_top_scenario,
@@ -168,6 +210,10 @@ jobs:
             f"- interrupt_id: `{interrupt_id_output}`",
             f"- acknowledge_command_count: `{acknowledge_command_count}`",
             f"- first_acknowledge_command: `{first_acknowledge_command}`",
+            f"- repair_command_count: `{repair_command_count}`",
+            f"- first_repair_command: `{first_repair_command}`",
+            f"- suggested_action_count: `{suggested_action_count}`",
+            f"- first_suggested_action: `{first_suggested_action}`",
             f"- mitigation_action_count: `{mitigation_action_count}`",
             f"- first_mitigation_action: `{first_mitigation_action}`",
             f"- top_scenario_count: `{top_scenario_count}`",
@@ -180,6 +226,12 @@ jobs:
           if top_scenarios:
             for scenario in top_scenarios:
               markdown_lines.append(f"- {scenario}")
+          else:
+            markdown_lines.append("- none")
+          markdown_lines.extend(["", "## Suggested Actions", ""])
+          if suggested_actions:
+            for action in suggested_actions:
+              markdown_lines.append(f"- {action}")
           else:
             markdown_lines.append("- none")
           markdown_lines.extend(["", "## Mitigation Actions", ""])
@@ -203,8 +255,13 @@ jobs:
           print(f"matrix_interrupt_id={interrupt_id_output}")
           print(f"acknowledge_command_count={acknowledge_command_count}")
           print(f"first_acknowledge_command={first_acknowledge_command}")
+          print(f"repair_command_count={repair_command_count}")
+          print(f"first_repair_command={first_repair_command}")
+          print(f"operator_ack_bundle_command_sequence={operator_ack_bundle_command_sequence}")
           print(f"mitigation_action_count={mitigation_action_count}")
           print(f"first_mitigation_action={first_mitigation_action}")
+          print(f"suggested_action_count={suggested_action_count}")
+          print(f"first_suggested_action={first_suggested_action}")
           print(f"top_scenario_count={top_scenario_count}")
           print(f"first_top_scenario={first_top_scenario}")
           print(f"rerun_command={rerun_command}")
@@ -224,8 +281,13 @@ jobs:
             handle.write(f"matrix_interrupt_id={interrupt_id_output}\n")
             handle.write(f"acknowledge_command_count={acknowledge_command_count}\n")
             handle.write(f"first_acknowledge_command={first_acknowledge_command}\n")
+            handle.write(f"repair_command_count={repair_command_count}\n")
+            handle.write(f"first_repair_command={first_repair_command}\n")
+            handle.write(f"operator_ack_bundle_command_sequence={operator_ack_bundle_command_sequence}\n")
             handle.write(f"mitigation_action_count={mitigation_action_count}\n")
             handle.write(f"first_mitigation_action={first_mitigation_action}\n")
+            handle.write(f"suggested_action_count={suggested_action_count}\n")
+            handle.write(f"first_suggested_action={first_suggested_action}\n")
             handle.write(f"top_scenario_count={top_scenario_count}\n")
             handle.write(f"first_top_scenario={first_top_scenario}\n")
             handle.write(f"rerun_command={rerun_command}\n")
@@ -247,6 +309,10 @@ jobs:
               f"- interrupt_id: `{interrupt_id_output}`",
               f"- acknowledge_command_count: `{acknowledge_command_count}`",
               f"- first_acknowledge_command: `{first_acknowledge_command}`",
+              f"- repair_command_count: `{repair_command_count}`",
+              f"- first_repair_command: `{first_repair_command}`",
+              f"- suggested_action_count: `{suggested_action_count}`",
+              f"- first_suggested_action: `{first_suggested_action}`",
               f"- mitigation_action_count: `{mitigation_action_count}`",
               f"- first_mitigation_action: `{first_mitigation_action}`",
               f"- top_scenario_count: `{top_scenario_count}`",
@@ -282,5 +348,5 @@ jobs:
       - name: Fail on controlled matrix drift
         if: ${{ always() && (steps.daily.outcome != 'success' || steps.matrix.outputs.matrix_status != 'ok') }}
         run: |
-          echo "controlled matrix drift gate failed (daily_outcome=${{ steps.daily.outcome }}, matrix_status=${{ steps.matrix.outputs.matrix_status }})"
+          echo "controlled matrix drift gate failed (daily_outcome=${{ steps.daily.outcome }}, matrix_status=${{ steps.matrix.outputs.matrix_status }}, first_repair=${{ steps.matrix.outputs.first_repair_command }})"
           exit 1

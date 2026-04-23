@@ -312,8 +312,12 @@ It writes compact controlled-validation artifacts to
 - `controlled_matrix_summary.md`
 
 For compact triage, the summary includes `acknowledge_command_count` and
-`first_acknowledge_command`, plus `mitigation_action_count` /
-`first_mitigation_action` and `top_scenario_count` / `first_top_scenario`.
+`first_acknowledge_command`, compact `operator_ack_bundle`
+(`command_count`, `first_command`, `command_sequence`), and
+`repair_command_count` / `first_repair_command`, plus
+`suggested_action_count` / `first_suggested_action`,
+`mitigation_action_count` / `first_mitigation_action`, and
+`top_scenario_count` / `first_top_scenario`.
 The workflow uploads those artifacts under `controlled-matrix-validation` and
 fails when either the daily pipeline step fails or controlled matrix status is
 not `ok`.
