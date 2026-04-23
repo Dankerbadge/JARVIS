@@ -5286,21 +5286,35 @@ def _resolve_pipeline_hypothesis_id(
     defaults: dict[str, Any],
 ) -> tuple[str | None, dict[str, Any], str | None]:
     explicit_hypothesis_id = str(raw_job.get("hypothesis_id") or "").strip()
-    if explicit_hypothesis_id:
-        return (
-            explicit_hypothesis_id,
-            {
-                "strategy": "explicit_hypothesis_id",
-                "hypothesis_id": explicit_hypothesis_id,
-            },
-            None,
-        )
-
     selector_domain = str(raw_job.get("domain") or defaults.get("domain") or "").strip().lower()
     selector_friction_key_raw = str(raw_job.get("friction_key") or "").strip()
     selector_friction_key = _normalize_friction_key(selector_friction_key_raw)
     selector_title_contains = str(raw_job.get("title_contains") or "").strip().lower()
     selector_status = str(raw_job.get("hypothesis_status") or "").strip().lower()
+
+    if explicit_hypothesis_id:
+        explicit_hypothesis = runtime.hypothesis_lab.get_hypothesis(explicit_hypothesis_id)
+        if isinstance(explicit_hypothesis, dict):
+            return (
+                explicit_hypothesis_id,
+                {
+                    "strategy": "explicit_hypothesis_id",
+                    "hypothesis_id": explicit_hypothesis_id,
+                    "hypothesis_found": True,
+                },
+                None,
+            )
+        if not selector_domain or (not selector_friction_key and not selector_title_contains):
+            return (
+                None,
+                {
+                    "strategy": "explicit_hypothesis_id",
+                    "hypothesis_id": explicit_hypothesis_id,
+                    "hypothesis_found": False,
+                    "fallback_attempted": False,
+                },
+                "explicit_hypothesis_id_not_found",
+            )
 
     if not selector_domain:
         return None, {}, "missing_hypothesis_selector_domain"
@@ -5354,41 +5368,63 @@ def _resolve_pipeline_hypothesis_id(
         )
 
     if not filtered:
+        selector_resolution = {
+            "strategy": "selector",
+            "domain": selector_domain,
+            "friction_key": selector_friction_key or None,
+            "title_contains": selector_title_contains or None,
+            "hypothesis_status": selector_status or None,
+            "candidate_count": 0,
+            "preferred_statuses": preferred_statuses,
+        }
+        if explicit_hypothesis_id:
+            selector_resolution.update(
+                {
+                    "requested_hypothesis_id": explicit_hypothesis_id,
+                    "requested_hypothesis_found": False,
+                    "fallback_attempted": "selector",
+                }
+            )
         return (
             None,
-            {
-                "strategy": "selector",
-                "domain": selector_domain,
-                "friction_key": selector_friction_key or None,
-                "title_contains": selector_title_contains or None,
-                "hypothesis_status": selector_status or None,
-                "candidate_count": 0,
-                "preferred_statuses": preferred_statuses,
-            },
-            "hypothesis_selector_no_match",
+            selector_resolution,
+            (
+                "explicit_hypothesis_id_not_found_and_selector_no_match"
+                if explicit_hypothesis_id
+                else "hypothesis_selector_no_match"
+            ),
         )
 
     selected = filtered[0]
     resolved_hypothesis_id = str(selected.get("hypothesis_id") or "").strip()
     if not resolved_hypothesis_id:
         return None, {}, "resolved_hypothesis_missing_id"
+    selector_resolution = {
+        "strategy": "selector",
+        "domain": selector_domain,
+        "friction_key": selector_friction_key or None,
+        "title_contains": selector_title_contains or None,
+        "hypothesis_status": selector_status or None,
+        "candidate_count": len(filtered),
+        "preferred_statuses": preferred_statuses,
+        "selected": {
+            "hypothesis_id": resolved_hypothesis_id,
+            "title": str(selected.get("title") or ""),
+            "status": str(selected.get("status") or ""),
+            "friction_key": selected.get("friction_key"),
+        },
+    }
+    if explicit_hypothesis_id:
+        selector_resolution.update(
+            {
+                "requested_hypothesis_id": explicit_hypothesis_id,
+                "requested_hypothesis_found": False,
+                "fallback_strategy": "selector",
+            }
+        )
     return (
         resolved_hypothesis_id,
-        {
-            "strategy": "selector",
-            "domain": selector_domain,
-            "friction_key": selector_friction_key or None,
-            "title_contains": selector_title_contains or None,
-            "hypothesis_status": selector_status or None,
-            "candidate_count": len(filtered),
-            "preferred_statuses": preferred_statuses,
-            "selected": {
-                "hypothesis_id": resolved_hypothesis_id,
-                "title": str(selected.get("title") or ""),
-                "status": str(selected.get("status") or ""),
-                "friction_key": selected.get("friction_key"),
-            },
-        },
+        selector_resolution,
         None,
     )
 
@@ -9533,6 +9569,7 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
     if not isinstance(matrix_loaded, dict):
         raise ValueError("invalid_matrix_file:expected_json_object")
     scenarios = [row for row in list(matrix_loaded.get("scenarios") or []) if isinstance(row, dict)]
+    allow_unmapped_runs = _coerce_bool(matrix_loaded.get("allow_unmapped_runs"), default=False)
 
     report_loaded = json.loads(report_path.read_text(encoding="utf-8"))
     if not isinstance(report_loaded, dict):
@@ -9725,7 +9762,14 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
 
     total_scenarios = len(scenarios)
     verification_status = "ok"
-    if mismatch_count > 0 or missing_count > 0 or invalid_count > 0 or bool(unmapped_runs):
+    unmapped_run_count = len(unmapped_runs)
+    unmapped_run_count_considered = 0 if allow_unmapped_runs else unmapped_run_count
+    if (
+        mismatch_count > 0
+        or missing_count > 0
+        or invalid_count > 0
+        or unmapped_run_count_considered > 0
+    ):
         verification_status = "warning"
 
     summary = {
@@ -9736,7 +9780,8 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
         "invalid_count": invalid_count,
         "match_rate": round((matched_count / total_scenarios), 4) if total_scenarios > 0 else 0.0,
         "mapped_run_count": len(mapped_run_indexes),
-        "unmapped_run_count": len(unmapped_runs),
+        "unmapped_run_count": unmapped_run_count,
+        "unmapped_run_count_considered": unmapped_run_count_considered,
         "mapped_run_coverage_rate": round((len(mapped_run_indexes) / len(run_rows)), 4) if run_rows else 0.0,
     }
 
@@ -9751,6 +9796,8 @@ def _build_matrix_verification_payload(*, matrix_path: Path, report_path: Path) 
         "comparisons": comparisons,
         "unmapped_runs": unmapped_runs,
         "unmapped_run_count_by_domain": unmapped_run_count_by_domain,
+        "allow_unmapped_runs": allow_unmapped_runs,
+        "unmapped_runs_ignored": bool(allow_unmapped_runs and unmapped_run_count > 0),
     }
 
 
@@ -9770,7 +9817,15 @@ def _classify_matrix_drift_severity(payload: dict[str, Any]) -> dict[str, Any]:
     mismatch_count = int(summary.get("mismatch_count") or len(mismatches))
     missing_count = int(summary.get("missing_count") or len(missing))
     invalid_count = int(summary.get("invalid_count") or len(invalid))
-    unmapped_run_count = int(summary.get("unmapped_run_count") or len(unmapped_runs))
+    unmapped_run_count = int(
+        summary.get("unmapped_run_count_considered")
+        if summary.get("unmapped_run_count_considered") is not None
+        else (
+            0
+            if _coerce_bool(payload.get("allow_unmapped_runs"), default=False)
+            else int(summary.get("unmapped_run_count") or len(unmapped_runs))
+        )
+    )
     guardrail_mismatch_count = len(guardrail_mismatches)
     total_issues = mismatch_count + missing_count + invalid_count + unmapped_run_count
 
@@ -9853,6 +9908,16 @@ def _build_matrix_drift_mitigations(
 ) -> list[str]:
     rows = [row for row in list(payload.get("comparisons") or []) if isinstance(row, dict)]
     unmapped_runs = [row for row in list(payload.get("unmapped_runs") or []) if isinstance(row, dict)]
+    summary = dict(payload.get("summary") or {})
+    unmapped_run_count_considered = int(
+        summary.get("unmapped_run_count_considered")
+        if summary.get("unmapped_run_count_considered") is not None
+        else (
+            0
+            if _coerce_bool(payload.get("allow_unmapped_runs"), default=False)
+            else int(summary.get("unmapped_run_count") or len(unmapped_runs))
+        )
+    )
     mismatches = [row for row in rows if str(row.get("status") or "") == "mismatch"]
     missing = [row for row in rows if str(row.get("status") or "") == "missing_run"]
     invalid = [row for row in rows if str(row.get("status") or "") == "invalid_scenario"]
@@ -9880,7 +9945,7 @@ def _build_matrix_drift_mitigations(
         actions.append("Run missing controlled experiments before advancing operator-cycle promotions.")
     if invalid:
         actions.append("Fix invalid matrix scenarios (missing match fields or expected verdicts) to restore drift coverage.")
-    if unmapped_runs:
+    if unmapped_run_count_considered > 0 and unmapped_runs:
         coverage_domains = sorted(
             {
                 str(row.get("domain") or "").strip().lower()

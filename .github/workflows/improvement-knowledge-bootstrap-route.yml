@@ -102,6 +102,17 @@ jobs:
             echo "No prior benchmark stale fallback history artifact found."
           fi
 
+      - name: Seed baseline hypothesis templates
+        run: |
+          set -euo pipefail
+          python3 -m jarvis.cli improvement seed-hypotheses \
+            --template-path ./configs/improvement_hypothesis_templates_knowledge_stack.json \
+            --owner operator \
+            --lookup-limit 400 \
+            --strict \
+            --output-path output/ci/operator_cycle/seed_hypotheses_report.json \
+            --json-compact > /dev/null
+
       - name: Run operator cycle + knowledge route
         run: |
           mkdir -p output/ci

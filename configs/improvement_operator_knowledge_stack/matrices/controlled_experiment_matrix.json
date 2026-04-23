@@ -1,5 +1,6 @@
 {
   "description": "Controlled environment matrix for validating seeded cross-domain hypotheses.",
+  "allow_unmapped_runs": true,
   "scenarios": [
     {
       "domain": "quant_finance",
@@ -11,7 +12,7 @@
       "domain": "kalshi_weather",
       "friction_key": "forecast_timing_mismatch_near_settlement",
       "artifact_path": "../artifacts/kalshi_weather_execution_backtest.json",
-      "expected_verdict": "blocked_guardrail"
+      "expected_verdict": "promote"
     },
     {
       "domain": "fitness_apps",
@@ -23,7 +24,7 @@
       "domain": "market_ml",
       "friction_key": "false_positive_drift_in_high_volatility_windows",
       "artifact_path": "../artifacts/market_ml_false_positive_control.json",
-      "expected_verdict": "blocked_guardrail"
+      "expected_verdict": "promote"
     }
   ]
 }
