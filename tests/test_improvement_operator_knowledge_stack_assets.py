@@ -189,15 +189,17 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("--fail-on-zero-unlock-ready", content)
         self.assertIn("--zero-unlock-ready-exit-code", content)
         self.assertIn("--emit-ci-json-path", content)
+        self.assertIn("--emit-github-output", content)
+        self.assertIn('--summary-heading "Gate Status Compact"', content)
+        self.assertIn("id: gate", content)
         self.assertIn("unlock_ready_step_count", content)
-        self.assertIn("unlock_ready_commands", content)
         self.assertIn("first_unlock_ready_command", content)
-        self.assertIn("acknowledge_command_count", content)
         self.assertIn("first_acknowledge_command", content)
         self.assertIn("Zero unlock-ready branch", content)
         self.assertIn("zero_unlock_ready_steps", content)
         self.assertIn("steps.gate.outputs.blocked_step_count", content)
         self.assertIn("steps.gate.outputs.exit_reason", content)
+        self.assertNotIn("python3 - <<'PY'", content)
 
     def test_active_compact_gate_workflow_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -216,14 +218,16 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("--fail-on-zero-unlock-ready", content)
         self.assertIn("--zero-unlock-ready-exit-code", content)
         self.assertIn("--emit-ci-json-path", content)
+        self.assertIn("--emit-github-output", content)
+        self.assertIn('--summary-heading "Gate Status Compact"', content)
+        self.assertIn("id: gate", content)
         self.assertIn("unlock_ready_step_count", content)
-        self.assertIn("unlock_ready_commands", content)
         self.assertIn("first_unlock_ready_command", content)
-        self.assertIn("acknowledge_command_count", content)
         self.assertIn("first_acknowledge_command", content)
         self.assertIn("Zero unlock-ready branch", content)
         self.assertIn("zero_unlock_ready_steps", content)
-        self.assertIn("compact_artifact_missing", content)
+        self.assertNotIn("compact_artifact_missing", content)
+        self.assertNotIn("python3 - <<'PY'", content)
         self.assertIn("output/ci/gate_status_all_summary.md", content)
 
     def test_unlock_ready_contract_consistency_across_compact_gate_and_bootstrap_workflows(self) -> None:
@@ -241,11 +245,11 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
             repo_root / ".github" / "workflows" / "improvement-knowledge-bootstrap-route.yml",
         ]
         compact_gate_contract_keys = [
-            "unlock_ready_commands",
             "first_unlock_ready_command",
-            "acknowledge_command_count",
             "first_acknowledge_command",
-            "recheck_command",
+            "unlock_ready_step_count",
+            "blocked_step_count",
+            "exit_reason",
         ]
         bootstrap_route_contract_keys = [
             "verify_matrix_first_unlock_ready_command",

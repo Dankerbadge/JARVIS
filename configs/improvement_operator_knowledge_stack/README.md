@@ -357,7 +357,8 @@ The workflow uploads those artifacts under `controlled-matrix-validation` and
 fails when either the daily pipeline step fails or controlled matrix status is
 not `ok`, printing matrix/runtime interrupt ids and repair command hints.
 
-Copy that file into `.github/workflows/` to run `plans gate-status-all`, read
+Copy that file into `.github/workflows/` to run `plans gate-status-all` with
+`--emit-github-output` and `--summary-heading "Gate Status Compact"`, read
 `output/ci/gate_status_all_compact.json`, and branch on:
 
 - `steps.gate.outputs.exit_reason`

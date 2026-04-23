@@ -824,6 +824,60 @@ class RuntimePromotionPolicyTests(unittest.TestCase):
                 )
                 self.assertNotIn("gate_rows", ci_json_payload)
 
+                ci_json_output_path = root / "gate_status_all_compact_outputs.json"
+                github_output_path = root / "gate_status_all_github_output.txt"
+                github_step_summary_path = root / "gate_status_all_github_summary.md"
+                args_all_emit_outputs = argparse.Namespace(**vars(args_all))
+                args_all_emit_outputs.emit_ci_json_path = ci_json_output_path
+                args_all_emit_outputs.emit_github_output = True
+                args_all_emit_outputs.summary_heading = "Gate Status Compact"
+                captured_all_emit_outputs = io.StringIO()
+                with patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_OUTPUT": str(github_output_path),
+                        "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                    },
+                    clear=False,
+                ):
+                    with redirect_stdout(captured_all_emit_outputs):
+                        cmd_plans_gate_status_all(args_all_emit_outputs)
+                payload_all_emit_outputs = json.loads(captured_all_emit_outputs.getvalue())
+                self.assertEqual(
+                    str(payload_all_emit_outputs.get("ci_json_path") or ""),
+                    str(ci_json_output_path.resolve()),
+                )
+                self.assertTrue(github_output_path.exists())
+                output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+                self.assertIn(f"artifact_path={ci_json_output_path.resolve()}", output_lines)
+                self.assertIn("blocked_step_count=1", output_lines)
+                self.assertIn("unlock_ready_step_count=0", output_lines)
+                self.assertIn("first_unlock_ready_command=none", output_lines)
+                self.assertIn("acknowledge_command_count=1", output_lines)
+                self.assertIn(
+                    "first_acknowledge_command=python3 -m jarvis.cli interrupts acknowledge "
+                    "int_gate_status_critical_1 --actor operator",
+                    output_lines,
+                )
+                self.assertIn("error_count=0", output_lines)
+                self.assertIn("exit_reason=none", output_lines)
+                self.assertIn("exit_code=0", output_lines)
+                self.assertTrue(github_step_summary_path.exists())
+                step_summary_text = github_step_summary_path.read_text(encoding="utf-8")
+                self.assertIn("## Gate Status Compact", step_summary_text)
+                self.assertIn("- blocked_step_count: `1`", step_summary_text)
+                self.assertIn("- unlock_ready_step_count: `0`", step_summary_text)
+                self.assertIn("- first_unlock_ready_command: `none`", step_summary_text)
+                self.assertIn("- acknowledge_command_count: `1`", step_summary_text)
+                self.assertIn(
+                    "- first_acknowledge_command: `python3 -m jarvis.cli interrupts acknowledge "
+                    "int_gate_status_critical_1 --actor operator`",
+                    step_summary_text,
+                )
+                self.assertIn("- error_count: `0`", step_summary_text)
+                self.assertIn("- exit_reason: `none`", step_summary_text)
+                self.assertIn("- exit_code: `0`", step_summary_text)
+
                 env_ci_summary_path = root / "gate_status_all_env_summary.md"
                 args_all_env_ci_summary = argparse.Namespace(**vars(args_all))
                 captured_all_env_ci_summary = io.StringIO()

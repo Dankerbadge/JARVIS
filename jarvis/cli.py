@@ -2014,6 +2014,67 @@ def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
             emit_ci_json_path.parent.mkdir(parents=True, exist_ok=True)
             emit_ci_json_path.write_text(json.dumps(ci_json_payload, indent=2), encoding="utf-8")
             payload["ci_json_path"] = str(emit_ci_json_path)
+
+        if bool(getattr(args, "emit_github_output", False)):
+            artifact_path = (
+                str(payload.get("ci_json_path") or "").strip()
+                or (str(emit_ci_json_path) if emit_ci_json_path is not None else "")
+            ) or "none"
+            blocked_step_count = _coerce_int(payload.get("blocked_step_count"), default=0)
+            unlock_ready_step_count = _coerce_int(payload.get("unlock_ready_step_count"), default=0)
+            first_unlock_ready_command = (
+                str(payload.get("first_unlock_ready_command") or "none").replace("\n", " ").strip() or "none"
+            )
+            acknowledge_commands = [
+                str(command).strip()
+                for command in list(payload.get("acknowledge_commands") or [])
+                if str(command).strip()
+            ]
+            acknowledge_command_count = len(acknowledge_commands)
+            first_acknowledge_command = (
+                acknowledge_commands[0].replace("\n", " ").strip() if acknowledge_commands else "none"
+            ) or "none"
+            error_count = _coerce_int(payload.get("error_count"), default=0)
+            exit_reason = str(payload.get("exit_reason") or "none").strip() or "none"
+            exit_code_out = _coerce_int(payload.get("exit_code"), default=0)
+
+            output_lines = [
+                f"artifact_path={artifact_path}",
+                f"blocked_step_count={blocked_step_count}",
+                f"unlock_ready_step_count={unlock_ready_step_count}",
+                f"first_unlock_ready_command={first_unlock_ready_command}",
+                f"acknowledge_command_count={acknowledge_command_count}",
+                f"first_acknowledge_command={first_acknowledge_command}",
+                f"error_count={error_count}",
+                f"exit_reason={exit_reason}",
+                f"exit_code={exit_code_out}",
+            ]
+
+            github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+            if github_output:
+                with Path(github_output).open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(output_lines) + "\n")
+
+            summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+            if summary_heading_raw:
+                github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+                if github_step_summary:
+                    summary_path = Path(github_step_summary).expanduser()
+                    summary_lines = [
+                        f"## {summary_heading_raw}",
+                        "",
+                        f"- blocked_step_count: `{blocked_step_count}`",
+                        f"- unlock_ready_step_count: `{unlock_ready_step_count}`",
+                        f"- first_unlock_ready_command: `{first_unlock_ready_command}`",
+                        f"- acknowledge_command_count: `{acknowledge_command_count}`",
+                        f"- first_acknowledge_command: `{first_acknowledge_command}`",
+                        f"- error_count: `{error_count}`",
+                        f"- exit_reason: `{exit_reason}`",
+                        f"- exit_code: `{exit_code_out}`",
+                        "",
+                    ]
+                    with summary_path.open("a", encoding="utf-8") as handle:
+                        handle.write("\n".join(summary_lines) + "\n")
         output_mode = str(getattr(args, "output", "json") or "json").strip().lower()
         if output_mode == "text":
             lines = [
@@ -12951,6 +13012,17 @@ def main() -> None:
             "Optional compact JSON artifact path for CI systems with counts, exit reason/code, "
             "blocked step IDs, acknowledge commands, and errors"
         ),
+    )
+    plans_gate_status_all.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit compact gate status fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    plans_gate_status_all.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
     )
     plans_gate_status_all.add_argument("--repo-path", type=Path, default=_default_repo_path())
     plans_gate_status_all.add_argument("--db-path", type=Path, default=_default_db_path())

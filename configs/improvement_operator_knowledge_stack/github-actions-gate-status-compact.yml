@@ -27,7 +27,7 @@ jobs:
           python -m pip install --upgrade pip
 
       - name: Evaluate critical drift gate queue
-        id: gate_eval
+        id: gate
         continue-on-error: true
         run: |
           mkdir -p output/ci
@@ -47,90 +47,9 @@ jobs:
             --zero-unlock-ready-exit-code 23 \
             --empty-ack-commands-exit-code 19 \
             --emit-ci-json-path output/ci/gate_status_all_compact.json \
+            --emit-github-output \
+            --summary-heading "Gate Status Compact" \
             --output text
-
-      - name: Extract compact gate outputs
-        id: gate
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          artifact_path = Path("output/ci/gate_status_all_compact.json").resolve()
-          payload = json.loads(artifact_path.read_text(encoding="utf-8"))
-
-          blocked_step_count = int(payload.get("blocked_step_count") or 0)
-          unlock_ready_step_count = int(payload.get("unlock_ready_step_count") or 0)
-          error_count = int(payload.get("error_count") or 0)
-          acknowledge_commands = [
-              str(command).strip()
-              for command in (payload.get("acknowledge_commands") or [])
-              if str(command).strip()
-          ]
-          unlock_ready_commands = [
-              str(command).strip()
-              for command in (payload.get("unlock_ready_commands") or [])
-              if str(command).strip()
-          ]
-          if not unlock_ready_commands:
-              unlock_ready_commands = [
-                  str((row or {}).get("recheck_command") or "").strip()
-                  for row in list(payload.get("unlock_ready_steps") or [])
-                  if str((row or {}).get("recheck_command") or "").strip()
-              ]
-          first_unlock_ready_command = (
-              str(payload.get("first_unlock_ready_command") or "").strip()
-              or (unlock_ready_commands[0] if unlock_ready_commands else "none")
-          )
-          first_unlock_ready_command_output = first_unlock_ready_command.replace("\n", " ").strip() or "none"
-          acknowledge_command_count = len(acknowledge_commands)
-          first_acknowledge_command = acknowledge_commands[0] if acknowledge_commands else "none"
-          first_acknowledge_command_output = first_acknowledge_command.replace("\n", " ").strip() or "none"
-          exit_reason = str(payload.get("exit_reason") or "none").strip() or "none"
-          exit_code = int(payload.get("exit_code") or 0)
-
-          print(f"artifact_path={artifact_path}")
-          print(f"blocked_step_count={blocked_step_count}")
-          print(f"unlock_ready_step_count={unlock_ready_step_count}")
-          print(f"first_unlock_ready_command={first_unlock_ready_command_output}")
-          print(f"error_count={error_count}")
-          print(f"acknowledge_command_count={acknowledge_command_count}")
-          print(f"first_acknowledge_command={first_acknowledge_command_output}")
-          print(f"exit_reason={exit_reason}")
-          print(f"exit_code={exit_code}")
-
-          github_output = Path(os.environ["GITHUB_OUTPUT"])
-          with github_output.open("a", encoding="utf-8") as handle:
-              handle.write(f"artifact_path={artifact_path}\n")
-              handle.write(f"blocked_step_count={blocked_step_count}\n")
-              handle.write(f"unlock_ready_step_count={unlock_ready_step_count}\n")
-              handle.write(f"first_unlock_ready_command={first_unlock_ready_command_output}\n")
-              handle.write(f"error_count={error_count}\n")
-              handle.write(f"acknowledge_command_count={acknowledge_command_count}\n")
-              handle.write(f"first_acknowledge_command={first_acknowledge_command_output}\n")
-              handle.write(f"exit_reason={exit_reason}\n")
-              handle.write(f"exit_code={exit_code}\n")
-
-          github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
-          if github_step_summary:
-              summary_path = Path(github_step_summary).expanduser()
-              summary_lines = [
-                  "## Gate Status Compact",
-                  "",
-                  f"- blocked_step_count: `{blocked_step_count}`",
-                  f"- unlock_ready_step_count: `{unlock_ready_step_count}`",
-                  f"- first_unlock_ready_command: `{first_unlock_ready_command_output}`",
-                  f"- error_count: `{error_count}`",
-                  f"- acknowledge_command_count: `{acknowledge_command_count}`",
-                  f"- first_acknowledge_command: `{first_acknowledge_command_output}`",
-                  f"- exit_reason: `{exit_reason}`",
-                  f"- exit_code: `{exit_code}`",
-                  "",
-              ]
-              with summary_path.open("a", encoding="utf-8") as handle:
-                  handle.write("\n".join(summary_lines) + "\n")
-          PY
 
       - name: Blocked queue branch
         if: ${{ steps.gate.outputs.blocked_step_count != '0' }}
