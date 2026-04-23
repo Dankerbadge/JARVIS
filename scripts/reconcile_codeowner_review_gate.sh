@@ -152,10 +152,20 @@ PY
   fi
 fi
 
-COLLABORATORS_JSON="$(gh api "repos/${REPO_SLUG}/collaborators?per_page=100")"
-PROTECTION_JSON="$(gh api "repos/${REPO_SLUG}/branches/${BRANCH}/protection")"
+COLLABORATORS_JSON_PATH="$(mktemp)"
+PROTECTION_JSON_PATH="$(mktemp)"
+SUMMARY_JSON_PATH="$(mktemp)"
+
+cleanup() {
+  rm -f "$COLLABORATORS_JSON_PATH" "$PROTECTION_JSON_PATH" "$SUMMARY_JSON_PATH"
+}
+
+trap cleanup EXIT
+
+gh api "repos/${REPO_SLUG}/collaborators?per_page=100" >"$COLLABORATORS_JSON_PATH"
+gh api "repos/${REPO_SLUG}/branches/${BRANCH}/protection" >"$PROTECTION_JSON_PATH"
 REQUIRED_STATUS_CHECKS_JSON="$(
-  python3 - <<'PY' "${REQUIRED_STATUS_CHECKS[@]}"
+  python3 - <<'PY' "${REQUIRED_STATUS_CHECKS[@]+"${REQUIRED_STATUS_CHECKS[@]}"}"
 import json
 import sys
 
@@ -170,13 +180,13 @@ print(json.dumps(contexts))
 PY
 )"
 
-SUMMARY_JSON="$(
-  python3 - <<'PY' "$COLLABORATORS_JSON" "$PROTECTION_JSON" "$REPO_SLUG" "$BRANCH" "$MIN_COLLABORATORS" "$REQUIRED_STATUS_CHECKS_JSON" "$REQUIRED_STATUS_CHECK_STRICT_MODE" "$SOURCE_WORKFLOW_RUN_ID" "$SOURCE_WORKFLOW_RUN_CONCLUSION" "$SOURCE_WORKFLOW_NAME" "$SOURCE_WORKFLOW_EVENT" "$SOURCE_WORKFLOW_RUN_URL"
+python3 - <<'PY' "$COLLABORATORS_JSON_PATH" "$PROTECTION_JSON_PATH" "$REPO_SLUG" "$BRANCH" "$MIN_COLLABORATORS" "$REQUIRED_STATUS_CHECKS_JSON" "$REQUIRED_STATUS_CHECK_STRICT_MODE" "$SOURCE_WORKFLOW_RUN_ID" "$SOURCE_WORKFLOW_RUN_CONCLUSION" "$SOURCE_WORKFLOW_NAME" "$SOURCE_WORKFLOW_EVENT" "$SOURCE_WORKFLOW_RUN_URL" >"$SUMMARY_JSON_PATH"
 import json
 import sys
+from pathlib import Path
 
-collaborators = json.loads(sys.argv[1] or "[]")
-protection = json.loads(sys.argv[2] or "{}")
+collaborators = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8") or "[]")
+protection = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8") or "{}")
 repo_slug = str(sys.argv[3] or "")
 branch = str(sys.argv[4] or "main")
 min_collaborators = max(1, int(sys.argv[5] or 2))
@@ -291,31 +301,33 @@ summary = {
 }
 print(json.dumps(summary))
 PY
-)"
 
 REVIEW_CHANGE_NEEDED="$(
-  python3 - <<'PY' "$SUMMARY_JSON"
+  python3 - <<'PY' "$SUMMARY_JSON_PATH"
 import json
 import sys
-obj = json.loads(sys.argv[1] or "{}")
+from pathlib import Path
+obj = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8") or "{}")
 print("true" if bool((obj.get("required_pull_request_reviews") or {}).get("change_needed")) else "false")
 PY
 )"
 
 STATUS_CHECKS_CHANGE_NEEDED="$(
-  python3 - <<'PY' "$SUMMARY_JSON"
+  python3 - <<'PY' "$SUMMARY_JSON_PATH"
 import json
 import sys
-obj = json.loads(sys.argv[1] or "{}")
+from pathlib import Path
+obj = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8") or "{}")
 print("true" if bool((obj.get("required_status_checks") or {}).get("change_needed")) else "false")
 PY
 )"
 
 CHANGE_NEEDED="$(
-  python3 - <<'PY' "$SUMMARY_JSON"
+  python3 - <<'PY' "$SUMMARY_JSON_PATH"
 import json
 import sys
-obj = json.loads(sys.argv[1] or "{}")
+from pathlib import Path
+obj = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8") or "{}")
 print("true" if bool(obj.get("change_needed")) else "false")
 PY
 )"
@@ -323,10 +335,11 @@ PY
 if [[ "$APPLY_MODE" == "true" && "$CHANGE_NEEDED" == "true" ]]; then
   if [[ "$REVIEW_CHANGE_NEEDED" == "true" ]]; then
     PATCH_JSON="$(
-      python3 - <<'PY' "$SUMMARY_JSON"
+      python3 - <<'PY' "$SUMMARY_JSON_PATH"
 import json
 import sys
-obj = json.loads(sys.argv[1] or "{}")
+from pathlib import Path
+obj = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8") or "{}")
 reviews = dict(obj.get("required_pull_request_reviews") or {})
 payload = {
     "dismiss_stale_reviews": bool(reviews.get("dismiss_stale_reviews")),
@@ -347,10 +360,11 @@ PY
 
   if [[ "$STATUS_CHECKS_CHANGE_NEEDED" == "true" ]]; then
     PATCH_JSON="$(
-      python3 - <<'PY' "$SUMMARY_JSON"
+      python3 - <<'PY' "$SUMMARY_JSON_PATH"
 import json
 import sys
-obj = json.loads(sys.argv[1] or "{}")
+from pathlib import Path
+obj = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8") or "{}")
 status_checks = dict(obj.get("required_status_checks") or {})
 payload = {
     "strict": bool(status_checks.get("desired_strict")),
@@ -367,11 +381,12 @@ PY
     rm -f "$TMP_PATCH_FILE"
   fi
 
-  SUMMARY_JSON="$(
-    python3 - <<'PY' "$SUMMARY_JSON"
+  python3 - <<'PY' "$SUMMARY_JSON_PATH"
 import json
 import sys
-obj = json.loads(sys.argv[1] or "{}")
+from pathlib import Path
+path = Path(sys.argv[1])
+obj = json.loads(path.read_text(encoding="utf-8") or "{}")
 reviews = dict(obj.get("required_pull_request_reviews") or {})
 reviews["current_require_code_owner_reviews"] = bool(reviews.get("desired_require_code_owner_reviews"))
 reviews["current_required_approving_review_count"] = int(reviews.get("desired_required_approving_review_count") or 0)
@@ -385,24 +400,24 @@ status_checks["change_needed"] = False
 obj["required_status_checks"] = status_checks
 obj["change_needed"] = False
 obj["applied"] = True
-print(json.dumps(obj))
+path.write_text(json.dumps(obj), encoding="utf-8")
 PY
-  )"
 else
-  SUMMARY_JSON="$(
-    python3 - <<'PY' "$SUMMARY_JSON" "$APPLY_MODE"
+  python3 - <<'PY' "$SUMMARY_JSON_PATH" "$APPLY_MODE"
 import json
 import sys
-obj = json.loads(sys.argv[1] or "{}")
+from pathlib import Path
+path = Path(sys.argv[1])
+obj = json.loads(path.read_text(encoding="utf-8") or "{}")
 obj["applied"] = bool(sys.argv[2].strip().lower() == "true")
-print(json.dumps(obj))
+path.write_text(json.dumps(obj), encoding="utf-8")
 PY
-  )"
 fi
 
-python3 - <<'PY' "$SUMMARY_JSON"
+python3 - <<'PY' "$SUMMARY_JSON_PATH"
 import json
 import sys
-obj = json.loads(sys.argv[1] or "{}")
+from pathlib import Path
+obj = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8") or "{}")
 print(json.dumps(obj, indent=2))
 PY

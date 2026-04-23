@@ -172,6 +172,15 @@ else
   exit 2
 fi
 
+RECONCILE_REPORT_JSON_PATH="$(mktemp)"
+WORKFLOW_RUNS_JSON_PATH="$(mktemp)"
+
+cleanup() {
+  rm -f "$RECONCILE_REPORT_JSON_PATH" "$WORKFLOW_RUNS_JSON_PATH"
+}
+
+trap cleanup EXIT
+
 RECONCILE_CMD=(
   bash ./scripts/reconcile_codeowner_review_gate.sh
   --branch "$BRANCH"
@@ -188,18 +197,26 @@ if [[ -n "$REPO_SLUG" ]]; then
   RECONCILE_CMD+=(--repo-slug "$REPO_SLUG")
 fi
 
-for context in "${REQUIRED_STATUS_CHECKS[@]}"; do
-  RECONCILE_CMD+=(--required-status-check "$context")
-done
+if (( ${#REQUIRED_STATUS_CHECKS[@]} > 0 )); then
+  for context in "${REQUIRED_STATUS_CHECKS[@]}"; do
+    RECONCILE_CMD+=(--required-status-check "$context")
+  done
+fi
 
-RECONCILE_REPORT_JSON="$("${RECONCILE_CMD[@]}")"
+"${RECONCILE_CMD[@]}" >"$RECONCILE_REPORT_JSON_PATH"
+
+if [[ ! -s "$RECONCILE_REPORT_JSON_PATH" ]]; then
+  echo "error: reconcile report is empty"
+  exit 2
+fi
 
 if [[ -z "$REPO_SLUG" ]]; then
   REPO_SLUG="$(
-    python3 - <<'PY' "$RECONCILE_REPORT_JSON"
+    python3 - <<'PY' "$RECONCILE_REPORT_JSON_PATH"
 import json
 import sys
-payload = json.loads(sys.argv[1] or "{}")
+from pathlib import Path
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8") or "{}")
 print(str(payload.get("repo_slug") or "").strip())
 PY
   )"
@@ -210,18 +227,17 @@ if [[ -z "$REPO_SLUG" ]]; then
   exit 2
 fi
 
-WORKFLOW_RUNS_JSON="$(
-  gh api "repos/${REPO_SLUG}/actions/workflows/${RECONCILE_WORKFLOW_FILE}/runs?per_page=${RECENT_RUNS_LIMIT}&branch=${BRANCH}"
-)"
+gh api "repos/${REPO_SLUG}/actions/workflows/${RECONCILE_WORKFLOW_FILE}/runs?per_page=${RECENT_RUNS_LIMIT}&branch=${BRANCH}" >"$WORKFLOW_RUNS_JSON_PATH"
 
-python3 - <<'PY' "$RECONCILE_REPORT_JSON" "$WORKFLOW_RUNS_JSON" "$EXPECTED_TRIGGER_EVENT" "$RECENT_RUNS_LIMIT" "$RECONCILE_WORKFLOW_FILE" "$EVENT_AUDIT_SINCE"
+python3 - <<'PY' "$RECONCILE_REPORT_JSON_PATH" "$WORKFLOW_RUNS_JSON_PATH" "$EXPECTED_TRIGGER_EVENT" "$RECENT_RUNS_LIMIT" "$RECONCILE_WORKFLOW_FILE" "$EVENT_AUDIT_SINCE"
 import json
 import sys
 from typing import Any
 from datetime import datetime, timezone
+from pathlib import Path
 
-report = json.loads(sys.argv[1] or "{}")
-runs_payload = json.loads(sys.argv[2] or "{}")
+report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8") or "{}")
+runs_payload = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8") or "{}")
 expected_event = str(sys.argv[3] or "workflow_run").strip() or "workflow_run"
 recent_runs_limit = max(1, int(str(sys.argv[4] or "20").strip() or "20"))
 workflow_file = str(sys.argv[5] or "reconcile-codeowner-review-gate.yml").strip() or "reconcile-codeowner-review-gate.yml"
