@@ -270,6 +270,264 @@ jobs:
         run: |
           echo "Knowledge delta stage not requested or unresolved for this run."
 
+      - name: Verify matrix coverage compact gate
+        id: verify_matrix_compact
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          def _to_int(value, default=0):
+            try:
+              return int(float(str(value).strip()))
+            except Exception:
+              return default
+
+          def _append_unique(items, value):
+            value = str(value or "").strip()
+            if value and value not in items:
+              items.append(value)
+
+          report_path = Path("output/ci/operator_cycle/operator_cycle_report.json").resolve()
+          if not report_path.exists():
+            raise SystemExit(f"missing_operator_report:{report_path}")
+          payload = json.loads(report_path.read_text(encoding="utf-8"))
+
+          verify_matrix = dict(payload.get("verify_matrix") or {})
+          verify_matrix_alert = dict(payload.get("verify_matrix_alert") or {})
+          promotion_lock = dict(payload.get("promotion_lock") or {})
+          summary = dict(verify_matrix.get("summary") or {})
+          comparisons = [
+            row for row in list(verify_matrix.get("comparisons") or [])
+            if isinstance(row, dict)
+          ]
+
+          verify_matrix_status = str(verify_matrix.get("status") or "unknown").strip().lower() or "unknown"
+          drift_severity = str(
+            verify_matrix.get("drift_severity")
+            or verify_matrix_alert.get("drift_severity")
+            or "unknown"
+          ).strip().lower() or "unknown"
+          mismatch_count = _to_int(summary.get("mismatch_count"), default=0)
+          missing_count = _to_int(summary.get("missing_count"), default=0)
+          invalid_count = _to_int(summary.get("invalid_count"), default=0)
+
+          required_domains = [
+            "quant_finance",
+            "kalshi_weather",
+            "fitness_apps",
+            "market_ml",
+          ]
+          status_rank = {
+            "mismatch": 5,
+            "missing_run": 4,
+            "invalid_scenario": 4,
+            "matched": 2,
+          }
+          domain_statuses = {}
+          for domain in required_domains:
+            rows = [
+              row for row in comparisons
+              if str(row.get("domain") or "").strip().lower() == domain
+            ]
+            if not rows:
+              domain_statuses[domain] = "missing_domain"
+              continue
+            ranked = sorted(
+              rows,
+              key=lambda row: status_rank.get(str(row.get("status") or "").strip().lower(), 1),
+              reverse=True,
+            )
+            domain_statuses[domain] = str(ranked[0].get("status") or "unknown").strip().lower() or "unknown"
+
+          missing_domains = [
+            domain for domain in required_domains
+            if str(domain_statuses.get(domain) or "") == "missing_domain"
+          ]
+          required_domain_missing_count = len(missing_domains)
+          missing_domain_count = required_domain_missing_count
+          required_domain_count = len(required_domains)
+          covered_domain_count = required_domain_count - missing_domain_count
+          missing_domains_csv = ",".join(missing_domains) if missing_domains else "none"
+          first_missing_domain = missing_domains[0] if missing_domains else "none"
+
+          acknowledge_commands = []
+          for command in list(promotion_lock.get("acknowledge_commands") or []):
+            _append_unique(acknowledge_commands, command)
+          for command in list(verify_matrix_alert.get("acknowledge_commands") or []):
+            _append_unique(acknowledge_commands, command)
+          acknowledge_command_count = len(acknowledge_commands)
+          first_acknowledge_command = acknowledge_commands[0] if acknowledge_commands else "none"
+
+          recheck_command = str(promotion_lock.get("recheck_command") or "").strip()
+          if not recheck_command:
+            recheck_command = (
+              "./scripts/run_improvement_verify_matrix_alert.sh "
+              "./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json "
+              "output/ci/operator_cycle/daily_pipeline_report.json "
+              "--output-path output/ci/operator_cycle/verify_matrix_alert_report.json --json-compact"
+            )
+
+          alert_payload = dict(verify_matrix_alert.get("alert") or {})
+          top_scenarios = [
+            str(item).strip()
+            for item in list(alert_payload.get("top_scenarios") or [])
+            if str(item).strip()
+          ]
+          if not top_scenarios:
+            for row in comparisons:
+              status = str(row.get("status") or "").strip().lower()
+              if status in {"mismatch", "missing_run", "invalid_scenario"}:
+                scenario_id = str(row.get("scenario_id") or "").strip()
+                if scenario_id:
+                  _append_unique(top_scenarios, scenario_id)
+              if len(top_scenarios) >= 4:
+                break
+          top_scenario_count = len(top_scenarios)
+          first_top_scenario = top_scenarios[0] if top_scenarios else "none"
+
+          compact_status = (
+            "ok"
+            if verify_matrix_status == "ok" and required_domain_missing_count == 0
+            else "warning"
+          )
+
+          output_root = Path("output/ci/operator_cycle").resolve()
+          output_root.mkdir(parents=True, exist_ok=True)
+          compact_path = (output_root / "verify_matrix_compact.json").resolve()
+          compact_markdown_path = (output_root / "verify_matrix_compact.md").resolve()
+
+          compact_payload = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "status": compact_status,
+            "verify_matrix_status": verify_matrix_status,
+            "drift_severity": drift_severity,
+            "mismatch_count": mismatch_count,
+            "missing_count": missing_count,
+            "invalid_count": invalid_count,
+            "required_domains": required_domains,
+            "required_domain_count": required_domain_count,
+            "covered_domain_count": covered_domain_count,
+            "domain_statuses": domain_statuses,
+            "missing_domains": missing_domains,
+            "missing_domains_csv": missing_domains_csv,
+            "missing_domain_count": missing_domain_count,
+            "required_domain_missing_count": required_domain_missing_count,
+            "first_missing_domain": first_missing_domain,
+            "acknowledge_commands": acknowledge_commands,
+            "acknowledge_command_count": acknowledge_command_count,
+            "first_acknowledge_command": first_acknowledge_command,
+            "recheck_command": recheck_command,
+            "top_scenarios": top_scenarios,
+            "top_scenario_count": top_scenario_count,
+            "first_top_scenario": first_top_scenario,
+            "verify_matrix_report_path": str(payload.get("verify_matrix_report_path") or ""),
+            "verify_matrix_alert_report_path": str(payload.get("verify_matrix_alert_report_path") or ""),
+            "operator_cycle_report_path": str(report_path),
+          }
+          compact_path.write_text(json.dumps(compact_payload, indent=2), encoding="utf-8")
+
+          markdown_lines = [
+            "# Verify Matrix Compact Coverage",
+            "",
+            f"- status: `{compact_status}`",
+            f"- verify_matrix_status: `{verify_matrix_status}`",
+            f"- drift_severity: `{drift_severity}`",
+            f"- mismatch_count: `{mismatch_count}`",
+            f"- missing_count: `{missing_count}`",
+            f"- invalid_count: `{invalid_count}`",
+            f"- required_domain_missing_count: `{required_domain_missing_count}`",
+            f"- missing_domain_count: `{missing_domain_count}`",
+            f"- missing_domains_csv: `{missing_domains_csv}`",
+            f"- first_missing_domain: `{first_missing_domain}`",
+            f"- acknowledge_command_count: `{acknowledge_command_count}`",
+            f"- first_acknowledge_command: `{first_acknowledge_command}`",
+            f"- recheck_command: `{recheck_command}`",
+            f"- top_scenario_count: `{top_scenario_count}`",
+            f"- first_top_scenario: `{first_top_scenario}`",
+            "",
+            "## Domain Statuses",
+            "",
+          ]
+          for domain in required_domains:
+            markdown_lines.append(f"- `{domain}`: `{domain_statuses.get(domain)}`")
+          compact_markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+
+          print(f"verify_matrix_compact_path={compact_path}")
+          print(f"verify_matrix_compact_markdown_path={compact_markdown_path}")
+          print(f"verify_matrix_compact_status={compact_status}")
+          print(f"verify_matrix_status={verify_matrix_status}")
+          print(f"verify_matrix_drift_severity={drift_severity}")
+          print(f"drift_severity={drift_severity}")
+          print(f"required_domain_count={required_domain_count}")
+          print(f"covered_domain_count={covered_domain_count}")
+          print(f"missing_domain_count={missing_domain_count}")
+          print(f"missing_domains_csv={missing_domains_csv}")
+          print(f"verify_matrix_required_domain_missing_count={required_domain_missing_count}")
+          print(f"verify_matrix_first_missing_domain={first_missing_domain}")
+          print(f"acknowledge_command_count={acknowledge_command_count}")
+          print(f"first_acknowledge_command={first_acknowledge_command}")
+          print(f"verify_matrix_recheck_command={recheck_command}")
+          print(f"recheck_command={recheck_command}")
+          print(f"top_scenario_count={top_scenario_count}")
+          print(f"first_top_scenario={first_top_scenario}")
+
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as handle:
+            handle.write(f"verify_matrix_compact_path={compact_path}\n")
+            handle.write(f"verify_matrix_compact_markdown_path={compact_markdown_path}\n")
+            handle.write(f"verify_matrix_compact_status={compact_status}\n")
+            handle.write(f"verify_matrix_status={verify_matrix_status}\n")
+            handle.write(f"verify_matrix_drift_severity={drift_severity}\n")
+            handle.write(f"drift_severity={drift_severity}\n")
+            handle.write(f"required_domain_count={required_domain_count}\n")
+            handle.write(f"covered_domain_count={covered_domain_count}\n")
+            handle.write(f"missing_domain_count={missing_domain_count}\n")
+            handle.write(f"missing_domains_csv={missing_domains_csv}\n")
+            handle.write(f"verify_matrix_required_domain_missing_count={required_domain_missing_count}\n")
+            handle.write(f"verify_matrix_first_missing_domain={first_missing_domain}\n")
+            handle.write(f"acknowledge_command_count={acknowledge_command_count}\n")
+            handle.write(f"first_acknowledge_command={first_acknowledge_command}\n")
+            handle.write(f"verify_matrix_recheck_command={recheck_command}\n")
+            handle.write(f"recheck_command={recheck_command}\n")
+            handle.write(f"top_scenario_count={top_scenario_count}\n")
+            handle.write(f"first_top_scenario={first_top_scenario}\n")
+
+          github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+          if github_step_summary:
+            summary_path = Path(github_step_summary).expanduser()
+            summary_lines = [
+              "## Verify Matrix Compact Coverage",
+              "",
+              f"- status: `{compact_status}`",
+              f"- verify_matrix_status: `{verify_matrix_status}`",
+              f"- drift_severity: `{drift_severity}`",
+              f"- mismatch_count: `{mismatch_count}`",
+              f"- missing_count: `{missing_count}`",
+              f"- invalid_count: `{invalid_count}`",
+              f"- required_domain_missing_count: `{required_domain_missing_count}`",
+              f"- missing_domain_count: `{missing_domain_count}`",
+              f"- missing_domains_csv: `{missing_domains_csv}`",
+              f"- first_missing_domain: `{first_missing_domain}`",
+              f"- acknowledge_command_count: `{acknowledge_command_count}`",
+              f"- first_acknowledge_command: `{first_acknowledge_command}`",
+              f"- recheck_command: `{recheck_command}`",
+              f"- top_scenario_count: `{top_scenario_count}`",
+              f"- first_top_scenario: `{first_top_scenario}`",
+              "",
+            ]
+            with summary_path.open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(summary_lines) + "\n")
+          PY
+
+      - name: Fail on verify matrix coverage gaps
+        if: ${{ steps.verify_matrix_compact.outputs.missing_domain_count != '0' }}
+        run: |
+          echo "Verify matrix coverage is missing required domains (count=${{ steps.verify_matrix_compact.outputs.missing_domain_count }}, first=${{ steps.verify_matrix_compact.outputs.verify_matrix_first_missing_domain }}, domains=${{ steps.verify_matrix_compact.outputs.missing_domains_csv }})."
+          exit 1
+
       - name: Guardrail gate
         run: |
           python3 - <<'PY'

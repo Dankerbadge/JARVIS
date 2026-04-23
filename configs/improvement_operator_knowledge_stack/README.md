@@ -243,6 +243,19 @@ When initial route is `bootstrap`, it executes one follow-up rerun from
 `next_action_command`, regenerates
 `output/ci/knowledge_bootstrap_route_post_bootstrap.json`, and then branches on
 the effective post-follow-up route payload.
+After guardrail checks, it also builds compact verify-matrix coverage artifacts:
+
+- `output/ci/operator_cycle/verify_matrix_compact.json`
+- `output/ci/operator_cycle/verify_matrix_compact.md`
+
+The compact payload includes per-domain `domain_statuses` for
+`quant_finance`, `kalshi_weather`, `fitness_apps`, and `market_ml`, plus
+`required_domain_count`, `covered_domain_count`, `missing_domain_count`,
+`missing_domains_csv`, `required_domain_missing_count`, `first_missing_domain`,
+`acknowledge_command_count`, `first_acknowledge_command`, and
+`verify_matrix_recheck_command` / `recheck_command`.
+The workflow fails if any required domain is missing from verify-matrix
+comparisons, even when overall verify-matrix status is `ok`.
 Before artifact upload, the workflow also collects:
 
 - `configs/improvement_operator_knowledge_stack/output/debug_runs`
