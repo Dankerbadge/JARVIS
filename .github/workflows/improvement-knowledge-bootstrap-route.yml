@@ -49,21 +49,21 @@ jobs:
             exit 0
           fi
           PRIOR_RUN_ID="$(
-            python3 -c 'import json, os, sys
-payload = json.load(sys.stdin)
-current = str(os.environ.get("CURRENT_RUN_ID") or "")
-value = "none"
-for row in payload.get("workflow_runs", []):
-    run_id = str(row.get("id") or "")
-    conclusion = str(row.get("conclusion") or "").strip().lower()
-    if not run_id or run_id == current:
-        continue
-    if conclusion != "success":
-        continue
-    value = run_id
-    break
-print(value)
-            ' < "${RUNS_JSON_PATH}"
+            jq -r --arg current "${CURRENT_RUN_ID}" '
+              first(
+                (
+                  (.workflow_runs // [])
+                  | map(
+                      select(
+                        ((.id | tostring) != $current)
+                        and (((.conclusion // "") | ascii_downcase) == "success")
+                      )
+                    )
+                  | .[]
+                  | (.id | tostring)
+                )
+              ) // "none"
+            ' "${RUNS_JSON_PATH}"
           )"
           echo "run_id=${PRIOR_RUN_ID}" >> "${GITHUB_OUTPUT}"
 
