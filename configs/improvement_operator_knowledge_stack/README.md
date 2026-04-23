@@ -260,10 +260,14 @@ After matrix lanes complete, `domain-smoke-aggregate` downloads
 `output/ci/domain_smoke/domain_smoke_cross_domain_summary.json` and
 `output/ci/domain_smoke/domain_smoke_cross_domain_summary.md`, including ranked
 `top_risks` with rerun/acknowledge commands.
+The aggregate summary JSON also carries `operator_ack_bundle` with
+`acknowledge_bundle_command_sequence` so one copied command string can
+acknowledge per-domain interrupts in order.
 When `warning_count > 0`, it also writes
 `output/ci/domain_smoke/domain_smoke_cross_domain_alert.json` and opens a
 single delivered cross-domain interrupt with aggregate acknowledge/rerun
-commands.
+commands, then updates `operator_ack_bundle` so that same command sequence
+includes the cross-domain interrupt acknowledge command at the end.
 
 Copy that file into `.github/workflows/` to run `plans gate-status-all`, read
 `output/ci/gate_status_all_compact.json`, and branch on:
