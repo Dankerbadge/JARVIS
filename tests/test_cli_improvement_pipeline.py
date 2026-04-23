@@ -17,6 +17,7 @@ from jarvis.cli import (
     cmd_improvement_controlled_matrix_runtime_alert,
     cmd_improvement_daily_pipeline,
     cmd_improvement_domain_smoke_outputs,
+    cmd_improvement_domain_smoke_runtime_alert,
     cmd_improvement_draft_experiment_jobs,
     cmd_improvement_execute_retests,
     cmd_improvement_fitness_leaderboard,
@@ -8943,6 +8944,111 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertIn("- status: `ok`", summary)
             self.assertIn("- reason: `none`", summary)
             self.assertIn(f"- summary_path: `{summary_path.resolve()}`", summary)
+
+    def test_domain_smoke_runtime_alert_creates_interrupt_and_emits_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            domain = "kalshi_weather"
+            summary_path = root / "output" / "ci" / "domain_smoke" / domain / f"{domain}_smoke_summary.json"
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "domain": domain,
+                        "reason": "domain_smoke_status_not_ok:warning",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            alert_path = summary_path.parent / f"{domain}_smoke_alert.json"
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+            rerun_command = (
+                "./scripts/run_improvement_domain_smoke.sh "
+                "./configs/improvement_operator_knowledge_stack.json "
+                f"{domain} --output-dir output/ci/domain_smoke/{domain} --allow-missing"
+            )
+
+            args = argparse.Namespace(
+                domain=domain,
+                smoke_status="warning",
+                smoke_reason="domain_smoke_status_not_ok:warning",
+                summary_path=summary_path,
+                pull_report_path=str((summary_path.parent / "pull_report.json").resolve()),
+                leaderboard_report_path=str((summary_path.parent / "leaderboard_report.json").resolve()),
+                seed_report_path=str((summary_path.parent / "seed_report.json").resolve()),
+                rerun_command=rerun_command,
+                output_path=alert_path,
+                emit_github_output=True,
+                summary_heading="Domain Smoke Interrupt Alert",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_domain_smoke_runtime_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(str(payload.get("domain") or ""), domain)
+            self.assertTrue(bool(payload.get("alert_created")))
+            interrupt_id = str(payload.get("interrupt_id") or "").strip()
+            self.assertTrue(bool(interrupt_id))
+            acknowledge_command = str(payload.get("acknowledge_command") or "").strip()
+            self.assertIn(interrupt_id, acknowledge_command)
+            self.assertIn(str(db.resolve()), acknowledge_command)
+            self.assertEqual(str(payload.get("rerun_command") or ""), rerun_command)
+            self.assertEqual(str(payload.get("runtime_error_output") or ""), "none")
+            self.assertEqual(str(payload.get("alert_path") or ""), str(alert_path.resolve()))
+            self.assertTrue(alert_path.exists())
+
+            alert_payload = json.loads(alert_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(alert_payload.get("domain") or ""), domain)
+            self.assertEqual(str(alert_payload.get("smoke_status") or ""), "warning")
+            self.assertTrue(bool(alert_payload.get("alert_created")))
+            self.assertEqual(str(alert_payload.get("interrupt_id") or ""), interrupt_id)
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"alert_path={alert_path.resolve()}", output_lines)
+            self.assertIn(f"interrupt_id={interrupt_id}", output_lines)
+            self.assertIn("alert_created=1", output_lines)
+            self.assertIn(f"acknowledge_command={acknowledge_command}", output_lines)
+            self.assertIn(f"rerun_command={rerun_command}", output_lines)
+            self.assertIn("runtime_error=none", output_lines)
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Domain Smoke Interrupt Alert", summary)
+            self.assertIn(f"- domain: `{domain}`", summary)
+            self.assertIn(f"- interrupt_id: `{interrupt_id}`", summary)
+            self.assertIn("- alert_created: `1`", summary)
+            self.assertIn("- smoke_status: `warning`", summary)
+            self.assertIn("- smoke_reason: `domain_smoke_status_not_ok:warning`", summary)
+            self.assertIn(f"- rerun_command: `{rerun_command}`", summary)
+            self.assertIn(f"- acknowledge_command: `{acknowledge_command}`", summary)
+            self.assertIn("- runtime_error: `none`", summary)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                interrupts = runtime.list_interrupts(status="all", limit=20)
+                self.assertEqual(len(interrupts), 1)
+                self.assertEqual(str((interrupts[0] or {}).get("status") or ""), "delivered")
+                self.assertEqual(str((interrupts[0] or {}).get("interrupt_id") or ""), interrupt_id)
+            finally:
+                runtime.close()
 
     def test_controlled_matrix_compact_emits_github_outputs_and_summary(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -8429,6 +8429,192 @@ def cmd_improvement_domain_smoke_outputs(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_improvement_domain_smoke_runtime_alert(args: argparse.Namespace) -> None:
+    domain = (
+        str(getattr(args, "domain", None) or os.getenv("MATRIX_DOMAIN") or "unknown")
+        .strip()
+        .lower()
+        or "unknown"
+    )
+    smoke_status = (
+        str(getattr(args, "smoke_status", None) or os.getenv("SMOKE_STATUS") or "warning")
+        .strip()
+        .lower()
+        or "warning"
+    )
+    smoke_reason = (
+        str(getattr(args, "smoke_reason", None) or os.getenv("SMOKE_REASON") or "domain_smoke_failure")
+        .strip()
+        or "domain_smoke_failure"
+    )
+    summary_path = Path(
+        str(getattr(args, "summary_path", None) or os.getenv("SUMMARY_PATH") or "")
+    ).expanduser()
+    pull_report_path = (
+        str(getattr(args, "pull_report_path", None) or os.getenv("PULL_REPORT_PATH") or "none").strip() or "none"
+    )
+    leaderboard_report_path = (
+        str(getattr(args, "leaderboard_report_path", None) or os.getenv("LEADERBOARD_REPORT_PATH") or "none")
+        .strip()
+        or "none"
+    )
+    seed_report_path = (
+        str(getattr(args, "seed_report_path", None) or os.getenv("SEED_REPORT_PATH") or "none").strip() or "none"
+    )
+
+    alert_path = (
+        args.output_path.resolve()
+        if getattr(args, "output_path", None) is not None
+        else Path(f"output/ci/domain_smoke/{domain}/{domain}_smoke_alert.json").resolve()
+    )
+    alert_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path = (
+        args.db_path.resolve()
+        if getattr(args, "db_path", None) is not None
+        else (alert_path.parent / "jarvis.db").resolve()
+    )
+
+    rerun_command = str(getattr(args, "rerun_command", None) or "").strip()
+    if not rerun_command:
+        rerun_command = (
+            "./scripts/run_improvement_domain_smoke.sh "
+            "./configs/improvement_operator_knowledge_stack.json "
+            f"{domain} --output-dir output/ci/domain_smoke/{domain} --allow-missing"
+        )
+    why_now = (
+        f"domain smoke validation failed for {domain} "
+        f"(status={smoke_status}, reason={smoke_reason}) and requires immediate operator triage."
+    )
+    why_not_later = (
+        "untriaged smoke failures can hide degraded signal ingestion and seed quality "
+        "before controlled experiments start."
+    )
+
+    interrupt_id = ""
+    acknowledge_command = "none"
+    runtime_error = "none"
+    runtime = None
+    try:
+        runtime = JarvisRuntime(
+            db_path=db_path,
+            repo_path=args.repo_path.resolve(),
+        )
+        decision = InterruptDecision(
+            interrupt_id=new_id("int"),
+            candidate_id=new_id("cand"),
+            domain=domain,
+            reason=(
+                "domain_smoke_failure"
+                f" status={smoke_status}"
+                f" reason={smoke_reason}"
+            ),
+            urgency_score=0.93,
+            confidence=0.9,
+            suppression_window_hit=False,
+            delivered=True,
+            why_now=why_now,
+            why_not_later=why_not_later,
+            status="delivered",
+        )
+        runtime.interrupt_store.store(decision)
+        interrupt = runtime.interrupt_store.get(decision.interrupt_id) or decision.to_dict()
+        interrupt_id = str(interrupt.get("interrupt_id") or "").strip()
+        if interrupt_id:
+            acknowledge_command = (
+                "python3 -m jarvis.cli interrupts acknowledge "
+                f"{interrupt_id} --actor operator --db-path {db_path}"
+            )
+        runtime.memory.append_event(
+            "improvement.domain_smoke_alert_created",
+            {
+                "interrupt_id": interrupt_id or None,
+                "domain": domain,
+                "status": smoke_status,
+                "reason": smoke_reason,
+                "summary_path": str(summary_path.resolve()) if summary_path.exists() else str(summary_path),
+                "pull_report_path": pull_report_path,
+                "leaderboard_report_path": leaderboard_report_path,
+                "seed_report_path": seed_report_path,
+                "rerun_command": rerun_command,
+            },
+        )
+    except Exception as exc:
+        runtime_error = str(exc).strip() or "unknown_runtime_error"
+    finally:
+        if runtime is not None:
+            runtime.close()
+
+    payload: dict[str, Any] = {
+        "generated_at": utc_now_iso(),
+        "status": "warning",
+        "domain": domain,
+        "smoke_status": smoke_status,
+        "smoke_reason": smoke_reason,
+        "summary_path": str(summary_path.resolve()) if summary_path.exists() else str(summary_path),
+        "pull_report_path": pull_report_path,
+        "leaderboard_report_path": leaderboard_report_path,
+        "seed_report_path": seed_report_path,
+        "alert_created": bool(interrupt_id),
+        "interrupt_id": interrupt_id or None,
+        "interrupt_db_path": str(db_path),
+        "acknowledge_command": None if acknowledge_command == "none" else acknowledge_command,
+        "rerun_command": rerun_command,
+        "why_now": why_now,
+        "why_not_later": why_not_later,
+        "runtime_error": None if runtime_error == "none" else runtime_error,
+    }
+    alert_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    payload["alert_path"] = str(alert_path)
+    payload["interrupt_id_output"] = interrupt_id or "none"
+    payload["alert_created_output"] = 1 if interrupt_id else 0
+    payload["acknowledge_command_output"] = acknowledge_command
+    payload["runtime_error_output"] = runtime_error
+
+    if bool(getattr(args, "emit_github_output", False)):
+        output_lines = [
+            f"alert_path={alert_path}",
+            f"interrupt_id={interrupt_id or 'none'}",
+            f"alert_created={1 if interrupt_id else 0}",
+            f"acknowledge_command={acknowledge_command}",
+            f"rerun_command={rerun_command}",
+            f"runtime_error={runtime_error}",
+        ]
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_output = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                    f"- domain: `{domain}`",
+                    f"- interrupt_id: `{interrupt_id or 'none'}`",
+                    f"- alert_created: `{1 if interrupt_id else 0}`",
+                    f"- smoke_status: `{smoke_status}`",
+                    f"- smoke_reason: `{smoke_reason}`",
+                    f"- rerun_command: `{rerun_command}`",
+                    f"- acknowledge_command: `{acknowledge_command}`",
+                    f"- runtime_error: `{runtime_error}`",
+                    "",
+                ]
+                with summary_output.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if bool(getattr(args, "strict", False)):
+        if runtime_error != "none" or not bool(interrupt_id):
+            raise SystemExit(2)
+
+
 def cmd_improvement_controlled_matrix_compact(args: argparse.Namespace) -> None:
     artifact_root = (
         args.artifact_root.resolve()
@@ -14775,6 +14961,40 @@ def main() -> None:
     improvement_domain_smoke_outputs.add_argument("--output-path", type=Path, default=None)
     improvement_domain_smoke_outputs.add_argument("--json-compact", action="store_true")
 
+    improvement_domain_smoke_runtime_alert = improvement_sub.add_parser(
+        "domain-smoke-runtime-alert",
+        help="Create domain smoke runtime interrupt alert artifact and emit compact routing outputs",
+    )
+    improvement_domain_smoke_runtime_alert.add_argument("--domain", type=str, default=None)
+    improvement_domain_smoke_runtime_alert.add_argument("--smoke-status", type=str, default=None)
+    improvement_domain_smoke_runtime_alert.add_argument("--smoke-reason", type=str, default=None)
+    improvement_domain_smoke_runtime_alert.add_argument("--summary-path", type=Path, default=None)
+    improvement_domain_smoke_runtime_alert.add_argument("--pull-report-path", type=str, default=None)
+    improvement_domain_smoke_runtime_alert.add_argument("--leaderboard-report-path", type=str, default=None)
+    improvement_domain_smoke_runtime_alert.add_argument("--seed-report-path", type=str, default=None)
+    improvement_domain_smoke_runtime_alert.add_argument("--rerun-command", type=str, default=None)
+    improvement_domain_smoke_runtime_alert.add_argument(
+        "--output-path",
+        type=Path,
+        default=None,
+        help="Path for domain smoke runtime alert artifact",
+    )
+    improvement_domain_smoke_runtime_alert.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit domain smoke runtime alert fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_domain_smoke_runtime_alert.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
+    )
+    improvement_domain_smoke_runtime_alert.add_argument("--strict", action="store_true")
+    improvement_domain_smoke_runtime_alert.add_argument("--json-compact", action="store_true")
+    improvement_domain_smoke_runtime_alert.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_domain_smoke_runtime_alert.add_argument("--db-path", type=Path, default=None)
+
     improvement_controlled_matrix_compact = improvement_sub.add_parser(
         "controlled-matrix-compact",
         help="Build compact controlled-matrix drift summary JSON/Markdown artifacts from verify-matrix-alert output",
@@ -15421,6 +15641,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "domain-smoke-outputs":
         cmd_improvement_domain_smoke_outputs(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "domain-smoke-runtime-alert":
+        cmd_improvement_domain_smoke_runtime_alert(args)
         return
     if args.cmd == "improvement" and args.improvement_cmd == "controlled-matrix-compact":
         cmd_improvement_controlled_matrix_compact(args)
