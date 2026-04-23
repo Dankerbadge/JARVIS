@@ -8262,6 +8262,122 @@ class CliImprovementPipelineTests(unittest.TestCase):
             finally:
                 runtime.close()
 
+    def test_verify_matrix_coverage_alert_emits_github_outputs_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            compact_path = root / "artifacts" / "verify_matrix_compact.json"
+            compact_path.parent.mkdir(parents=True, exist_ok=True)
+            recheck_command = (
+                "python3 -m jarvis.cli improvement verify-matrix "
+                "--matrix-path matrix.json --report-path reports/daily_pipeline_report.json"
+            )
+            compact_path.write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "missing_domain_count": 2,
+                        "missing_domains_csv": "kalshi_weather,fitness_apps",
+                        "first_missing_domain": "kalshi_weather",
+                        "acknowledge_commands": [],
+                        "recheck_command": recheck_command,
+                        "repair_commands": [],
+                        "suggested_actions": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            alert_path = root / "artifacts" / "verify_matrix_coverage_alert.json"
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+            args = argparse.Namespace(
+                compact_path=compact_path,
+                output_path=alert_path,
+                missing_domain_count=None,
+                missing_domains_csv=None,
+                first_missing_domain=None,
+                compact_status=None,
+                recheck_command=None,
+                first_unlock_ready_command=None,
+                emit_github_output=True,
+                summary_heading="Verify Matrix Coverage Interrupt Alert",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_verify_matrix_coverage_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"verify_matrix_coverage_alert_path={alert_path.resolve()}", output_lines)
+            self.assertIn(
+                f"verify_matrix_coverage_interrupt_id={payload.get('verify_matrix_coverage_interrupt_id')}",
+                output_lines,
+            )
+            self.assertIn(
+                f"verify_matrix_coverage_alert_created={int(payload.get('verify_matrix_coverage_alert_created') or 0)}",
+                output_lines,
+            )
+            self.assertIn(
+                f"verify_matrix_coverage_acknowledge_command={payload.get('verify_matrix_coverage_acknowledge_command')}",
+                output_lines,
+            )
+            self.assertIn(
+                f"verify_matrix_coverage_recheck_command={payload.get('verify_matrix_coverage_recheck_command')}",
+                output_lines,
+            )
+            self.assertIn(
+                f"verify_matrix_coverage_first_repair_command={payload.get('verify_matrix_coverage_first_repair_command')}",
+                output_lines,
+            )
+            self.assertIn(
+                f"verify_matrix_coverage_runtime_error={payload.get('verify_matrix_coverage_runtime_error')}",
+                output_lines,
+            )
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Verify Matrix Coverage Interrupt Alert", summary)
+            self.assertIn(
+                f"- interrupt_id: `{payload.get('verify_matrix_coverage_interrupt_id')}`",
+                summary,
+            )
+            self.assertIn(
+                f"- alert_created: `{int(payload.get('verify_matrix_coverage_alert_created') or 0)}`",
+                summary,
+            )
+            self.assertIn("- missing_domain_count: `2`", summary)
+            self.assertIn("- first_missing_domain: `kalshi_weather`", summary)
+            self.assertIn("- missing_domains_csv: `kalshi_weather,fitness_apps`", summary)
+            self.assertIn(
+                f"- acknowledge_command: `{payload.get('verify_matrix_coverage_acknowledge_command')}`",
+                summary,
+            )
+            self.assertIn(
+                f"- recheck_command: `{payload.get('verify_matrix_coverage_recheck_command')}`",
+                summary,
+            )
+            self.assertIn(
+                f"- first_repair_command: `{payload.get('verify_matrix_coverage_first_repair_command')}`",
+                summary,
+            )
+            self.assertIn("- runtime_error: `none`", summary)
+
     def test_verify_matrix_coverage_alert_skips_interrupt_when_missing_domain_count_zero(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

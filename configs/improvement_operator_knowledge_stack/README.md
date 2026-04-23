@@ -288,6 +288,10 @@ When required-domain coverage is missing, it also writes
 operations interrupt, and appends coverage alert fields to the compact payload
 (`coverage_alert_path`, `coverage_interrupt_id`,
 `coverage_acknowledge_command`, `verify_matrix_coverage_first_repair_command`).
+The coverage interrupt step is command-driven via
+`improvement verify-matrix-coverage-alert`, emits step outputs with
+`--emit-github-output`, and writes the `Verify Matrix Coverage Interrupt Alert`
+step summary via `--summary-heading`.
 The workflow fails if any required domain is missing from verify-matrix
 comparisons, even when overall verify-matrix status is `ok`.
 Before artifact upload, the workflow also collects:

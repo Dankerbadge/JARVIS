@@ -8888,6 +8888,93 @@ def cmd_improvement_verify_matrix_coverage_alert(args: argparse.Namespace) -> No
     )
     payload["verify_matrix_coverage_runtime_error"] = runtime_error
 
+    if bool(getattr(args, "emit_github_output", False)):
+        verify_matrix_coverage_alert_path = (
+            str(payload.get("verify_matrix_coverage_alert_path") or "").strip() or str(alert_path)
+        )
+        verify_matrix_coverage_interrupt_id = (
+            str(payload.get("verify_matrix_coverage_interrupt_id") or payload.get("interrupt_id") or "none")
+            .strip()
+            or "none"
+        )
+        verify_matrix_coverage_alert_created = _coerce_int(
+            payload.get("verify_matrix_coverage_alert_created")
+            if payload.get("verify_matrix_coverage_alert_created") is not None
+            else payload.get("alert_created"),
+            default=0,
+        )
+        verify_matrix_coverage_acknowledge_command = (
+            str(payload.get("verify_matrix_coverage_acknowledge_command") or payload.get("acknowledge_command") or "none")
+            .strip()
+            or "none"
+        )
+        verify_matrix_coverage_recheck_command = (
+            str(payload.get("verify_matrix_coverage_recheck_command") or payload.get("recheck_command") or "none")
+            .strip()
+            or "none"
+        )
+        verify_matrix_coverage_first_repair_command = (
+            str(
+                payload.get("verify_matrix_coverage_first_repair_command")
+                or payload.get("first_repair_command")
+                or ""
+            ).strip()
+        )
+        if not verify_matrix_coverage_first_repair_command:
+            verify_matrix_coverage_first_repair_command = (
+                verify_matrix_coverage_acknowledge_command
+                if verify_matrix_coverage_acknowledge_command != "none"
+                else verify_matrix_coverage_recheck_command
+            )
+        verify_matrix_coverage_first_repair_command = (
+            verify_matrix_coverage_first_repair_command or "none"
+        )
+        verify_matrix_coverage_runtime_error = (
+            str(payload.get("verify_matrix_coverage_runtime_error") or payload.get("runtime_error") or "none")
+            .strip()
+            or "none"
+        )
+        missing_domain_count_out = _coerce_int(payload.get("missing_domain_count"), default=0)
+        first_missing_domain_out = str(payload.get("first_missing_domain") or "none").strip() or "none"
+        missing_domains_csv_out = str(payload.get("missing_domains_csv") or "none").strip() or "none"
+
+        output_lines = [
+            f"verify_matrix_coverage_alert_path={verify_matrix_coverage_alert_path}",
+            f"verify_matrix_coverage_interrupt_id={verify_matrix_coverage_interrupt_id}",
+            f"verify_matrix_coverage_alert_created={verify_matrix_coverage_alert_created}",
+            f"verify_matrix_coverage_acknowledge_command={verify_matrix_coverage_acknowledge_command}",
+            f"verify_matrix_coverage_recheck_command={verify_matrix_coverage_recheck_command}",
+            f"verify_matrix_coverage_first_repair_command={verify_matrix_coverage_first_repair_command}",
+            f"verify_matrix_coverage_runtime_error={verify_matrix_coverage_runtime_error}",
+        ]
+
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_path = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                    f"- interrupt_id: `{verify_matrix_coverage_interrupt_id}`",
+                    f"- alert_created: `{verify_matrix_coverage_alert_created}`",
+                    f"- missing_domain_count: `{missing_domain_count_out}`",
+                    f"- first_missing_domain: `{first_missing_domain_out}`",
+                    f"- missing_domains_csv: `{missing_domains_csv_out}`",
+                    f"- acknowledge_command: `{verify_matrix_coverage_acknowledge_command}`",
+                    f"- recheck_command: `{verify_matrix_coverage_recheck_command}`",
+                    f"- first_repair_command: `{verify_matrix_coverage_first_repair_command}`",
+                    f"- runtime_error: `{verify_matrix_coverage_runtime_error}`",
+                    "",
+                ]
+                with summary_path.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
     _print_json_payload(
         payload,
         compact=bool(getattr(args, "json_compact", False)),
@@ -13989,6 +14076,17 @@ def main() -> None:
     improvement_verify_matrix_coverage_alert.add_argument("--compact-status", type=str, default=None)
     improvement_verify_matrix_coverage_alert.add_argument("--recheck-command", type=str, default=None)
     improvement_verify_matrix_coverage_alert.add_argument("--first-unlock-ready-command", type=str, default=None)
+    improvement_verify_matrix_coverage_alert.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit verify-matrix coverage alert fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_verify_matrix_coverage_alert.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
+    )
     improvement_verify_matrix_coverage_alert.add_argument("--strict", action="store_true")
     improvement_verify_matrix_coverage_alert.add_argument("--json-compact", action="store_true")
     improvement_verify_matrix_coverage_alert.add_argument("--repo-path", type=Path, default=_default_repo_path())

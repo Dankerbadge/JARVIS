@@ -325,12 +325,20 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("first_repair_command", content)
         self.assertIn("Open verify matrix coverage interrupt alert", content)
         self.assertIn("improvement verify-matrix-coverage-alert", content)
+        self.assertIn("--emit-github-output", content)
+        self.assertIn('--summary-heading "Verify Matrix Coverage Interrupt Alert"', content)
+        self.assertNotIn(
+            "invalid_verify_matrix_coverage_alert_payload:expected_json_object",
+            content,
+        )
         self.assertIn("verify_matrix_coverage_alert.json", content)
         self.assertIn("improvement.verify_matrix_coverage_alert_created", content)
         self.assertIn("verify_matrix_coverage_interrupt_id", content)
-        self.assertIn("verify_matrix_coverage_acknowledge_command", content)
+        self.assertIn(
+            "steps.verify_matrix_coverage_alert.outputs.verify_matrix_coverage_interrupt_id",
+            content,
+        )
         self.assertIn("verify_matrix_coverage_first_repair_command", content)
-        self.assertIn("coverage_alert_path", content)
         self.assertIn("coverage_interrupt_id", content)
         self.assertIn("Fail on verify matrix coverage gaps", content)
         self.assertIn("Collect debug trace artifacts", content)
@@ -571,12 +579,20 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("first_repair_command", content)
         self.assertIn("Open verify matrix coverage interrupt alert", content)
         self.assertIn("improvement verify-matrix-coverage-alert", content)
+        self.assertIn("--emit-github-output", content)
+        self.assertIn('--summary-heading "Verify Matrix Coverage Interrupt Alert"', content)
+        self.assertNotIn(
+            "invalid_verify_matrix_coverage_alert_payload:expected_json_object",
+            content,
+        )
         self.assertIn("verify_matrix_coverage_alert.json", content)
         self.assertIn("improvement.verify_matrix_coverage_alert_created", content)
         self.assertIn("verify_matrix_coverage_interrupt_id", content)
-        self.assertIn("verify_matrix_coverage_acknowledge_command", content)
+        self.assertIn(
+            "steps.verify_matrix_coverage_alert.outputs.verify_matrix_coverage_interrupt_id",
+            content,
+        )
         self.assertIn("verify_matrix_coverage_first_repair_command", content)
-        self.assertIn("coverage_alert_path", content)
         self.assertIn("coverage_interrupt_id", content)
         self.assertIn("Fail on verify matrix coverage gaps", content)
         self.assertIn("Collect debug trace artifacts", content)
