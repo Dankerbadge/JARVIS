@@ -54,6 +54,17 @@ jobs:
             --emit-github-output \
             --summary-heading "Codeowner Review Gate Drift Check"
 
+      - name: Fail when reconcile admin token is missing
+        run: |
+          if [ ! -f output/ci/codeowner_review_reconcile_drift_check.json ]; then
+            echo "::error title=Missing reconcile drift report::output/ci/codeowner_review_reconcile_drift_check.json was not generated."
+            exit 1
+          fi
+          if grep -q '"reason": "missing_secret"' output/ci/codeowner_review_reconcile_drift_check.json; then
+            echo "::error title=Missing JARVIS admin token::JARVIS_ADMIN_GH_TOKEN is required for reconcile-codeowner-review-gate-drift-check."
+            exit 1
+          fi
+
       - name: Drift-check healthy branch
         if: ${{ steps.reconcile_drift.outputs.required_status_checks_change_needed != 'true' }}
         run: |

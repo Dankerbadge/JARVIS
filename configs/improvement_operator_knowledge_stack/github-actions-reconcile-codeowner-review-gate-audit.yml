@@ -58,6 +58,17 @@ jobs:
             --emit-github-output \
             --summary-heading "Codeowner Review Gate Audit"
 
+      - name: Fail when reconcile admin token is missing
+        run: |
+          if [ ! -f output/ci/codeowner_review_reconcile_audit.json ]; then
+            echo "::error title=Missing reconcile audit report::output/ci/codeowner_review_reconcile_audit.json was not generated."
+            exit 1
+          fi
+          if grep -q '"reason": "missing_secret"' output/ci/codeowner_review_reconcile_audit.json; then
+            echo "::error title=Missing JARVIS admin token::JARVIS_ADMIN_GH_TOKEN is required for reconcile-codeowner-review-gate-audit."
+            exit 1
+          fi
+
       - name: Open reconcile audit alert
         id: audit_alert
         run: |
