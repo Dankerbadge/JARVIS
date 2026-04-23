@@ -8740,6 +8740,84 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(stored.get("route") or ""), "bootstrap")
             self.assertEqual(int(stored.get("route_blocking") or 0), 0)
 
+    def test_knowledge_bootstrap_route_outputs_emits_github_outputs_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            artifact_path = root / "artifacts" / "knowledge_bootstrap_route.json"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "phase": "ready",
+                        "route": "run_cycle",
+                        "next_action": "Continue cadence.",
+                        "next_action_command": "python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            args = argparse.Namespace(
+                artifact_path=artifact_path,
+                artifact_source="post_bootstrap",
+                emit_github_output=True,
+                summary_heading="Knowledge Bootstrap Route (Effective)",
+                summary_include_artifact_source=True,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_knowledge_bootstrap_route_outputs(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("phase") or ""), "ready")
+            self.assertEqual(str(payload.get("route") or ""), "run_cycle")
+            self.assertEqual(str(payload.get("artifact_source") or ""), "post_bootstrap")
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"artifact_path={artifact_path.resolve()}", output_lines)
+            self.assertIn("artifact_source=post_bootstrap", output_lines)
+            self.assertIn("status=ok", output_lines)
+            self.assertIn("phase=ready", output_lines)
+            self.assertIn("route=run_cycle", output_lines)
+            self.assertIn("route_blocking=0", output_lines)
+            self.assertIn("next_action=Continue cadence.", output_lines)
+            self.assertIn(
+                "next_action_command=python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable",
+                output_lines,
+            )
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Knowledge Bootstrap Route (Effective)", summary)
+            self.assertIn("- artifact_source: `post_bootstrap`", summary)
+            self.assertIn("- status: `ok`", summary)
+            self.assertIn("- phase: `ready`", summary)
+            self.assertIn("- route: `run_cycle`", summary)
+            self.assertIn("- route_blocking: `0`", summary)
+            self.assertIn("- next_action: `Continue cadence.`", summary)
+            self.assertIn(
+                "- next_action_command: `python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable`",
+                summary,
+            )
+
     def test_knowledge_bootstrap_route_outputs_missing_artifact_returns_fallback_warning(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

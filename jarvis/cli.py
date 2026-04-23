@@ -11119,6 +11119,59 @@ def cmd_improvement_knowledge_bootstrap_route_outputs(args: argparse.Namespace) 
         output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         payload["output_path"] = str(output_path)
 
+    if bool(getattr(args, "emit_github_output", False)):
+        artifact_path_out = str(payload.get("artifact_path") or "").strip() or "none"
+        artifact_source_out = str(payload.get("artifact_source") or "unknown").strip() or "unknown"
+        status_out = str(payload.get("status") or "warning").strip() or "warning"
+        phase_out = str(payload.get("phase") or "unknown").strip() or "unknown"
+        route_out = str(payload.get("route") or "noop").strip() or "noop"
+        route_blocking_out = int(payload.get("route_blocking") or 0)
+        next_action_out = str(payload.get("next_action") or "").strip() or "none"
+        next_action_command_out = str(payload.get("next_action_command") or "").strip() or "none"
+        include_artifact_source = bool(getattr(args, "summary_include_artifact_source", False))
+
+        output_lines = [
+            f"artifact_path={artifact_path_out}",
+            f"status={status_out}",
+            f"phase={phase_out}",
+            f"route={route_out}",
+            f"route_blocking={route_blocking_out}",
+            f"next_action={next_action_out}",
+            f"next_action_command={next_action_command_out}",
+        ]
+        if include_artifact_source:
+            output_lines.insert(1, f"artifact_source={artifact_source_out}")
+
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_path = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                ]
+                if include_artifact_source:
+                    summary_lines.append(f"- artifact_source: `{artifact_source_out}`")
+                summary_lines.extend(
+                    [
+                        f"- status: `{status_out}`",
+                        f"- phase: `{phase_out}`",
+                        f"- route: `{route_out}`",
+                        f"- route_blocking: `{route_blocking_out}`",
+                        f"- next_action: `{next_action_out}`",
+                        f"- next_action_command: `{next_action_command_out}`",
+                        "",
+                    ]
+                )
+                with summary_path.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
     _print_json_payload(
         payload,
         compact=bool(getattr(args, "json_compact", False)),
@@ -13924,6 +13977,22 @@ def main() -> None:
         type=str,
         default=None,
         help="Optional artifact source label (for example: initial, post_bootstrap)",
+    )
+    improvement_knowledge_bootstrap_route_outputs.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit normalized fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_knowledge_bootstrap_route_outputs.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
+    )
+    improvement_knowledge_bootstrap_route_outputs.add_argument(
+        "--summary-include-artifact-source",
+        action="store_true",
+        help="Include artifact_source in emitted output lines and summary rows",
     )
     improvement_knowledge_bootstrap_route_outputs.add_argument("--output-path", type=Path, default=None)
     improvement_knowledge_bootstrap_route_outputs.add_argument("--strict", action="store_true")
