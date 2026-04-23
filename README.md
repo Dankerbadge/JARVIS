@@ -668,6 +668,8 @@ Automated reconciler workflow path in this repo:
 `./.github/workflows/reconcile-codeowner-review-gate.yml`.
 Dry-run required-check drift workflow path in this repo:
 `./.github/workflows/reconcile-codeowner-review-gate-drift-check.yml`.
+Scheduled reconcile audit workflow path in this repo:
+`./.github/workflows/reconcile-codeowner-review-gate-audit.yml`.
 It runs on weekdays at `13:50 UTC`, opens an operations interrupt when
 required status-check baselines drift, and fails with repair guidance before
 the mutating reconcile workflow runs. The mutating workflow is chained via
@@ -679,6 +681,10 @@ The drift-check dry-run command injects source provenance via
 `--source-workflow-run-id`, `--source-workflow-run-conclusion`,
 `--source-workflow-name`, `--source-workflow-event`, and
 `--source-workflow-run-url`, so downstream alerts stay traceable.
+The reconcile audit workflow adds recent-run trigger-event auditing via
+`./scripts/audit_reconcile_codeowner_review_gate.sh` and raises the same
+runtime alert when any recent reconcile run event differs from
+`workflow_run`.
 
 Override gate behavior only when explicitly needed:
 
@@ -1220,6 +1226,8 @@ The automated reconciler workflow in this repo is:
 `./.github/workflows/reconcile-codeowner-review-gate.yml`.
 The dry-run required-check drift workflow in this repo is:
 `./.github/workflows/reconcile-codeowner-review-gate-drift-check.yml`.
+The scheduled reconcile audit workflow in this repo is:
+`./.github/workflows/reconcile-codeowner-review-gate-audit.yml`.
 It runs before auto-apply reconciliation, opens an operations interrupt via
 `improvement reconcile-codeowner-review-gate-runtime-alert` when
 `required_status_checks_change_needed=true`, and fails with compact
@@ -1231,6 +1239,10 @@ Its dry-run call to `reconcile_codeowner_review_gate.sh` passes
 `--source-workflow-name`, `--source-workflow-event`, and
 `--source-workflow-run-url` so runtime alerts and memory events preserve the
 originating workflow run reference.
+The reconcile audit workflow runs
+`./scripts/audit_reconcile_codeowner_review_gate.sh` and feeds its payload into
+the same runtime alert path, so non-`workflow_run` reconcile events trigger an
+operations interrupt even when status-check contexts are otherwise aligned.
 
 Single-maintainer safety reconciler (auto-toggle code-owner review gate by collaborator count):
 

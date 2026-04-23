@@ -10353,6 +10353,140 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertIn("- source_workflow_event: `schedule`", summary)
             self.assertIn("- source_workflow_run_url: `https://github.com/Dankerbadge/JARVIS/actions/runs/13579`", summary)
 
+    def test_reconcile_codeowner_review_gate_runtime_alert_flags_trigger_event_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            report_path = root / "output" / "ci" / "codeowner_review_reconcile_audit.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "repo_slug": "Dankerbadge/JARVIS",
+                        "branch": "main",
+                        "min_collaborators": 2,
+                        "collaborator_count": 3,
+                        "required_status_checks": {
+                            "current_contexts": [
+                                "gate-status",
+                                "evidence-lane-smoke",
+                                "release-hygiene",
+                            ],
+                            "desired_contexts": [
+                                "gate-status",
+                                "evidence-lane-smoke",
+                                "release-hygiene",
+                            ],
+                            "change_needed": False,
+                        },
+                        "reconcile_trigger_expected_event": "workflow_run",
+                        "reconcile_trigger_non_workflow_run_count": 1,
+                        "reconcile_trigger_non_workflow_events": ["workflow_dispatch"],
+                        "reconcile_trigger_non_workflow_run_ids": ["24680"],
+                        "reconcile_trigger_non_workflow_runs": [
+                            {
+                                "run_id": 24680,
+                                "event": "workflow_dispatch",
+                                "status": "completed",
+                                "conclusion": "success",
+                                "html_url": "https://github.com/Dankerbadge/JARVIS/actions/runs/24680",
+                            }
+                        ],
+                        "reconcile_provenance": {
+                            "source_workflow_run_id": "24681",
+                            "source_workflow_run_conclusion": "in_progress",
+                            "source_workflow_name": "reconcile-codeowner-review-gate-audit",
+                            "source_workflow_event": "schedule",
+                            "source_workflow_run_url": "https://github.com/Dankerbadge/JARVIS/actions/runs/24681",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            alert_path = root / "output" / "ci" / "codeowner_review_reconcile_audit_alert.json"
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            args = argparse.Namespace(
+                report_path=report_path,
+                rerun_command="",
+                output_path=alert_path,
+                emit_github_output=True,
+                summary_heading="Codeowner Review Gate Audit Alert",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(int(payload.get("codeowner_review_drift_change_needed") or 0), 1)
+            self.assertEqual(
+                int(payload.get("codeowner_review_drift_required_status_checks_change_needed") or 0),
+                0,
+            )
+            self.assertEqual(
+                int(payload.get("codeowner_review_drift_reconcile_trigger_event_change_needed") or 0),
+                1,
+            )
+            self.assertEqual(
+                str(payload.get("codeowner_review_drift_reconcile_trigger_expected_event") or ""),
+                "workflow_run",
+            )
+            self.assertEqual(
+                str(payload.get("codeowner_review_drift_reconcile_trigger_non_workflow_events_csv") or ""),
+                "workflow_dispatch",
+            )
+            self.assertEqual(
+                str(payload.get("codeowner_review_drift_reconcile_trigger_non_workflow_run_ids_csv") or ""),
+                "24680",
+            )
+            self.assertNotEqual(str(payload.get("codeowner_review_drift_interrupt_id") or "none"), "none")
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn("codeowner_review_drift_change_needed=1", output_lines)
+            self.assertIn("codeowner_review_drift_required_status_checks_change_needed=0", output_lines)
+            self.assertIn("codeowner_review_drift_reconcile_trigger_event_change_needed=1", output_lines)
+            self.assertIn(
+                "codeowner_review_drift_reconcile_trigger_expected_event=workflow_run",
+                output_lines,
+            )
+            self.assertIn(
+                "codeowner_review_drift_reconcile_trigger_non_workflow_run_count=1",
+                output_lines,
+            )
+            self.assertIn(
+                "codeowner_review_drift_reconcile_trigger_non_workflow_events_csv=workflow_dispatch",
+                output_lines,
+            )
+            self.assertIn(
+                "codeowner_review_drift_reconcile_trigger_non_workflow_run_ids_csv=24680",
+                output_lines,
+            )
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Codeowner Review Gate Audit Alert", summary)
+            self.assertIn("- required_status_checks_change_needed: `0`", summary)
+            self.assertIn("- reconcile_trigger_event_change_needed: `1`", summary)
+            self.assertIn("- reconcile_trigger_expected_event: `workflow_run`", summary)
+            self.assertIn("- reconcile_trigger_non_workflow_run_count: `1`", summary)
+            self.assertIn("- reconcile_trigger_non_workflow_events_csv: `workflow_dispatch`", summary)
+            self.assertIn("- reconcile_trigger_non_workflow_run_ids_csv: `24680`", summary)
+
     def test_domain_smoke_runtime_alert_creates_interrupt_and_emits_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
