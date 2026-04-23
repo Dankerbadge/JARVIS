@@ -701,6 +701,24 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("--emit-github-output", content)
         self.assertNotIn("python3 - <<'PY'", content)
 
+    def test_no_inline_python_workflow_adapters_remaining(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        workflow_roots = [
+            repo_root / ".github" / "workflows",
+            repo_root / "configs" / "improvement_operator_knowledge_stack",
+        ]
+        inline_hits: list[str] = []
+        for root in workflow_roots:
+            for path in sorted(root.rglob("*.yml")):
+                content = path.read_text(encoding="utf-8")
+                if "python3 - <<'PY'" in content:
+                    inline_hits.append(str(path.relative_to(repo_root)))
+        self.assertEqual(
+            inline_hits,
+            [],
+            msg=f"inline python workflow adapters detected: {inline_hits}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
