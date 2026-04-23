@@ -4917,6 +4917,108 @@ def _append_evidence_runtime_history_row(history_path: Path, row: dict[str, Any]
         return text or "history_append_failed"
 
 
+def _seed_evidence_runtime_history_for_noop_batch(
+    *,
+    history_path: Path | None,
+    history_window: int,
+    evidence_lookup_batch: dict[str, Any] | None,
+    report_path: Path | None = None,
+) -> dict[str, Any]:
+    effective_window = max(1, _coerce_int(history_window, default=7))
+    batch_block = dict(evidence_lookup_batch or {})
+    record_ids = _normalize_record_id_list(batch_block.get("record_ids"))
+    record_count = _coerce_int(batch_block.get("record_count"), default=len(record_ids))
+    if record_count <= 0 or record_count < len(record_ids):
+        record_count = len(record_ids)
+    command = str(batch_block.get("command") or "").strip()
+    ready = _coerce_bool(batch_block.get("ready"), default=False)
+    if not ready and command and command != "none" and record_ids:
+        ready = True
+
+    if history_path is None:
+        return {
+            "status": "not_configured",
+            "seeded": False,
+            "history_path": None,
+            "history_window": int(effective_window),
+            "record_count": int(record_count),
+            "ready": bool(ready),
+        }
+
+    resolved_history_path = history_path.resolve()
+    existing_rows = _load_evidence_runtime_history_rows(resolved_history_path)
+    if existing_rows:
+        return {
+            "status": "existing_history",
+            "seeded": False,
+            "history_path": str(resolved_history_path),
+            "history_window": int(effective_window),
+            "existing_row_count": len(existing_rows),
+            "record_count": int(record_count),
+            "ready": bool(ready),
+            "history_summary": _summarize_evidence_runtime_history(
+                history_path=resolved_history_path,
+                window=effective_window,
+            ),
+        }
+
+    if ready or record_ids:
+        return {
+            "status": "skipped_pending_batch",
+            "seeded": False,
+            "history_path": str(resolved_history_path),
+            "history_window": int(effective_window),
+            "existing_row_count": 0,
+            "record_count": int(record_count),
+            "ready": bool(ready),
+            "history_summary": _summarize_evidence_runtime_history(
+                history_path=resolved_history_path,
+                window=effective_window,
+            ),
+        }
+
+    generated_at = utc_now_iso()
+    report_path_value = str(report_path.resolve()) if report_path is not None else "none"
+    seed_row = {
+        "generated_at": generated_at,
+        "report_path": report_path_value,
+        "alert_path": None,
+        "status": "ok",
+        "lookup_status": "ok",
+        "report_missing": False,
+        "requested_count": int(record_count),
+        "resolved_record_id_count": int(record_count),
+        "missing_count": 0,
+        "missing_record_ids": [],
+        "missing_record_ids_csv": "none",
+        "first_missing_record_id": "none",
+        "alert_created": False,
+        "interrupt_id": None,
+        "runtime_error": None,
+        "source": "operator_cycle_noop_batch_seed",
+    }
+    append_error = _append_evidence_runtime_history_row(resolved_history_path, seed_row)
+    seeded = append_error is None
+    history_summary = _summarize_evidence_runtime_history(
+        history_path=resolved_history_path,
+        window=effective_window,
+    )
+    result = {
+        "status": "seeded_noop_baseline" if seeded else "seed_error",
+        "seeded": bool(seeded),
+        "history_path": str(resolved_history_path),
+        "history_window": int(effective_window),
+        "existing_row_count": 0,
+        "record_count": int(record_count),
+        "ready": bool(ready),
+        "seed_row": seed_row,
+        "history_summary": history_summary,
+    }
+    if append_error is not None:
+        result["append_error"] = append_error
+    return result
+
+
 def _summarize_evidence_runtime_history(
     *,
     history_path: Path | None,
@@ -8510,6 +8612,19 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
             else "No unresolved blocker/retest evidence record IDs detected."
         ),
     }
+    evidence_runtime_history_bootstrap = _seed_evidence_runtime_history_for_noop_batch(
+        history_path=resolved_evidence_runtime_history_path,
+        history_window=max(1, int(resolved_evidence_runtime_history_window)),
+        evidence_lookup_batch=evidence_lookup_batch,
+        report_path=operator_report_path,
+    )
+    if str(evidence_runtime_history_bootstrap.get("status") or "") == "seed_error":
+        stage_errors.append(
+            {
+                "stage": "evidence_runtime_history_bootstrap",
+                "error": str(evidence_runtime_history_bootstrap.get("append_error") or "seed_error"),
+            }
+        )
 
     metrics = {
         "daily_promotions": _count_verdict(daily_experiment_runs, "promote"),
@@ -8843,6 +8958,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "retest_deltas": retest_deltas,
         "retest_transition_counts": retest_transition_counts,
         "evidence_lookup_batch": evidence_lookup_batch,
+        "evidence_runtime_history_bootstrap": evidence_runtime_history_bootstrap,
         "evidence_runtime_history_path": str(resolved_evidence_runtime_history_path),
         "evidence_runtime_history_path_source": evidence_runtime_history_path_source,
         "evidence_runtime_history_window": int(resolved_evidence_runtime_history_window),
@@ -9547,6 +9663,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "retest_deltas": retest_deltas,
         "retest_transition_counts": retest_transition_counts,
         "evidence_lookup_batch": evidence_lookup_batch,
+        "evidence_runtime_history_bootstrap": evidence_runtime_history_bootstrap,
         "verify_matrix": verify_payload,
         "verify_matrix_alert": verify_alert_payload,
         "knowledge_brief": knowledge_brief_payload,

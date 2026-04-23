@@ -4082,10 +4082,12 @@ class CliImprovementPipelineTests(unittest.TestCase):
             stage_call_order: list[str] = []
             captured_delta_history_path: Path | None = None
             captured_delta_history_window: int | None = None
+            captured_delta_history_rows: list[dict[str, object]] = []
 
             def patched_invoke(command_fn: Any, *, args: argparse.Namespace) -> dict[str, Any]:
                 nonlocal captured_delta_history_path
                 nonlocal captured_delta_history_window
+                nonlocal captured_delta_history_rows
                 if getattr(command_fn, "__name__", "") == "cmd_improvement_knowledge_brief":
                     stage_call_order.append("knowledge_brief")
                     staged_output_path = Path(str(getattr(args, "output_path", expected_knowledge_brief_report_path)))
@@ -4105,6 +4107,12 @@ class CliImprovementPipelineTests(unittest.TestCase):
                     stage_call_order.append("knowledge_brief_delta_alert")
                     captured_delta_history_path = Path(str(getattr(args, "evidence_runtime_history_path", ""))).resolve()
                     captured_delta_history_window = int(getattr(args, "evidence_runtime_history_window", 0) or 0)
+                    if captured_delta_history_path.exists():
+                        captured_delta_history_rows = [
+                            json.loads(line)
+                            for line in captured_delta_history_path.read_text(encoding="utf-8").splitlines()
+                            if str(line).strip()
+                        ]
                     staged_output_path = Path(str(getattr(args, "output_path", expected_delta_alert_report_path)))
                     payload = {
                         "status": "warning",
@@ -4136,6 +4144,12 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 (output_dir / "evidence_lookup_runtime_history.jsonl").resolve(),
             )
             self.assertEqual(int(captured_delta_history_window or 0), 7)
+            self.assertEqual(len(captured_delta_history_rows), 1)
+            self.assertEqual(
+                str((captured_delta_history_rows[0] or {}).get("source") or ""),
+                "operator_cycle_noop_batch_seed",
+            )
+            self.assertEqual(int((captured_delta_history_rows[0] or {}).get("missing_count") or 0), 0)
 
             knowledge_brief_payload = dict(payload.get("knowledge_brief") or {})
             self.assertEqual(str(knowledge_brief_payload.get("status") or ""), "ok")
@@ -4148,6 +4162,9 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(str(knowledge_alert_payload.get("status") or ""), "warning")
             self.assertTrue(bool(knowledge_alert_payload.get("alert_created")))
             self.assertEqual(str(knowledge_alert_payload.get("drift_severity") or ""), "warn")
+            history_bootstrap = dict(payload.get("evidence_runtime_history_bootstrap") or {})
+            self.assertEqual(str(history_bootstrap.get("status") or ""), "seeded_noop_baseline")
+            self.assertTrue(bool(history_bootstrap.get("seeded")))
             self.assertEqual(
                 str(knowledge_alert_payload.get("evidence_runtime_history_path_source") or ""),
                 "output_default",
@@ -12453,6 +12470,66 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(payload.get("blocking") or 0), 1)
             self.assertEqual(int(payload.get("ready") or 0), 0)
             self.assertEqual(str(payload.get("command") or ""), "none")
+
+    def test_seed_evidence_runtime_history_for_noop_batch_seeds_clear_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            history_path = root / "reports" / "evidence_lookup_runtime_history.jsonl"
+            report_path = root / "reports" / "operator_cycle_report.json"
+
+            payload = cli_module._seed_evidence_runtime_history_for_noop_batch(
+                history_path=history_path,
+                history_window=7,
+                evidence_lookup_batch={
+                    "ready": False,
+                    "record_ids": [],
+                    "record_count": 0,
+                    "command": "none",
+                },
+                report_path=report_path,
+            )
+
+            self.assertEqual(str(payload.get("status") or ""), "seeded_noop_baseline")
+            self.assertTrue(bool(payload.get("seeded")))
+            self.assertTrue(history_path.exists())
+            history_rows = [
+                json.loads(line)
+                for line in history_path.read_text(encoding="utf-8").splitlines()
+                if str(line).strip()
+            ]
+            self.assertEqual(len(history_rows), 1)
+            self.assertEqual(str((history_rows[0] or {}).get("source") or ""), "operator_cycle_noop_batch_seed")
+            self.assertEqual(int((history_rows[0] or {}).get("missing_count") or 0), 0)
+            history_summary = dict(payload.get("history_summary") or {})
+            self.assertEqual(str(history_summary.get("status") or ""), "ok")
+            self.assertEqual(str(history_summary.get("trend") or ""), "clear")
+            self.assertEqual(int(history_summary.get("row_count") or 0), 1)
+            self.assertEqual(int(history_summary.get("recent_unresolved_runs") or 0), 0)
+
+    def test_seed_evidence_runtime_history_for_noop_batch_skips_when_batch_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            history_path = root / "reports" / "evidence_lookup_runtime_history.jsonl"
+
+            payload = cli_module._seed_evidence_runtime_history_for_noop_batch(
+                history_path=history_path,
+                history_window=7,
+                evidence_lookup_batch={
+                    "ready": True,
+                    "record_ids": ["rec-1"],
+                    "record_count": 1,
+                    "command": "python3 -m jarvis.cli improvement evidence-lookup --record-ids rec-1",
+                },
+                report_path=None,
+            )
+
+            self.assertEqual(str(payload.get("status") or ""), "skipped_pending_batch")
+            self.assertFalse(bool(payload.get("seeded")))
+            self.assertFalse(history_path.exists())
+            history_summary = dict(payload.get("history_summary") or {})
+            self.assertEqual(str(history_summary.get("status") or ""), "missing_history")
+            self.assertEqual(str(history_summary.get("trend") or ""), "missing_history")
+            self.assertEqual(int(history_summary.get("row_count") or 0), 0)
 
     def test_evidence_lookup_runtime_alert_creates_interrupt_and_emits_repair_commands(self) -> None:
         with tempfile.TemporaryDirectory() as td:
