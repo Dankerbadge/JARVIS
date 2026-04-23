@@ -10096,14 +10096,12 @@ class CliImprovementPipelineTests(unittest.TestCase):
                         },
                         "required_status_checks": {
                             "current_contexts": [
-                                "improvement-domain-smoke-nightly",
+                                "evidence-lane-smoke",
                             ],
                             "desired_contexts": [
-                                "improvement-gate-status-compact",
-                                "improvement-knowledge-bootstrap-route",
-                                "improvement-domain-smoke-nightly",
-                                "improvement-controlled-matrix-nightly",
-                                "improvement-evidence-lane-smoke",
+                                "gate-status",
+                                "evidence-lane-smoke",
+                                "release-hygiene",
                             ],
                             "change_needed": True,
                         },
@@ -10149,30 +10147,26 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertTrue(bool(payload.get("desired_require_last_push_approval")))
             self.assertEqual(
                 list(payload.get("current_required_status_checks") or []),
-                ["improvement-domain-smoke-nightly"],
+                ["evidence-lane-smoke"],
             )
             self.assertEqual(
                 list(payload.get("desired_required_status_checks") or []),
                 [
-                    "improvement-controlled-matrix-nightly",
-                    "improvement-domain-smoke-nightly",
-                    "improvement-evidence-lane-smoke",
-                    "improvement-gate-status-compact",
-                    "improvement-knowledge-bootstrap-route",
+                    "evidence-lane-smoke",
+                    "gate-status",
+                    "release-hygiene",
                 ],
             )
             self.assertEqual(
                 str(payload.get("current_required_status_checks_csv") or ""),
-                "improvement-domain-smoke-nightly",
+                "evidence-lane-smoke",
             )
             self.assertEqual(
                 str(payload.get("desired_required_status_checks_csv") or ""),
                 (
-                    "improvement-controlled-matrix-nightly,"
-                    "improvement-domain-smoke-nightly,"
-                    "improvement-evidence-lane-smoke,"
-                    "improvement-gate-status-compact,"
-                    "improvement-knowledge-bootstrap-route"
+                    "evidence-lane-smoke,"
+                    "gate-status,"
+                    "release-hygiene"
                 ),
             )
             self.assertTrue(bool(payload.get("required_status_checks_change_needed")))
@@ -10196,15 +10190,13 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertIn("desired_required_approving_review_count=1", output_lines)
             self.assertIn("current_require_last_push_approval=true", output_lines)
             self.assertIn("desired_require_last_push_approval=true", output_lines)
-            self.assertIn("current_required_status_checks_csv=improvement-domain-smoke-nightly", output_lines)
+            self.assertIn("current_required_status_checks_csv=evidence-lane-smoke", output_lines)
             self.assertIn(
                 (
                     "desired_required_status_checks_csv="
-                    "improvement-controlled-matrix-nightly,"
-                    "improvement-domain-smoke-nightly,"
-                    "improvement-evidence-lane-smoke,"
-                    "improvement-gate-status-compact,"
-                    "improvement-knowledge-bootstrap-route"
+                    "evidence-lane-smoke,"
+                    "gate-status,"
+                    "release-hygiene"
                 ),
                 output_lines,
             )
@@ -10233,15 +10225,12 @@ class CliImprovementPipelineTests(unittest.TestCase):
                         "collaborator_count": 3,
                         "required_status_checks": {
                             "current_contexts": [
-                                "improvement-domain-smoke-nightly",
-                                "improvement-evidence-lane-smoke",
+                                "evidence-lane-smoke",
                             ],
                             "desired_contexts": [
-                                "improvement-gate-status-compact",
-                                "improvement-knowledge-bootstrap-route",
-                                "improvement-domain-smoke-nightly",
-                                "improvement-controlled-matrix-nightly",
-                                "improvement-evidence-lane-smoke",
+                                "gate-status",
+                                "evidence-lane-smoke",
+                                "release-hygiene",
                             ],
                             "change_needed": True,
                         },
@@ -10264,11 +10253,9 @@ class CliImprovementPipelineTests(unittest.TestCase):
             rerun_command = (
                 "bash ./scripts/reconcile_codeowner_review_gate.sh "
                 "--repo-slug Dankerbadge/JARVIS --branch main --min-collaborators 2 "
-                "--required-status-check improvement-gate-status-compact "
-                "--required-status-check improvement-knowledge-bootstrap-route "
-                "--required-status-check improvement-domain-smoke-nightly "
-                "--required-status-check improvement-controlled-matrix-nightly "
-                "--required-status-check improvement-evidence-lane-smoke "
+                "--required-status-check gate-status "
+                "--required-status-check evidence-lane-smoke "
+                "--required-status-check release-hygiene "
                 "--apply > output/ci/codeowner_review_reconcile.json"
             )
 
@@ -10301,15 +10288,11 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(payload.get("codeowner_review_drift_alert_created") or 0), 1)
             self.assertNotEqual(str(payload.get("codeowner_review_drift_interrupt_id") or "none"), "none")
             self.assertIn(
-                "improvement-controlled-matrix-nightly",
+                "gate-status",
                 str(payload.get("codeowner_review_drift_missing_contexts_csv") or ""),
             )
             self.assertIn(
-                "improvement-gate-status-compact",
-                str(payload.get("codeowner_review_drift_missing_contexts_csv") or ""),
-            )
-            self.assertIn(
-                "improvement-knowledge-bootstrap-route",
+                "release-hygiene",
                 str(payload.get("codeowner_review_drift_missing_contexts_csv") or ""),
             )
             self.assertEqual(
@@ -10354,7 +10337,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 output_lines,
             )
             self.assertIn(
-                "codeowner_review_drift_missing_contexts_csv=improvement-controlled-matrix-nightly,improvement-gate-status-compact,improvement-knowledge-bootstrap-route",
+                "codeowner_review_drift_missing_contexts_csv=gate-status,release-hygiene",
                 output_lines,
             )
 
@@ -10362,7 +10345,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertIn("## Codeowner Review Gate Drift Alert", summary)
             self.assertIn("- change_needed: `1`", summary)
             self.assertIn("- alert_created: `1`", summary)
-            self.assertIn("- missing_contexts_csv: `improvement-controlled-matrix-nightly,improvement-gate-status-compact,improvement-knowledge-bootstrap-route`", summary)
+            self.assertIn("- missing_contexts_csv: `gate-status,release-hygiene`", summary)
             self.assertIn("- source_workflow_run_id: `13579`", summary)
             self.assertIn("- source_workflow_run_conclusion: `in_progress`", summary)
             self.assertIn("- source_workflow_name: `reconcile-codeowner-review-gate-drift-check`", summary)

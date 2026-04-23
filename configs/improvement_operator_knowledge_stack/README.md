@@ -498,11 +498,9 @@ Single-maintainer safety reconciler (auto-toggle code-owner review gate by colla
   --repo-slug Dankerbadge/JARVIS \
   --branch main \
   --min-collaborators 2 \
-  --required-status-check improvement-gate-status-compact \
-  --required-status-check improvement-knowledge-bootstrap-route \
-  --required-status-check improvement-domain-smoke-nightly \
-  --required-status-check improvement-controlled-matrix-nightly \
-  --required-status-check improvement-evidence-lane-smoke \
+  --required-status-check gate-status \
+  --required-status-check evidence-lane-smoke \
+  --required-status-check release-hygiene \
   --apply
 ```
 
@@ -519,11 +517,9 @@ repo-admin capability so it can inspect branch-protection settings
 automatically. Successful drift-check runs then auto-trigger the mutating
 reconcile workflow (via `workflow_run`) to enforce required status-check
 reconciliation for baseline improvement checks:
-`improvement-gate-status-compact`,
-`improvement-knowledge-bootstrap-route`,
-`improvement-domain-smoke-nightly`,
-`improvement-controlled-matrix-nightly`,
-`improvement-evidence-lane-smoke`.
+`gate-status`,
+`evidence-lane-smoke`,
+`release-hygiene`.
 The mutating reconcile workflow intentionally has no direct
 `workflow_dispatch`; manual runs start from the drift-check workflow.
 It also has a runtime trigger-event guard that fails if
