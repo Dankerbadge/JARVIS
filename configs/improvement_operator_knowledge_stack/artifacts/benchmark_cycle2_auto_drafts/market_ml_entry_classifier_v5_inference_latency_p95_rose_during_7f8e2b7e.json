@@ -1,0 +1,68 @@
+{
+  "environment": "controlled_backtest",
+  "baseline_metrics": {
+    "precision_at_k": 0.0,
+    "false_positive_rate": 0.2,
+    "inference_latency_ms_p95": 250.0
+  },
+  "candidate_metrics": {
+    "precision_at_k": 0.03,
+    "false_positive_rate": 0.2,
+    "inference_latency_ms_p95": 250.0
+  },
+  "baseline": {
+    "metrics": {
+      "precision_at_k": 0.0,
+      "false_positive_rate": 0.2,
+      "inference_latency_ms_p95": 250.0
+    }
+  },
+  "candidate": {
+    "metrics": {
+      "precision_at_k": 0.03,
+      "false_positive_rate": 0.2,
+      "inference_latency_ms_p95": 250.0
+    },
+    "sample_size": 200
+  },
+  "sample_size": 200,
+  "metadata": {
+    "generated_by": "jarvis.cli.improvement.draft-experiment-jobs",
+    "template_state": "bootstrap_numeric_placeholders",
+    "hypothesis_id": "hyp_e048f4a48f184d2f99281bbc7f8e2b7e",
+    "domain": "market_ml",
+    "friction_key": "entry_classifier_v5_inference_latency_p95_rose_during",
+    "success_criteria": {
+      "direction": "increase",
+      "guardrails": [
+        {
+          "metric": "false_positive_rate",
+          "op": "<=",
+          "value": 0.2
+        },
+        {
+          "metric": "inference_latency_ms_p95",
+          "op": "<=",
+          "value": 250.0
+        }
+      ],
+      "metric": "precision_at_k",
+      "min_effect": 0.03,
+      "min_sample_size": 200
+    },
+    "target_sample_size": 200,
+    "guardrails": [
+      {
+        "metric": "false_positive_rate",
+        "op": "<=",
+        "value": 0.2
+      },
+      {
+        "metric": "inference_latency_ms_p95",
+        "op": "<=",
+        "value": 250.0
+      }
+    ]
+  },
+  "notes": "Drafted controlled experiment artifact with bootstrap numeric placeholders. Replace baseline/candidate metrics with observed controlled-run values before promotion decisions."
+}

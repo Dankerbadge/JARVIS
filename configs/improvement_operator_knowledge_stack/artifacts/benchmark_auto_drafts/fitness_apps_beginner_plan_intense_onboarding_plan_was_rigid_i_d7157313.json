@@ -1,0 +1,68 @@
+{
+  "environment": "controlled_rollout",
+  "baseline_metrics": {
+    "retention_d30": 0.0,
+    "crash_rate": 0.01,
+    "unsubscribe_rate": 0.08
+  },
+  "candidate_metrics": {
+    "retention_d30": 0.02,
+    "crash_rate": 0.01,
+    "unsubscribe_rate": 0.08
+  },
+  "baseline": {
+    "metrics": {
+      "retention_d30": 0.0,
+      "crash_rate": 0.01,
+      "unsubscribe_rate": 0.08
+    }
+  },
+  "candidate": {
+    "metrics": {
+      "retention_d30": 0.02,
+      "crash_rate": 0.01,
+      "unsubscribe_rate": 0.08
+    },
+    "sample_size": 200
+  },
+  "sample_size": 200,
+  "metadata": {
+    "generated_by": "jarvis.cli.improvement.draft-experiment-jobs",
+    "template_state": "bootstrap_numeric_placeholders",
+    "hypothesis_id": "hyp_6d7c6478ac3740629f9a0136d7157313",
+    "domain": "fitness_apps",
+    "friction_key": "beginner_plan_intense_onboarding_plan_was_rigid_i",
+    "success_criteria": {
+      "direction": "increase",
+      "guardrails": [
+        {
+          "metric": "crash_rate",
+          "op": "<=",
+          "value": 0.01
+        },
+        {
+          "metric": "unsubscribe_rate",
+          "op": "<=",
+          "value": 0.08
+        }
+      ],
+      "metric": "retention_d30",
+      "min_effect": 0.02,
+      "min_sample_size": 200
+    },
+    "target_sample_size": 200,
+    "guardrails": [
+      {
+        "metric": "crash_rate",
+        "op": "<=",
+        "value": 0.01
+      },
+      {
+        "metric": "unsubscribe_rate",
+        "op": "<=",
+        "value": 0.08
+      }
+    ]
+  },
+  "notes": "Drafted controlled experiment artifact with bootstrap numeric placeholders. Replace baseline/candidate metrics with observed controlled-run values before promotion decisions."
+}

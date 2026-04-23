@@ -1,0 +1,68 @@
+{
+  "environment": "controlled_backtest",
+  "baseline_metrics": {
+    "brier_skill": 0.0,
+    "max_daily_loss": 0.03,
+    "slippage_bps": 30.0
+  },
+  "candidate_metrics": {
+    "brier_skill": 0.02,
+    "max_daily_loss": 0.03,
+    "slippage_bps": 30.0
+  },
+  "baseline": {
+    "metrics": {
+      "brier_skill": 0.0,
+      "max_daily_loss": 0.03,
+      "slippage_bps": 30.0
+    }
+  },
+  "candidate": {
+    "metrics": {
+      "brier_skill": 0.02,
+      "max_daily_loss": 0.03,
+      "slippage_bps": 30.0
+    },
+    "sample_size": 100
+  },
+  "sample_size": 100,
+  "metadata": {
+    "generated_by": "jarvis.cli.improvement.draft-experiment-jobs",
+    "template_state": "bootstrap_numeric_placeholders",
+    "hypothesis_id": "hyp_067076a7b68844ddb85ab776a0c47ba6",
+    "domain": "kalshi_weather",
+    "friction_key": "nyc_high_temp_68_69_forecast_refresh_missed",
+    "success_criteria": {
+      "direction": "increase",
+      "guardrails": [
+        {
+          "metric": "max_daily_loss",
+          "op": "<=",
+          "value": 0.03
+        },
+        {
+          "metric": "slippage_bps",
+          "op": "<=",
+          "value": 30.0
+        }
+      ],
+      "metric": "brier_skill",
+      "min_effect": 0.02,
+      "min_sample_size": 100
+    },
+    "target_sample_size": 100,
+    "guardrails": [
+      {
+        "metric": "max_daily_loss",
+        "op": "<=",
+        "value": 0.03
+      },
+      {
+        "metric": "slippage_bps",
+        "op": "<=",
+        "value": 30.0
+      }
+    ]
+  },
+  "notes": "Drafted controlled experiment artifact with bootstrap numeric placeholders. Replace baseline/candidate metrics with observed controlled-run values before promotion decisions."
+}
