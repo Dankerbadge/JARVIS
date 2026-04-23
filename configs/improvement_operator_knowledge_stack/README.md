@@ -106,6 +106,8 @@ Operator-cycle inbox summaries include `evidence_lookup_refs` on blocker/retest/
 rows so triage can pivot into concrete source records quickly.
 Each of those rows now includes `evidence_lookup_command` pre-populated with the row’s
 record IDs for immediate source lookup.
+Top-level operator summaries also emit `evidence_lookup_batch` so automation can run one
+batch command over deduped unresolved blocker/retest record IDs.
 
 Resolve those references into source snippets/provenance:
 
@@ -114,6 +116,36 @@ python3 -m jarvis.cli improvement evidence-lookup \
   --operator-report-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_report.json \
   --config-path ./configs/improvement_operator_knowledge_stack.json \
   --output-path ./configs/improvement_operator_knowledge_stack/output/evidence_lookup_report.json
+```
+
+For automation/CI normalization (including GitHub output fields), run:
+
+```bash
+./scripts/run_improvement_evidence_lookup_batch_outputs.sh \
+  ./configs/improvement_operator_knowledge_stack/output/operator_cycle_report.json \
+  --report-source effective_operator_report \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/evidence_lookup_batch_outputs.json \
+  --emit-github-output \
+  --summary-heading "Evidence Lookup Batch"
+```
+
+To open an interrupt automatically when unresolved record IDs remain:
+
+```bash
+./scripts/run_improvement_evidence_lookup_runtime_alert.sh \
+  ./configs/improvement_operator_knowledge_stack/output/evidence_lookup_report.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/evidence_lookup_runtime_alert.json \
+  --rerun-command "python3 -m jarvis.cli improvement evidence-lookup --record-ids <ids>" \
+  --emit-github-output \
+  --summary-heading "Evidence Lookup Runtime Alert"
+```
+
+Run a synthetic end-to-end evidence lane smoke:
+
+```bash
+./scripts/run_improvement_evidence_lane_smoke.sh \
+  --workspace-dir ./output/ci/evidence_lane_smoke \
+  --strict
 ```
 
 ## 2) Run full operator cycle
@@ -254,6 +286,7 @@ GitHub Actions template for compact JSON branching:
 - `./configs/improvement_operator_knowledge_stack/github-actions-knowledge-bootstrap-route.yml`
 - `./configs/improvement_operator_knowledge_stack/github-actions-domain-smoke-nightly.yml`
 - `./configs/improvement_operator_knowledge_stack/github-actions-controlled-matrix-nightly.yml`
+- `./configs/improvement_operator_knowledge_stack/github-actions-reconcile-codeowner-review-gate-drift-check.yml`
 
 Active workflow in this repo:
 
@@ -262,12 +295,22 @@ Active workflow in this repo:
 - `./.github/workflows/improvement-domain-smoke-nightly.yml`
 - `./.github/workflows/improvement-controlled-matrix-nightly.yml`
 - `./.github/workflows/reconcile-codeowner-review-gate.yml`
+- `./.github/workflows/reconcile-codeowner-review-gate-drift-check.yml`
 
 `improvement-knowledge-bootstrap-route.yml` runs on weekdays at `13:25 UTC`
 and fails when either:
 
 - `steps.route.outputs.route_blocking == '1'`
 - guardrail gate detects `stage_error_count > 0` or `verify_matrix.status != ok`
+
+Before operator-cycle execution, it resolves the latest successful prior run of
+the same workflow, downloads `knowledge-bootstrap-route` artifacts, and
+restores `output/ci/operator_cycle/benchmark_frustrations_report.json` when
+present so draft-stage benchmark prioritization can compound across scheduled
+runs.
+Operator-cycle applies a staleness guard to that auto-reused benchmark artifact
+(`draft_benchmark_max_age_hours`, default `96` hours); stale artifacts are
+ignored for draft prioritization.
 
 When initial route is `bootstrap`, it executes one follow-up rerun from
 `next_action_command` via `improvement knowledge-bootstrap-followup-rerun`,
@@ -283,6 +326,41 @@ fully command-driven via `improvement knowledge-bootstrap-route-outputs`, which
 emits step outputs with `--emit-github-output` and writes route step summaries
 via `--summary-heading` (effective route also uses
 `--summary-include-artifact-source`).
+Those effective outputs also include benchmark staleness fallback signals
+(`benchmark_stale_fallback`, `benchmark_stale_reason`,
+`benchmark_stale_age_hours`, `benchmark_stale_max_age_hours`,
+`benchmark_stale_next_action`) so workflows can branch on stale benchmark reuse
+events explicitly.
+The workflow also restores and appends
+`output/ci/operator_cycle/benchmark_stale_fallback_history.jsonl`, then runs
+`improvement benchmark-stale-fallback-runtime-alert` so repeated stale fallback
+events can open a dedicated interrupt automatically.
+Tune this repeat escalation with defaults:
+`benchmark_stale_runtime_history_window` and
+`benchmark_stale_runtime_repeat_threshold`.
+Tune rate-gate blocking with:
+`benchmark_stale_runtime_rate_ceiling` and
+`benchmark_stale_runtime_consecutive_runs`.
+
+Evidence lane smoke PR workflow in this pack:
+`./configs/improvement_operator_knowledge_stack/github-actions-evidence-lane-smoke.yml`
+with active workflow
+`./.github/workflows/improvement-evidence-lane-smoke.yml`.
+It runs `./scripts/run_improvement_evidence_lane_smoke.sh --workspace-dir ./output/ci/evidence_lane_smoke --strict`
+and uploads `output/ci/evidence_lane_smoke/` artifacts.
+
+Local controlled smoke:
+
+```bash
+./scripts/run_improvement_benchmark_stale_fallback_runtime_alert.sh \
+  ./output/ci/knowledge_bootstrap_route_effective_outputs.json \
+  --history-path ./output/ci/operator_cycle/benchmark_stale_fallback_history.jsonl \
+  --history-window 3 \
+  --repeat-threshold 2 \
+  --rate-ceiling 0.5 \
+  --consecutive-runs 2 \
+  --output-path ./output/ci/operator_cycle/benchmark_stale_fallback_runtime_alert.json
+```
 Guardrail gate is also command-driven via
 `improvement verify-matrix-guardrail-gate`, which emits guardrail outputs
 (`guardrail_gate_report`, `guardrail_gate_operator_status`,
@@ -420,6 +498,11 @@ Single-maintainer safety reconciler (auto-toggle code-owner review gate by colla
   --repo-slug Dankerbadge/JARVIS \
   --branch main \
   --min-collaborators 2 \
+  --required-status-check improvement-gate-status-compact \
+  --required-status-check improvement-knowledge-bootstrap-route \
+  --required-status-check improvement-domain-smoke-nightly \
+  --required-status-check improvement-controlled-matrix-nightly \
+  --required-status-check improvement-evidence-lane-smoke \
   --apply
 ```
 
@@ -427,9 +510,34 @@ For collaborator counts below threshold, it also reconciles
 `required_approving_review_count` down to `0` so single-maintainer branches
 can merge and disables `require_last_push_approval`; when above threshold it
 keeps at least one required approval and preserves last-push approval behavior.
+When one or more `--required-status-check` values are provided, it merges those
+contexts into branch protection `required_status_checks.contexts` without
+removing existing required checks.
 
-The scheduled reconciler workflow expects `JARVIS_ADMIN_GH_TOKEN` with repo-admin capability so it
-can patch branch-protection review settings automatically.
+The scheduled drift-check workflow expects `JARVIS_ADMIN_GH_TOKEN` with
+repo-admin capability so it can inspect branch-protection settings
+automatically. Successful drift-check runs then auto-trigger the mutating
+reconcile workflow (via `workflow_run`) to enforce required status-check
+reconciliation for baseline improvement checks:
+`improvement-gate-status-compact`,
+`improvement-knowledge-bootstrap-route`,
+`improvement-domain-smoke-nightly`,
+`improvement-controlled-matrix-nightly`,
+`improvement-evidence-lane-smoke`.
+The mutating reconcile workflow intentionally has no direct
+`workflow_dispatch`; manual runs start from the drift-check workflow.
+The dry-run drift-check workflow runs before auto-apply reconcile,
+uses `improvement reconcile-codeowner-review-gate-runtime-alert` to open
+an operations interrupt when required status-check contexts drift, and fails
+with current/desired context CSV guidance for quick repair.
+The dry-run invocation now passes `--source-workflow-run-id`,
+`--source-workflow-run-conclusion`, `--source-workflow-name`,
+`--source-workflow-event`, and `--source-workflow-run-url` so reconcile
+provenance is preserved in drift alerts and runtime memory events.
+Mutating reconcile artifacts carry drift-check provenance fields for auditing:
+`source_workflow_run_id`, `source_workflow_run_conclusion`,
+`source_workflow_name`, `source_workflow_event`, and
+`source_workflow_run_url`.
 
 Wrapper:
 

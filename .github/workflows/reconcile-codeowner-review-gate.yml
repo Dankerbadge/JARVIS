@@ -1,12 +1,17 @@
 name: reconcile-codeowner-review-gate
 
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: "5 14 * * 1-5"
+  workflow_run:
+    workflows:
+      - reconcile-codeowner-review-gate-drift-check
+    types:
+      - completed
+    branches:
+      - main
 
 jobs:
   reconcile:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -38,6 +43,16 @@ jobs:
             --repo-slug Dankerbadge/JARVIS \
             --branch main \
             --min-collaborators 2 \
+            --required-status-check improvement-gate-status-compact \
+            --required-status-check improvement-knowledge-bootstrap-route \
+            --required-status-check improvement-domain-smoke-nightly \
+            --required-status-check improvement-controlled-matrix-nightly \
+            --required-status-check improvement-evidence-lane-smoke \
+            --source-workflow-run-id "${{ github.event.workflow_run.id }}" \
+            --source-workflow-run-conclusion "${{ github.event.workflow_run.conclusion }}" \
+            --source-workflow-name "${{ github.event.workflow_run.name }}" \
+            --source-workflow-event "${{ github.event.workflow_run.event }}" \
+            --source-workflow-run-url "${{ github.event.workflow_run.html_url }}" \
             --apply \
             > output/ci/codeowner_review_reconcile.json
 
@@ -62,3 +77,11 @@ jobs:
           echo "desired_required_approving_review_count=${{ steps.reconcile.outputs.desired_required_approving_review_count || 'n/a' }}"
           echo "current_require_last_push_approval=${{ steps.reconcile.outputs.current_require_last_push_approval || 'n/a' }}"
           echo "desired_require_last_push_approval=${{ steps.reconcile.outputs.desired_require_last_push_approval || 'n/a' }}"
+          echo "current_required_status_checks_csv=${{ steps.reconcile.outputs.current_required_status_checks_csv || 'n/a' }}"
+          echo "desired_required_status_checks_csv=${{ steps.reconcile.outputs.desired_required_status_checks_csv || 'n/a' }}"
+          echo "required_status_checks_change_needed=${{ steps.reconcile.outputs.required_status_checks_change_needed || 'n/a' }}"
+          echo "source_workflow_run_id=${{ steps.reconcile.outputs.source_workflow_run_id || 'n/a' }}"
+          echo "source_workflow_run_conclusion=${{ steps.reconcile.outputs.source_workflow_run_conclusion || 'n/a' }}"
+          echo "source_workflow_name=${{ steps.reconcile.outputs.source_workflow_name || 'n/a' }}"
+          echo "source_workflow_event=${{ steps.reconcile.outputs.source_workflow_event || 'n/a' }}"
+          echo "source_workflow_run_url=${{ steps.reconcile.outputs.source_workflow_run_url || 'n/a' }}"
