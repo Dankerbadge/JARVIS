@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 from collections import Counter
 from contextlib import redirect_stdout
@@ -10916,8 +10917,7 @@ def _resolve_knowledge_bootstrap_phase_from_report(
     return "unknown", "unresolved", stage_status
 
 
-def cmd_improvement_knowledge_bootstrap_route(args: argparse.Namespace) -> None:
-    report_path = args.report_path.resolve()
+def _build_knowledge_bootstrap_route_payload(*, report_path: Path) -> dict[str, Any]:
     loaded = json.loads(report_path.read_text(encoding="utf-8"))
     if not isinstance(loaded, dict):
         raise ValueError("invalid_report_file:expected_json_object")
@@ -10971,7 +10971,7 @@ def cmd_improvement_knowledge_bootstrap_route(args: argparse.Namespace) -> None:
         if not next_action:
             next_action = "Inspect the report and rerun operator-cycle with knowledge stages enabled."
 
-    payload = {
+    return {
         "generated_at": utc_now_iso(),
         "status": status,
         "report_path": str(report_path),
@@ -10986,6 +10986,11 @@ def cmd_improvement_knowledge_bootstrap_route(args: argparse.Namespace) -> None:
         "next_action_command": next_action_command,
         "knowledge_bootstrap_state": knowledge_bootstrap_state,
     }
+
+
+def cmd_improvement_knowledge_bootstrap_route(args: argparse.Namespace) -> None:
+    report_path = args.report_path.resolve()
+    payload = _build_knowledge_bootstrap_route_payload(report_path=report_path)
     output_path = args.output_path.resolve() if args.output_path is not None else None
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -10996,7 +11001,61 @@ def cmd_improvement_knowledge_bootstrap_route(args: argparse.Namespace) -> None:
         payload,
         compact=bool(getattr(args, "json_compact", False)),
     )
-    if status != "ok" and bool(getattr(args, "strict", False)):
+    if str(payload.get("status") or "warning") != "ok" and bool(getattr(args, "strict", False)):
+        raise SystemExit(2)
+
+
+def cmd_improvement_knowledge_bootstrap_followup_rerun(args: argparse.Namespace) -> None:
+    route_artifact_path = args.route_artifact_path.resolve()
+    if not route_artifact_path.exists():
+        raise SystemExit(f"missing_initial_route_artifact:{route_artifact_path}")
+
+    route_payload = json.loads(route_artifact_path.read_text(encoding="utf-8"))
+    if not isinstance(route_payload, dict):
+        raise ValueError("invalid_knowledge_bootstrap_route_artifact:expected_json_object")
+
+    next_action_command = str(route_payload.get("next_action_command") or "").strip()
+    if not next_action_command:
+        raise SystemExit("missing_bootstrap_next_action_command")
+
+    subprocess.run(["bash", "-lc", next_action_command], check=True)
+
+    operator_report_path = args.operator_report_path.resolve()
+    if not operator_report_path.exists():
+        raise SystemExit(f"missing_operator_report_after_bootstrap_followup:{operator_report_path}")
+
+    post_route_artifact_path = args.post_route_artifact_path.resolve()
+    post_route_payload = _build_knowledge_bootstrap_route_payload(report_path=operator_report_path)
+    post_route_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    post_route_artifact_path.write_text(json.dumps(post_route_payload, indent=2), encoding="utf-8")
+
+    post_status = str(post_route_payload.get("status") or "warning").strip() or "warning"
+    post_phase = str(post_route_payload.get("phase") or "unknown").strip() or "unknown"
+    post_route = str(post_route_payload.get("route") or "noop").strip() or "noop"
+
+    payload = {
+        "generated_at": utc_now_iso(),
+        "status": "ok",
+        "route_artifact_path": str(route_artifact_path),
+        "next_action_command": next_action_command,
+        "operator_report_path": str(operator_report_path),
+        "post_route_artifact_path": str(post_route_artifact_path),
+        "post_status": post_status,
+        "post_phase": post_phase,
+        "post_route": post_route,
+    }
+
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if bool(getattr(args, "strict", False)) and post_status != "ok":
         raise SystemExit(2)
 
 
@@ -13824,6 +13883,32 @@ def main() -> None:
     improvement_knowledge_bootstrap_route.add_argument("--strict", action="store_true")
     improvement_knowledge_bootstrap_route.add_argument("--json-compact", action="store_true")
 
+    improvement_knowledge_bootstrap_followup_rerun = improvement_sub.add_parser(
+        "knowledge-bootstrap-followup-rerun",
+        help="Execute one bootstrap follow-up rerun and regenerate post-bootstrap route artifact",
+    )
+    improvement_knowledge_bootstrap_followup_rerun.add_argument(
+        "--route-artifact-path",
+        type=Path,
+        default=Path("output/ci/knowledge_bootstrap_route.json"),
+        help="Path to initial knowledge bootstrap route artifact JSON",
+    )
+    improvement_knowledge_bootstrap_followup_rerun.add_argument(
+        "--operator-report-path",
+        type=Path,
+        default=Path("output/ci/operator_cycle/operator_cycle_report.json"),
+        help="Path to operator-cycle report generated by follow-up rerun command",
+    )
+    improvement_knowledge_bootstrap_followup_rerun.add_argument(
+        "--post-route-artifact-path",
+        type=Path,
+        default=Path("output/ci/knowledge_bootstrap_route_post_bootstrap.json"),
+        help="Path for regenerated post-bootstrap route artifact JSON",
+    )
+    improvement_knowledge_bootstrap_followup_rerun.add_argument("--output-path", type=Path, default=None)
+    improvement_knowledge_bootstrap_followup_rerun.add_argument("--strict", action="store_true")
+    improvement_knowledge_bootstrap_followup_rerun.add_argument("--json-compact", action="store_true")
+
     improvement_knowledge_bootstrap_route_outputs = improvement_sub.add_parser(
         "knowledge-bootstrap-route-outputs",
         help="Normalize route outputs from a knowledge bootstrap route artifact",
@@ -14074,6 +14159,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "knowledge-bootstrap-route":
         cmd_improvement_knowledge_bootstrap_route(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "knowledge-bootstrap-followup-rerun":
+        cmd_improvement_knowledge_bootstrap_followup_rerun(args)
         return
     if args.cmd == "improvement" and args.improvement_cmd == "knowledge-bootstrap-route-outputs":
         cmd_improvement_knowledge_bootstrap_route_outputs(args)

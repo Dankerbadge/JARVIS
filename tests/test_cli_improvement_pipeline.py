@@ -19,6 +19,7 @@ from jarvis.cli import (
     cmd_improvement_fitness_leaderboard,
     cmd_improvement_knowledge_brief,
     cmd_improvement_knowledge_bootstrap_route,
+    cmd_improvement_knowledge_bootstrap_followup_rerun,
     cmd_improvement_knowledge_bootstrap_route_outputs,
     cmd_improvement_knowledge_brief_delta,
     cmd_improvement_knowledge_brief_delta_alert,
@@ -8560,6 +8561,132 @@ class CliImprovementPipelineTests(unittest.TestCase):
             alert = dict(payload.get("alert") or {})
             self.assertEqual(float(alert.get("urgency_score") or 0.0), 0.9)
             self.assertEqual(float(alert.get("confidence") or 0.0), 0.86)
+
+    def test_knowledge_bootstrap_followup_rerun_executes_next_action_and_regenerates_post_route(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            route_artifact_path = root / "artifacts" / "knowledge_bootstrap_route.json"
+            route_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            operator_report_path = root / "output" / "ci" / "operator_cycle" / "operator_cycle_report.json"
+            post_route_artifact_path = root / "output" / "ci" / "knowledge_bootstrap_route_post_bootstrap.json"
+            output_path = root / "output" / "ci" / "knowledge_bootstrap_followup_outputs.json"
+
+            write_report_script = root / "scripts" / "write_operator_report.py"
+            write_report_script.parent.mkdir(parents=True, exist_ok=True)
+            write_report_script.write_text(
+                "\n".join(
+                    [
+                        "import json",
+                        "from pathlib import Path",
+                        "",
+                        f"report_path = Path({str(operator_report_path)!r})",
+                        "report_path.parent.mkdir(parents=True, exist_ok=True)",
+                        "report_path.write_text(",
+                        "    json.dumps(",
+                        "        {",
+                        "            'knowledge_bootstrap_state': {",
+                        "                'phase': 'ready',",
+                        "                'bootstrap_required': False,",
+                        "                'next_action': 'Knowledge bootstrap ready; continue cadence.',",
+                        "                'next_action_command': 'python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable --knowledge-delta-alert-enable',",
+                        "            },",
+                        "            'stage_statuses': {",
+                        "                'knowledge_brief': 'ok',",
+                        "                'knowledge_brief_delta_alert': 'ok',",
+                        "            },",
+                        "        },",
+                        "        indent=2,",
+                        "    ),",
+                        "    encoding='utf-8',",
+                        ")",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            next_action_command = f'python3 "{write_report_script}"'
+            route_artifact_path.write_text(
+                json.dumps({"next_action_command": next_action_command}, indent=2),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                route_artifact_path=route_artifact_path,
+                operator_report_path=operator_report_path,
+                post_route_artifact_path=post_route_artifact_path,
+                output_path=output_path,
+                strict=False,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_knowledge_bootstrap_followup_rerun(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(str(payload.get("next_action_command") or ""), next_action_command)
+            self.assertEqual(str(payload.get("post_status") or ""), "ok")
+            self.assertEqual(str(payload.get("post_phase") or ""), "ready")
+            self.assertEqual(str(payload.get("post_route") or ""), "run_cycle")
+            self.assertEqual(str(payload.get("output_path") or ""), str(output_path.resolve()))
+            self.assertTrue(output_path.exists())
+            self.assertTrue(post_route_artifact_path.exists())
+
+            post_payload = json.loads(post_route_artifact_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(post_payload.get("status") or ""), "ok")
+            self.assertEqual(str(post_payload.get("phase") or ""), "ready")
+            self.assertEqual(str(post_payload.get("route") or ""), "run_cycle")
+
+    def test_knowledge_bootstrap_followup_rerun_requires_next_action_command(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            route_artifact_path = root / "artifacts" / "knowledge_bootstrap_route.json"
+            route_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            route_artifact_path.write_text(json.dumps({}, indent=2), encoding="utf-8")
+            args = argparse.Namespace(
+                route_artifact_path=route_artifact_path,
+                operator_report_path=root / "output" / "ci" / "operator_cycle" / "operator_cycle_report.json",
+                post_route_artifact_path=root / "output" / "ci" / "knowledge_bootstrap_route_post_bootstrap.json",
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+
+            with self.assertRaises(SystemExit) as raised:
+                cmd_improvement_knowledge_bootstrap_followup_rerun(args)
+            self.assertEqual(str(raised.exception), "missing_bootstrap_next_action_command")
+
+    def test_knowledge_bootstrap_followup_rerun_requires_operator_report_after_command(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            route_artifact_path = root / "artifacts" / "knowledge_bootstrap_route.json"
+            route_artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            route_artifact_path.write_text(
+                json.dumps({"next_action_command": "true"}, indent=2),
+                encoding="utf-8",
+            )
+            operator_report_path = root / "output" / "ci" / "operator_cycle" / "operator_cycle_report.json"
+            args = argparse.Namespace(
+                route_artifact_path=route_artifact_path,
+                operator_report_path=operator_report_path,
+                post_route_artifact_path=root / "output" / "ci" / "knowledge_bootstrap_route_post_bootstrap.json",
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+
+            with self.assertRaises(SystemExit) as raised:
+                cmd_improvement_knowledge_bootstrap_followup_rerun(args)
+            self.assertEqual(
+                str(raised.exception),
+                f"missing_operator_report_after_bootstrap_followup:{operator_report_path.resolve()}",
+            )
 
     def test_knowledge_bootstrap_route_outputs_normalizes_bootstrap_artifact_and_writes_output(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -242,9 +242,11 @@ and fails when either:
 - guardrail gate detects `stage_error_count > 0` or `verify_matrix.status != ok`
 
 When initial route is `bootstrap`, it executes one follow-up rerun from
-`next_action_command`, regenerates
-`output/ci/knowledge_bootstrap_route_post_bootstrap.json`, and then branches on
-the effective post-follow-up route payload.
+`next_action_command` via `improvement knowledge-bootstrap-followup-rerun`,
+regenerates `output/ci/knowledge_bootstrap_route_post_bootstrap.json`, writes
+`output/ci/knowledge_bootstrap_followup_rerun.json`, appends a
+`Bootstrap Follow-Up` step summary section, and then branches on the effective
+post-follow-up route payload.
 Before guardrail checks, it builds compact verify-matrix coverage artifacts:
 
 - `output/ci/operator_cycle/verify_matrix_compact.json`

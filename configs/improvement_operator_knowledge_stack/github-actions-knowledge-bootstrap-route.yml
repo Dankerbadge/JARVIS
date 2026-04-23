@@ -121,50 +121,38 @@ jobs:
       - name: Bootstrap follow-up rerun
         if: ${{ steps.route_initial.outputs.route == 'bootstrap' && steps.route_initial.outputs.next_action_command != 'none' }}
         run: |
+          set -euo pipefail
+
+          ROUTE_ARTIFACT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route.json"
+          OPERATOR_REPORT_PATH="$(pwd)/output/ci/operator_cycle/operator_cycle_report.json"
+          POST_ROUTE_ARTIFACT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route_post_bootstrap.json"
+          FOLLOWUP_RERUN_OUTPUT_PATH="$(pwd)/output/ci/knowledge_bootstrap_followup_rerun.json"
+
+          python3 -m jarvis.cli improvement knowledge-bootstrap-followup-rerun \
+            --route-artifact-path "${ROUTE_ARTIFACT_PATH}" \
+            --operator-report-path "${OPERATOR_REPORT_PATH}" \
+            --post-route-artifact-path "${POST_ROUTE_ARTIFACT_PATH}" \
+            --output-path "${FOLLOWUP_RERUN_OUTPUT_PATH}" \
+            --json-compact > /dev/null
+
           python3 - <<'PY'
           import json
           import os
-          import shlex
-          import subprocess
           from pathlib import Path
 
-          route_artifact_path = Path("output/ci/knowledge_bootstrap_route.json").resolve()
-          if not route_artifact_path.exists():
-            raise SystemExit(f"missing_initial_route_artifact:{route_artifact_path}")
+          output_path = Path("output/ci/knowledge_bootstrap_followup_rerun.json").resolve()
+          if not output_path.exists():
+            raise SystemExit(f"missing_knowledge_bootstrap_followup_rerun_output:{output_path}")
 
-          route_payload = json.loads(route_artifact_path.read_text(encoding="utf-8"))
-          next_action_command = str(route_payload.get("next_action_command") or "").strip()
-          if not next_action_command:
-            raise SystemExit("missing_bootstrap_next_action_command")
+          payload = json.loads(output_path.read_text(encoding="utf-8"))
+          if not isinstance(payload, dict):
+            raise SystemExit("invalid_knowledge_bootstrap_followup_rerun_output:expected_json_object")
 
+          next_action_command = str(payload.get("next_action_command") or "none").strip() or "none"
+          post_status = str(payload.get("post_status") or "warning").strip() or "warning"
+          post_phase = str(payload.get("post_phase") or "unknown").strip() or "unknown"
+          post_route = str(payload.get("post_route") or "noop").strip() or "noop"
           print(f"bootstrap_followup_command={next_action_command}")
-          subprocess.run(["bash", "-lc", next_action_command], check=True)
-
-          operator_report_path = Path("output/ci/operator_cycle/operator_cycle_report.json").resolve()
-          if not operator_report_path.exists():
-            raise SystemExit(f"missing_operator_report_after_bootstrap_followup:{operator_report_path}")
-
-          post_route_artifact_path = Path("output/ci/knowledge_bootstrap_route_post_bootstrap.json").resolve()
-          subprocess.run(
-            [
-              "python3",
-              "-m",
-              "jarvis.cli",
-              "improvement",
-              "knowledge-bootstrap-route",
-              "--report-path",
-              str(operator_report_path),
-              "--output-path",
-              str(post_route_artifact_path),
-              "--json-compact",
-            ],
-            check=True,
-          )
-
-          post_payload = json.loads(post_route_artifact_path.read_text(encoding="utf-8"))
-          post_status = str(post_payload.get("status") or "warning").strip() or "warning"
-          post_phase = str(post_payload.get("phase") or "unknown").strip() or "unknown"
-          post_route = str(post_payload.get("route") or "noop").strip() or "noop"
           print(f"bootstrap_followup_status={post_status}")
           print(f"bootstrap_followup_phase={post_phase}")
           print(f"bootstrap_followup_route={post_route}")
