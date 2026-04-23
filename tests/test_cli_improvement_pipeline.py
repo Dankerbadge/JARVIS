@@ -16,6 +16,7 @@ from jarvis.cli import (
     cmd_improvement_controlled_matrix_compact,
     cmd_improvement_controlled_matrix_runtime_alert,
     cmd_improvement_domain_smoke_cross_domain_compact,
+    cmd_improvement_domain_smoke_cross_domain_runtime_alert,
     cmd_improvement_daily_pipeline,
     cmd_improvement_domain_smoke_outputs,
     cmd_improvement_domain_smoke_runtime_alert,
@@ -9170,6 +9171,141 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertIn("- alerts_created_count: `1`", summary)
             self.assertIn("- top_domain: `fitness_apps`", summary)
             self.assertIn("- top_risk_score: `95`", summary)
+
+    def test_domain_smoke_cross_domain_runtime_alert_creates_interrupt_updates_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+
+            summary_path = root / "output" / "ci" / "domain_smoke" / "domain_smoke_cross_domain_summary.json"
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            rerun_command = (
+                "./scripts/run_improvement_domain_smoke.sh "
+                "./configs/improvement_operator_knowledge_stack.json "
+                "fitness_apps --output-dir output/ci/domain_smoke/fitness_apps --allow-missing"
+            )
+            per_domain_ack = (
+                "python3 -m jarvis.cli interrupts acknowledge int_smoke_fitness "
+                "--actor operator --db-path /tmp/fake_domain_smoke.db"
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "warning_count": 1,
+                        "blocking_count": 1,
+                        "top_domain": "fitness_apps",
+                        "top_risk_score": 95,
+                        "top_risks": [
+                            {
+                                "domain": "fitness_apps",
+                                "smoke_reason": "domain_smoke_status_not_ok:warning",
+                                "rerun_command": rerun_command,
+                            }
+                        ],
+                        "domains": [
+                            {
+                                "domain": "fitness_apps",
+                                "acknowledge_command": per_domain_ack,
+                            }
+                        ],
+                        "suggested_actions": [f"[fitness_apps] rerun smoke loop: {rerun_command}"],
+                        "operator_ack_bundle": {
+                            "status": "ready",
+                            "command_count": 1,
+                            "commands": [per_domain_ack],
+                            "command_sequence": per_domain_ack,
+                            "first_command": per_domain_ack,
+                            "per_domain_command_count": 1,
+                            "cross_domain_command_count": 0,
+                            "cross_domain_interrupt_id": None,
+                            "cross_domain_acknowledge_command": None,
+                        },
+                        "acknowledge_bundle_commands": [per_domain_ack],
+                        "acknowledge_bundle_command_sequence": per_domain_ack,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            alert_path = root / "output" / "ci" / "domain_smoke" / "domain_smoke_cross_domain_alert.json"
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            args = argparse.Namespace(
+                summary_path=summary_path,
+                warning_count=1,
+                blocking_count=1,
+                top_domain="fitness_apps",
+                top_risk_score=95,
+                output_path=alert_path,
+                emit_github_output=True,
+                summary_heading="Domain Smoke Cross-Domain Interrupt Alert",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_domain_smoke_cross_domain_runtime_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(int(payload.get("cross_domain_alert_created") or 0), 1)
+            interrupt_id = str(payload.get("cross_domain_interrupt_id") or "").strip()
+            self.assertTrue(bool(interrupt_id))
+            acknowledge_command = str(payload.get("cross_domain_acknowledge_command") or "").strip()
+            self.assertIn(interrupt_id, acknowledge_command)
+            self.assertIn(str(db.resolve()), acknowledge_command)
+            self.assertEqual(str(payload.get("cross_domain_rerun_command") or ""), rerun_command)
+            self.assertEqual(str(payload.get("cross_domain_runtime_error") or ""), "none")
+            self.assertTrue(alert_path.exists())
+
+            updated_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(updated_summary.get("cross_domain_interrupt_id") or ""), interrupt_id)
+            self.assertEqual(str(updated_summary.get("cross_domain_alert_path") or ""), str(alert_path.resolve()))
+            self.assertGreaterEqual(int(updated_summary.get("acknowledge_command_count") or 0), 2)
+            self.assertGreaterEqual(int(updated_summary.get("rerun_command_count") or 0), 1)
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"cross_domain_alert_path={alert_path.resolve()}", output_lines)
+            self.assertIn(f"cross_domain_interrupt_id={interrupt_id}", output_lines)
+            self.assertIn("cross_domain_alert_created=1", output_lines)
+            self.assertIn(f"cross_domain_acknowledge_command={acknowledge_command}", output_lines)
+            self.assertIn(f"cross_domain_rerun_command={rerun_command}", output_lines)
+            self.assertIn("cross_domain_runtime_error=none", output_lines)
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Domain Smoke Cross-Domain Interrupt Alert", summary)
+            self.assertIn(f"- interrupt_id: `{interrupt_id}`", summary)
+            self.assertIn("- alert_created: `1`", summary)
+            self.assertIn("- warning_count: `1`", summary)
+            self.assertIn("- blocking_count: `1`", summary)
+            self.assertIn("- top_domain: `fitness_apps`", summary)
+            self.assertIn("- top_risk_score: `95`", summary)
+            self.assertIn(f"- rerun_command: `{rerun_command}`", summary)
+            self.assertIn(f"- acknowledge_command: `{acknowledge_command}`", summary)
+            self.assertIn("- runtime_error: `none`", summary)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                interrupts = runtime.list_interrupts(status="all", limit=20)
+                self.assertEqual(len(interrupts), 1)
+                self.assertEqual(str((interrupts[0] or {}).get("status") or ""), "delivered")
+                self.assertEqual(str((interrupts[0] or {}).get("interrupt_id") or ""), interrupt_id)
+            finally:
+                runtime.close()
 
     def test_controlled_matrix_compact_emits_github_outputs_and_summary(self) -> None:
         with tempfile.TemporaryDirectory() as td:

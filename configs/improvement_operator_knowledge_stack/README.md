@@ -333,6 +333,8 @@ When `warning_count > 0`, it also writes
 single delivered cross-domain interrupt with aggregate acknowledge/rerun
 commands, then updates `operator_ack_bundle` so that same command sequence
 includes the cross-domain interrupt acknowledge command at the end.
+That cross-domain runtime adapter is command-driven via
+`python3 -m jarvis.cli improvement domain-smoke-cross-domain-runtime-alert --emit-github-output --summary-heading "Domain Smoke Cross-Domain Interrupt Alert"`.
 
 `improvement-controlled-matrix-nightly.yml` runs on weekdays at `05:20 UTC`,
 executes `run_improvement_daily_pipeline.sh` in strict mode, and then runs

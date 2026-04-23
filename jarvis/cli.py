@@ -8923,6 +8923,304 @@ def cmd_improvement_domain_smoke_cross_domain_compact(args: argparse.Namespace) 
     )
 
 
+def cmd_improvement_domain_smoke_cross_domain_runtime_alert(args: argparse.Namespace) -> None:
+    def _to_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(float(str(value).strip()))
+        except Exception:
+            return default
+
+    summary_path = (
+        args.summary_path.resolve()
+        if getattr(args, "summary_path", None) is not None
+        else Path("output/ci/domain_smoke/domain_smoke_cross_domain_summary.json").resolve()
+    )
+    summary_payload: dict[str, Any] = {}
+    if summary_path.exists():
+        try:
+            loaded = json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            loaded = {}
+        if isinstance(loaded, dict):
+            summary_payload = dict(loaded)
+
+    warning_count = _to_int(
+        getattr(args, "warning_count", None) if getattr(args, "warning_count", None) is not None else summary_payload.get("warning_count"),
+        default=0,
+    )
+    blocking_count = _to_int(
+        getattr(args, "blocking_count", None) if getattr(args, "blocking_count", None) is not None else summary_payload.get("blocking_count"),
+        default=0,
+    )
+    top_domain = (
+        str(getattr(args, "top_domain", None) or summary_payload.get("top_domain") or "none").strip().lower()
+        or "none"
+    )
+    top_risk_score = _to_int(
+        getattr(args, "top_risk_score", None) if getattr(args, "top_risk_score", None) is not None else summary_payload.get("top_risk_score"),
+        default=0,
+    )
+    top_risks = [
+        row
+        for row in list(summary_payload.get("top_risks") or [])
+        if isinstance(row, dict)
+    ]
+
+    alert_path = (
+        args.output_path.resolve()
+        if getattr(args, "output_path", None) is not None
+        else Path("output/ci/domain_smoke/domain_smoke_cross_domain_alert.json").resolve()
+    )
+    alert_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path = (
+        args.db_path.resolve()
+        if getattr(args, "db_path", None) is not None
+        else (alert_path.parent / "jarvis.db").resolve()
+    )
+
+    rerun_commands = [
+        str(row.get("rerun_command") or "").strip()
+        for row in top_risks[:3]
+        if str(row.get("rerun_command") or "").strip()
+    ]
+    domain_refs = [
+        f"{str(row.get('domain') or 'unknown').strip().lower()}:{str(row.get('smoke_reason') or 'none').strip()}"
+        for row in top_risks[:3]
+    ]
+    compact_refs = ",".join(domain_refs) if domain_refs else "none"
+    rerun_command = rerun_commands[0] if rerun_commands else (
+        "./scripts/run_improvement_domain_smoke.sh "
+        "./configs/improvement_operator_knowledge_stack.json "
+        f"{top_domain if top_domain != 'none' else 'quant_finance'} --allow-missing"
+    )
+    rerun_preview_commands = list(rerun_commands)
+    if rerun_command and rerun_command not in rerun_preview_commands:
+        rerun_preview_commands.append(rerun_command)
+    rerun_command_count = len(rerun_preview_commands)
+    first_rerun_command = rerun_preview_commands[0] if rerun_preview_commands else "none"
+
+    reason = (
+        "cross_domain_smoke_warning"
+        + f" warning_count={warning_count}"
+        + f" blocking_count={blocking_count}"
+        + f" top_domain={top_domain}"
+        + f" top_risk_score={top_risk_score}"
+        + f" refs={compact_refs}"
+    )
+    why_now = (
+        "cross-domain smoke aggregate detected active warning lanes and requires centralized triage "
+        "before promotion cadence continues."
+    )
+    why_not_later = (
+        "delayed cross-domain smoke triage can compound ingestion and seed-quality drift across "
+        "quant, Kalshi weather, fitness, and market-ml loops."
+    )
+
+    interrupt_id = ""
+    acknowledge_command = "none"
+    runtime_error = "none"
+    runtime = None
+    try:
+        runtime = JarvisRuntime(
+            db_path=db_path,
+            repo_path=args.repo_path.resolve(),
+        )
+        urgency_score = 0.96 if blocking_count > 0 else 0.91
+        confidence = 0.92 if top_risk_score >= 80 else 0.88
+        decision = InterruptDecision(
+            interrupt_id=new_id("int"),
+            candidate_id=new_id("cand"),
+            domain="operations",
+            reason=reason,
+            urgency_score=urgency_score,
+            confidence=confidence,
+            suppression_window_hit=False,
+            delivered=True,
+            why_now=why_now,
+            why_not_later=why_not_later,
+            status="delivered",
+        )
+        runtime.interrupt_store.store(decision)
+        interrupt = runtime.interrupt_store.get(decision.interrupt_id) or decision.to_dict()
+        interrupt_id = str(interrupt.get("interrupt_id") or "").strip()
+        if interrupt_id:
+            acknowledge_command = (
+                "python3 -m jarvis.cli interrupts acknowledge "
+                f"{interrupt_id} --actor operator --db-path {db_path}"
+            )
+        runtime.memory.append_event(
+            "improvement.domain_smoke_cross_domain_alert_created",
+            {
+                "interrupt_id": interrupt_id or None,
+                "summary_path": str(summary_path),
+                "warning_count": warning_count,
+                "blocking_count": blocking_count,
+                "top_domain": top_domain,
+                "top_risk_score": top_risk_score,
+                "top_risks": top_risks[:3],
+                "rerun_commands": rerun_commands,
+            },
+        )
+    except Exception as exc:
+        runtime_error = str(exc).strip() or "unknown_runtime_error"
+    finally:
+        if runtime is not None:
+            runtime.close()
+
+    payload: dict[str, Any] = {
+        "generated_at": utc_now_iso(),
+        "status": "warning",
+        "summary_path": str(summary_path),
+        "warning_count": warning_count,
+        "blocking_count": blocking_count,
+        "top_domain": top_domain,
+        "top_risk_score": top_risk_score,
+        "top_risks": top_risks[:3],
+        "alert_created": bool(interrupt_id),
+        "interrupt_id": interrupt_id or None,
+        "interrupt_db_path": str(db_path),
+        "acknowledge_command": None if acknowledge_command == "none" else acknowledge_command,
+        "rerun_command": rerun_command,
+        "rerun_commands": rerun_commands,
+        "rerun_preview_commands": rerun_preview_commands,
+        "rerun_command_count": rerun_command_count,
+        "first_rerun_command": first_rerun_command,
+        "reason": reason,
+        "why_now": why_now,
+        "why_not_later": why_not_later,
+        "runtime_error": None if runtime_error == "none" else runtime_error,
+    }
+    suggested_actions = [
+        str(item).strip()
+        for item in list(summary_payload.get("suggested_actions") or [])
+        if str(item).strip()
+    ]
+    suggested_action_count = len(suggested_actions)
+    first_suggested_action = suggested_actions[0] if suggested_actions else "none"
+
+    existing_bundle = dict(summary_payload.get("operator_ack_bundle") or {})
+    bundle_commands = [
+        str(command).strip()
+        for command in list(existing_bundle.get("commands") or summary_payload.get("acknowledge_bundle_commands") or [])
+        if str(command).strip()
+    ]
+    if not bundle_commands:
+        for row in list(summary_payload.get("domains") or []):
+            if not isinstance(row, dict):
+                continue
+            row_ack_command = str(row.get("acknowledge_command") or "").strip()
+            if row_ack_command and row_ack_command not in bundle_commands:
+                bundle_commands.append(row_ack_command)
+    per_domain_command_count = len(bundle_commands)
+    if acknowledge_command != "none" and acknowledge_command not in bundle_commands:
+        bundle_commands.append(acknowledge_command)
+    cross_domain_command_count = 1 if acknowledge_command != "none" and acknowledge_command in bundle_commands else 0
+    bundle_command_count = len(bundle_commands)
+    first_acknowledge_command = bundle_commands[0] if bundle_commands else "none"
+    bundle_sequence = " && ".join(bundle_commands) if bundle_commands else "none"
+    summary_payload["operator_ack_bundle"] = {
+        "status": "ready" if bundle_commands else "empty",
+        "command_count": bundle_command_count,
+        "commands": bundle_commands,
+        "command_sequence": bundle_sequence,
+        "first_command": None if first_acknowledge_command == "none" else first_acknowledge_command,
+        "per_domain_command_count": per_domain_command_count,
+        "cross_domain_command_count": cross_domain_command_count,
+        "cross_domain_interrupt_id": interrupt_id or None,
+        "cross_domain_acknowledge_command": None if acknowledge_command == "none" else acknowledge_command,
+    }
+    summary_payload["acknowledge_bundle_commands"] = bundle_commands
+    summary_payload["acknowledge_bundle_command_sequence"] = bundle_sequence
+    summary_payload["acknowledge_command_count"] = bundle_command_count
+    summary_payload["first_acknowledge_command"] = first_acknowledge_command
+    summary_payload["rerun_preview_commands"] = rerun_preview_commands
+    summary_payload["rerun_command_count"] = rerun_command_count
+    summary_payload["first_rerun_command"] = first_rerun_command
+    summary_payload["suggested_action_count"] = suggested_action_count
+    summary_payload["first_suggested_action"] = first_suggested_action
+    summary_payload["cross_domain_interrupt_id"] = interrupt_id or None
+    summary_payload["cross_domain_alert_path"] = str(alert_path)
+    if summary_path:
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
+
+    payload["acknowledge_bundle_commands"] = bundle_commands
+    payload["acknowledge_bundle_command_sequence"] = bundle_sequence
+    payload["acknowledge_command_count"] = bundle_command_count
+    payload["first_acknowledge_command"] = first_acknowledge_command
+    payload["rerun_command_count"] = rerun_command_count
+    payload["first_rerun_command"] = first_rerun_command
+    payload["suggested_actions"] = suggested_actions
+    payload["suggested_action_count"] = suggested_action_count
+    payload["first_suggested_action"] = first_suggested_action
+    alert_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    payload["cross_domain_alert_path"] = str(alert_path)
+    payload["cross_domain_interrupt_id"] = interrupt_id or "none"
+    payload["cross_domain_alert_created"] = 1 if interrupt_id else 0
+    payload["cross_domain_acknowledge_command"] = acknowledge_command
+    payload["cross_domain_rerun_command"] = rerun_command
+    payload["cross_domain_runtime_error"] = runtime_error
+
+    if bool(getattr(args, "emit_github_output", False)):
+        output_lines = [
+            f"cross_domain_alert_path={alert_path}",
+            f"cross_domain_interrupt_id={interrupt_id or 'none'}",
+            f"cross_domain_alert_created={1 if interrupt_id else 0}",
+            f"cross_domain_acknowledge_command={acknowledge_command}",
+            f"cross_domain_rerun_command={rerun_command}",
+            f"suggested_action_count={suggested_action_count}",
+            f"first_suggested_action={first_suggested_action}",
+            f"acknowledge_command_count={bundle_command_count}",
+            f"first_acknowledge_command={first_acknowledge_command}",
+            f"rerun_command_count={rerun_command_count}",
+            f"first_rerun_command={first_rerun_command}",
+            f"acknowledge_bundle_command_sequence={bundle_sequence}",
+            f"cross_domain_runtime_error={runtime_error}",
+        ]
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_output = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                    f"- interrupt_id: `{interrupt_id or 'none'}`",
+                    f"- alert_created: `{1 if interrupt_id else 0}`",
+                    f"- warning_count: `{warning_count}`",
+                    f"- blocking_count: `{blocking_count}`",
+                    f"- top_domain: `{top_domain}`",
+                    f"- top_risk_score: `{top_risk_score}`",
+                    f"- rerun_command: `{rerun_command}`",
+                    f"- acknowledge_command: `{acknowledge_command}`",
+                    f"- suggested_action_count: `{suggested_action_count}`",
+                    f"- first_suggested_action: `{first_suggested_action}`",
+                    f"- acknowledge_command_count: `{bundle_command_count}`",
+                    f"- first_acknowledge_command: `{first_acknowledge_command}`",
+                    f"- rerun_command_count: `{rerun_command_count}`",
+                    f"- first_rerun_command: `{first_rerun_command}`",
+                    f"- acknowledge_bundle_command_sequence: `{bundle_sequence}`",
+                    f"- runtime_error: `{runtime_error}`",
+                    "",
+                ]
+                with summary_output.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if bool(getattr(args, "strict", False)):
+        if runtime_error != "none" or not bool(interrupt_id):
+            raise SystemExit(2)
+
+
 def cmd_improvement_controlled_matrix_compact(args: argparse.Namespace) -> None:
     artifact_root = (
         args.artifact_root.resolve()
@@ -15338,6 +15636,46 @@ def main() -> None:
     )
     improvement_domain_smoke_cross_domain_compact.add_argument("--json-compact", action="store_true")
 
+    improvement_domain_smoke_cross_domain_runtime_alert = improvement_sub.add_parser(
+        "domain-smoke-cross-domain-runtime-alert",
+        help="Create cross-domain smoke runtime interrupt alert and refresh aggregate ack/rerun routing fields",
+    )
+    improvement_domain_smoke_cross_domain_runtime_alert.add_argument(
+        "--summary-path",
+        type=Path,
+        default=Path("output/ci/domain_smoke/domain_smoke_cross_domain_summary.json"),
+        help="Path to cross-domain smoke summary JSON artifact",
+    )
+    improvement_domain_smoke_cross_domain_runtime_alert.add_argument("--warning-count", type=int, default=None)
+    improvement_domain_smoke_cross_domain_runtime_alert.add_argument("--blocking-count", type=int, default=None)
+    improvement_domain_smoke_cross_domain_runtime_alert.add_argument("--top-domain", type=str, default=None)
+    improvement_domain_smoke_cross_domain_runtime_alert.add_argument("--top-risk-score", type=int, default=None)
+    improvement_domain_smoke_cross_domain_runtime_alert.add_argument(
+        "--output-path",
+        type=Path,
+        default=None,
+        help="Path for cross-domain smoke runtime alert artifact",
+    )
+    improvement_domain_smoke_cross_domain_runtime_alert.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit cross-domain runtime alert fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_domain_smoke_cross_domain_runtime_alert.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
+    )
+    improvement_domain_smoke_cross_domain_runtime_alert.add_argument("--strict", action="store_true")
+    improvement_domain_smoke_cross_domain_runtime_alert.add_argument("--json-compact", action="store_true")
+    improvement_domain_smoke_cross_domain_runtime_alert.add_argument(
+        "--repo-path",
+        type=Path,
+        default=_default_repo_path(),
+    )
+    improvement_domain_smoke_cross_domain_runtime_alert.add_argument("--db-path", type=Path, default=None)
+
     improvement_controlled_matrix_compact = improvement_sub.add_parser(
         "controlled-matrix-compact",
         help="Build compact controlled-matrix drift summary JSON/Markdown artifacts from verify-matrix-alert output",
@@ -15990,6 +16328,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "domain-smoke-cross-domain-compact":
         cmd_improvement_domain_smoke_cross_domain_compact(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "domain-smoke-cross-domain-runtime-alert":
+        cmd_improvement_domain_smoke_cross_domain_runtime_alert(args)
         return
     if args.cmd == "improvement" and args.improvement_cmd == "controlled-matrix-compact":
         cmd_improvement_controlled_matrix_compact(args)
