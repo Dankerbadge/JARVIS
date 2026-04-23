@@ -1,0 +1,95 @@
+name: reconcile-codeowner-review-gate-audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "20 14 * * 1-5"
+
+jobs:
+  reconcile-audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Audit code-owner review gate baseline and reconcile trigger provenance
+        id: reconcile_audit
+        env:
+          GH_TOKEN: ${{ secrets.JARVIS_ADMIN_GH_TOKEN }}
+        run: |
+          mkdir -p output/ci
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "JARVIS_ADMIN_GH_TOKEN is not set; skipping reconcile audit run."
+            printf '%s\n' \
+              '{' \
+              '  "status": "skipped",' \
+              '  "reason": "missing_secret",' \
+              '  "required_secret": "JARVIS_ADMIN_GH_TOKEN"' \
+              '}' \
+              > output/ci/codeowner_review_reconcile_audit.json
+            exit 0
+          fi
+
+          bash ./scripts/audit_reconcile_codeowner_review_gate.sh \
+            --repo-slug Dankerbadge/JARVIS \
+            --branch main \
+            --min-collaborators 2 \
+            --required-status-check gate-status \
+            --required-status-check evidence-lane-smoke \
+            --required-status-check release-hygiene \
+            --required-status-check-strict true \
+            --reconcile-workflow-file reconcile-codeowner-review-gate.yml \
+            --recent-runs-limit 20 \
+            --expected-trigger-event workflow_run \
+            --source-workflow-run-id "${{ github.run_id }}" \
+            --source-workflow-run-conclusion in_progress \
+            --source-workflow-name "${{ github.workflow }}" \
+            --source-workflow-event "${{ github.event_name }}" \
+            --source-workflow-run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            > output/ci/codeowner_review_reconcile_audit.json
+
+          python3 -m jarvis.cli improvement reconcile-codeowner-review-gate-outputs \
+            --report-path output/ci/codeowner_review_reconcile_audit.json \
+            --emit-github-output \
+            --summary-heading "Codeowner Review Gate Audit"
+
+      - name: Open reconcile audit alert
+        id: audit_alert
+        run: |
+          RERUN_COMMAND="bash ./scripts/reconcile_codeowner_review_gate.sh --repo-slug Dankerbadge/JARVIS --branch main --min-collaborators 2 --required-status-check gate-status --required-status-check evidence-lane-smoke --required-status-check release-hygiene --required-status-check-strict true --apply > output/ci/codeowner_review_reconcile.json"
+          ./scripts/run_improvement_reconcile_codeowner_review_gate_runtime_alert.sh \
+            output/ci/codeowner_review_reconcile_audit.json \
+            --output-path output/ci/codeowner_review_reconcile_audit_alert.json \
+            --rerun-command "${RERUN_COMMAND}" \
+            --emit-github-output \
+            --summary-heading "Codeowner Review Gate Audit Alert"
+
+      - name: Audit healthy branch
+        if: ${{ steps.audit_alert.outputs.codeowner_review_drift_change_needed != '1' }}
+        run: |
+          echo "No reconcile audit drift detected (required_status_checks_change_needed=${{ steps.audit_alert.outputs.codeowner_review_drift_required_status_checks_change_needed || '0' }}, reconcile_trigger_event_change_needed=${{ steps.audit_alert.outputs.codeowner_review_drift_reconcile_trigger_event_change_needed || '0' }})."
+
+      - name: Upload reconcile audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: codeowner-review-reconcile-audit
+          path: |
+            output/ci/codeowner_review_reconcile_audit.json
+            output/ci/codeowner_review_reconcile_audit_alert.json
+
+      - name: Fail on audit alert creation error
+        if: ${{ steps.audit_alert.outputs.codeowner_review_drift_change_needed == '1' && (steps.audit_alert.outputs.codeowner_review_drift_alert_created != '1' || steps.audit_alert.outputs.codeowner_review_drift_error != 'none') }}
+        run: |
+          echo "Codeowner reconcile audit alert creation failed (created=${{ steps.audit_alert.outputs.codeowner_review_drift_alert_created || '0' }}, error=${{ steps.audit_alert.outputs.codeowner_review_drift_error || 'none' }})."
+          exit 1
+
+      - name: Fail on reconcile audit drift
+        if: ${{ steps.audit_alert.outputs.codeowner_review_drift_change_needed == '1' }}
+        run: |
+          echo "Codeowner reconcile audit drift detected (required_status_checks_change_needed=${{ steps.audit_alert.outputs.codeowner_review_drift_required_status_checks_change_needed || '0' }}, reconcile_trigger_event_change_needed=${{ steps.audit_alert.outputs.codeowner_review_drift_reconcile_trigger_event_change_needed || '0' }}, expected_trigger_event=${{ steps.audit_alert.outputs.codeowner_review_drift_reconcile_trigger_expected_event || 'workflow_run' }}, non_workflow_run_count=${{ steps.audit_alert.outputs.codeowner_review_drift_reconcile_trigger_non_workflow_run_count || '0' }}, non_workflow_events=${{ steps.audit_alert.outputs.codeowner_review_drift_reconcile_trigger_non_workflow_events_csv || 'none' }}, non_workflow_run_ids=${{ steps.audit_alert.outputs.codeowner_review_drift_reconcile_trigger_non_workflow_run_ids_csv || 'none' }}, current=${{ steps.audit_alert.outputs.codeowner_review_drift_current_contexts_csv || 'none' }}, desired=${{ steps.audit_alert.outputs.codeowner_review_drift_desired_contexts_csv || 'none' }}, alert_interrupt_id=${{ steps.audit_alert.outputs.codeowner_review_drift_interrupt_id || 'none' }}, first_repair=${{ steps.audit_alert.outputs.codeowner_review_drift_first_repair_command || 'none' }}, source_run_id=${{ steps.audit_alert.outputs.codeowner_review_drift_source_workflow_run_id || 'none' }}, source_conclusion=${{ steps.audit_alert.outputs.codeowner_review_drift_source_workflow_run_conclusion || 'none' }}, source_name=${{ steps.audit_alert.outputs.codeowner_review_drift_source_workflow_name || 'none' }}, source_event=${{ steps.audit_alert.outputs.codeowner_review_drift_source_workflow_event || 'none' }}, source_run_url=${{ steps.audit_alert.outputs.codeowner_review_drift_source_workflow_run_url || 'none' }})."
+          exit 1

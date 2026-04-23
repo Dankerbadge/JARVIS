@@ -287,6 +287,7 @@ GitHub Actions template for compact JSON branching:
 - `./configs/improvement_operator_knowledge_stack/github-actions-domain-smoke-nightly.yml`
 - `./configs/improvement_operator_knowledge_stack/github-actions-controlled-matrix-nightly.yml`
 - `./configs/improvement_operator_knowledge_stack/github-actions-reconcile-codeowner-review-gate-drift-check.yml`
+- `./configs/improvement_operator_knowledge_stack/github-actions-reconcile-codeowner-review-gate-audit.yml`
 
 Active workflow in this repo:
 
@@ -296,6 +297,7 @@ Active workflow in this repo:
 - `./.github/workflows/improvement-controlled-matrix-nightly.yml`
 - `./.github/workflows/reconcile-codeowner-review-gate.yml`
 - `./.github/workflows/reconcile-codeowner-review-gate-drift-check.yml`
+- `./.github/workflows/reconcile-codeowner-review-gate-audit.yml`
 
 `improvement-knowledge-bootstrap-route.yml` runs on weekdays at `13:25 UTC`
 and fails when either:
@@ -538,6 +540,17 @@ Mutating reconcile artifacts carry drift-check provenance fields for auditing:
 `source_workflow_run_id`, `source_workflow_run_conclusion`,
 `source_workflow_name`, `source_workflow_event`, and
 `source_workflow_run_url`.
+
+The scheduled reconcile audit workflow (`reconcile-codeowner-review-gate-audit.yml`)
+runs `./scripts/audit_reconcile_codeowner_review_gate.sh` to combine baseline
+required-status-check drift with recent reconcile-run trigger-event auditing
+(`expected_trigger_event=workflow_run`). It then reuses
+`improvement reconcile-codeowner-review-gate-runtime-alert` so either drift
+type opens a delivered operations interrupt and fails with compact repair data:
+`codeowner_review_drift_reconcile_trigger_event_change_needed`,
+`codeowner_review_drift_reconcile_trigger_non_workflow_run_count`,
+`codeowner_review_drift_reconcile_trigger_non_workflow_events_csv`, and
+`codeowner_review_drift_reconcile_trigger_non_workflow_run_ids_csv`.
 
 Wrapper:
 

@@ -10296,6 +10296,74 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
     source_workflow_run_url = str(
         provenance.get("source_workflow_run_url", loaded.get("source_workflow_run_url")) or ""
     ).strip()
+    expected_trigger_event = str(loaded.get("reconcile_trigger_expected_event") or "workflow_run").strip()
+    if not expected_trigger_event:
+        expected_trigger_event = "workflow_run"
+
+    non_workflow_run_events: list[str] = []
+    for value in list(loaded.get("reconcile_trigger_non_workflow_events") or []):
+        _append_unique_string(non_workflow_run_events, value)
+
+    non_workflow_run_ids: list[str] = []
+    for value in list(loaded.get("reconcile_trigger_non_workflow_run_ids") or []):
+        _append_unique_string(non_workflow_run_ids, value)
+
+    non_workflow_runs: list[dict[str, Any]] = []
+    for item in list(loaded.get("reconcile_trigger_non_workflow_runs") or []):
+        if not isinstance(item, dict):
+            continue
+        run_id = str(item.get("run_id") or "").strip()
+        run_event = str(item.get("event") or "").strip()
+        run_url = str(item.get("html_url") or "").strip()
+        run_status = str(item.get("status") or "").strip()
+        run_conclusion = str(item.get("conclusion") or "").strip()
+        normalized = {
+            "run_id": run_id or None,
+            "event": run_event or "unknown",
+            "html_url": run_url or None,
+            "status": run_status or None,
+            "conclusion": run_conclusion or None,
+        }
+        non_workflow_runs.append(normalized)
+        _append_unique_string(non_workflow_run_ids, run_id)
+        _append_unique_string(non_workflow_run_events, run_event)
+    non_workflow_run_events = sorted(non_workflow_run_events)
+    non_workflow_run_count = _coerce_int(
+        loaded.get("reconcile_trigger_non_workflow_run_count"),
+        default=len(non_workflow_runs),
+    )
+    if non_workflow_run_count < len(non_workflow_runs):
+        non_workflow_run_count = len(non_workflow_runs)
+    if len(non_workflow_run_events) > 0 and non_workflow_run_count <= 0:
+        non_workflow_run_count = len(non_workflow_run_events)
+    if len(non_workflow_run_ids) > 0 and non_workflow_run_count <= 0:
+        non_workflow_run_count = len(non_workflow_run_ids)
+    non_workflow_run_events_csv = ",".join(non_workflow_run_events) or "none"
+    non_workflow_run_ids_csv = ",".join(non_workflow_run_ids) or "none"
+    first_non_workflow_run_id = (
+        str(non_workflow_run_ids[0]).strip()
+        if non_workflow_run_ids
+        else (
+            str((non_workflow_runs[0] or {}).get("run_id") or "").strip()
+            if non_workflow_runs
+            else "none"
+        )
+    )
+    first_non_workflow_run_event = (
+        str(non_workflow_run_events[0]).strip()
+        if non_workflow_run_events
+        else (
+            str((non_workflow_runs[0] or {}).get("event") or "").strip()
+            if non_workflow_runs
+            else "none"
+        )
+    )
+    reconcile_trigger_event_change_needed = _coerce_bool(
+        loaded.get("reconcile_trigger_event_change_needed"),
+        default=False,
+    )
+    if non_workflow_run_count > 0:
+        reconcile_trigger_event_change_needed = True
 
     current_required_status_checks: list[str] = []
     for value in list(
@@ -10336,6 +10404,7 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
         required_status_checks_change_needed = True
     if current_required_status_checks_strict != desired_required_status_checks_strict:
         required_status_checks_change_needed = True
+    change_needed = bool(required_status_checks_change_needed or reconcile_trigger_event_change_needed)
 
     current_required_status_checks_csv = ",".join(current_required_status_checks)
     desired_required_status_checks_csv = ",".join(desired_required_status_checks)
@@ -10365,18 +10434,22 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
     rerun_command = rerun_command or "none"
 
     reason = (
-        "codeowner_required_status_checks_drift"
+        "codeowner_reconcile_audit_drift"
         + f" required_status_checks_change_needed={required_status_checks_change_needed}"
         + f" missing_contexts={missing_required_status_checks_csv}"
         + f" extra_contexts={extra_required_status_checks_csv}"
         + f" current_strict={str(current_required_status_checks_strict).lower()}"
         + f" desired_strict={str(desired_required_status_checks_strict).lower()}"
+        + f" reconcile_trigger_event_change_needed={reconcile_trigger_event_change_needed}"
+        + f" expected_trigger_event={expected_trigger_event}"
+        + f" non_workflow_run_count={non_workflow_run_count}"
+        + f" non_workflow_events={non_workflow_run_events_csv}"
     )
     why_now = (
-        "required status-check drift means branch protection no longer enforces the baseline quality gates."
+        "status-check drift or reconcile trigger-event drift means baseline branch-protection enforcement is no longer fully trustworthy."
     )
     why_not_later = (
-        "deferring required status-check drift can allow unvalidated changes through before auto-apply reconciliation."
+        "deferring reconcile audit drift can hide protection regressions or unexpected reconcile execution paths."
     )
 
     interrupt_id = ""
@@ -10384,15 +10457,22 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
     runtime_error = "none"
     runtime = None
     try:
-        if required_status_checks_change_needed:
+        if change_needed:
             runtime = JarvisRuntime(
                 db_path=db_path,
                 repo_path=args.repo_path.resolve(),
             )
             missing_count = len(missing_required_status_checks)
             extra_count = len(extra_required_status_checks)
-            urgency_score = max(0.72, min(0.98, 0.78 + (0.04 * min(5, missing_count + extra_count))))
-            confidence = max(0.72, min(0.98, 0.86 + (0.02 * min(5, missing_count))))
+            event_count = max(0, int(non_workflow_run_count))
+            urgency_score = max(
+                0.72,
+                min(0.98, 0.78 + (0.04 * min(5, missing_count + extra_count)) + (0.03 * min(4, event_count))),
+            )
+            confidence = max(
+                0.72,
+                min(0.98, 0.84 + (0.02 * min(5, missing_count)) + (0.02 * min(4, event_count))),
+            )
             decision = InterruptDecision(
                 interrupt_id=new_id("int"),
                 candidate_id=new_id("cand"),
@@ -10420,6 +10500,12 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
                     "interrupt_id": interrupt_id or None,
                     "report_path": str(report_path),
                     "required_status_checks_change_needed": bool(required_status_checks_change_needed),
+                    "reconcile_trigger_event_change_needed": bool(reconcile_trigger_event_change_needed),
+                    "reconcile_trigger_expected_event": expected_trigger_event,
+                    "reconcile_trigger_non_workflow_run_count": int(non_workflow_run_count),
+                    "reconcile_trigger_non_workflow_events": non_workflow_run_events,
+                    "reconcile_trigger_non_workflow_run_ids": non_workflow_run_ids,
+                    "reconcile_trigger_non_workflow_runs": non_workflow_runs,
                     "current_required_status_checks": current_required_status_checks,
                     "desired_required_status_checks": desired_required_status_checks,
                     "missing_required_status_checks": missing_required_status_checks,
@@ -10443,7 +10529,7 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
     status = "ok"
     if report_missing:
         status = "warning"
-    elif required_status_checks_change_needed:
+    elif change_needed:
         status = "warning"
 
     first_repair_command = acknowledge_command if acknowledge_command != "none" else rerun_command
@@ -10456,7 +10542,18 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
         "report_path": str(report_path),
         "report_missing": bool(report_missing),
         "collaborator_count": collaborator_count,
+        "change_needed": bool(change_needed),
         "required_status_checks_change_needed": bool(required_status_checks_change_needed),
+        "reconcile_trigger_event_change_needed": bool(reconcile_trigger_event_change_needed),
+        "reconcile_trigger_expected_event": expected_trigger_event,
+        "reconcile_trigger_non_workflow_run_count": int(non_workflow_run_count),
+        "reconcile_trigger_non_workflow_events": non_workflow_run_events,
+        "reconcile_trigger_non_workflow_events_csv": non_workflow_run_events_csv,
+        "reconcile_trigger_non_workflow_run_ids": non_workflow_run_ids,
+        "reconcile_trigger_non_workflow_run_ids_csv": non_workflow_run_ids_csv,
+        "reconcile_trigger_first_non_workflow_run_id": first_non_workflow_run_id or "none",
+        "reconcile_trigger_first_non_workflow_event": first_non_workflow_run_event or "none",
+        "reconcile_trigger_non_workflow_runs": non_workflow_runs,
         "current_required_status_checks": current_required_status_checks,
         "desired_required_status_checks": desired_required_status_checks,
         "missing_required_status_checks": missing_required_status_checks,
@@ -10488,7 +10585,23 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
     payload["codeowner_review_drift_alert_path"] = str(alert_path)
     payload["codeowner_review_drift_interrupt_id"] = interrupt_id or "none"
     payload["codeowner_review_drift_alert_created"] = 1 if interrupt_id else 0
-    payload["codeowner_review_drift_change_needed"] = 1 if required_status_checks_change_needed else 0
+    payload["codeowner_review_drift_change_needed"] = 1 if change_needed else 0
+    payload["codeowner_review_drift_required_status_checks_change_needed"] = (
+        1 if required_status_checks_change_needed else 0
+    )
+    payload["codeowner_review_drift_reconcile_trigger_event_change_needed"] = (
+        1 if reconcile_trigger_event_change_needed else 0
+    )
+    payload["codeowner_review_drift_reconcile_trigger_expected_event"] = expected_trigger_event
+    payload["codeowner_review_drift_reconcile_trigger_non_workflow_run_count"] = int(non_workflow_run_count)
+    payload["codeowner_review_drift_reconcile_trigger_non_workflow_events_csv"] = non_workflow_run_events_csv
+    payload["codeowner_review_drift_reconcile_trigger_non_workflow_run_ids_csv"] = non_workflow_run_ids_csv
+    payload["codeowner_review_drift_reconcile_trigger_first_non_workflow_run_id"] = (
+        first_non_workflow_run_id or "none"
+    )
+    payload["codeowner_review_drift_reconcile_trigger_first_non_workflow_event"] = (
+        first_non_workflow_run_event or "none"
+    )
     payload["codeowner_review_drift_acknowledge_command"] = acknowledge_command
     payload["codeowner_review_drift_rerun_command"] = rerun_command
     payload["codeowner_review_drift_first_repair_command"] = first_repair_command or "none"
@@ -10509,6 +10622,38 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
             f"codeowner_review_drift_interrupt_id={payload['codeowner_review_drift_interrupt_id']}",
             f"codeowner_review_drift_alert_created={payload['codeowner_review_drift_alert_created']}",
             f"codeowner_review_drift_change_needed={payload['codeowner_review_drift_change_needed']}",
+            (
+                "codeowner_review_drift_required_status_checks_change_needed="
+                f"{payload['codeowner_review_drift_required_status_checks_change_needed']}"
+            ),
+            (
+                "codeowner_review_drift_reconcile_trigger_event_change_needed="
+                f"{payload['codeowner_review_drift_reconcile_trigger_event_change_needed']}"
+            ),
+            (
+                "codeowner_review_drift_reconcile_trigger_expected_event="
+                f"{payload['codeowner_review_drift_reconcile_trigger_expected_event']}"
+            ),
+            (
+                "codeowner_review_drift_reconcile_trigger_non_workflow_run_count="
+                f"{payload['codeowner_review_drift_reconcile_trigger_non_workflow_run_count']}"
+            ),
+            (
+                "codeowner_review_drift_reconcile_trigger_non_workflow_events_csv="
+                f"{payload['codeowner_review_drift_reconcile_trigger_non_workflow_events_csv']}"
+            ),
+            (
+                "codeowner_review_drift_reconcile_trigger_non_workflow_run_ids_csv="
+                f"{payload['codeowner_review_drift_reconcile_trigger_non_workflow_run_ids_csv']}"
+            ),
+            (
+                "codeowner_review_drift_reconcile_trigger_first_non_workflow_run_id="
+                f"{payload['codeowner_review_drift_reconcile_trigger_first_non_workflow_run_id']}"
+            ),
+            (
+                "codeowner_review_drift_reconcile_trigger_first_non_workflow_event="
+                f"{payload['codeowner_review_drift_reconcile_trigger_first_non_workflow_event']}"
+            ),
             f"codeowner_review_drift_current_contexts_csv={payload['codeowner_review_drift_current_contexts_csv']}",
             f"codeowner_review_drift_desired_contexts_csv={payload['codeowner_review_drift_desired_contexts_csv']}",
             f"codeowner_review_drift_missing_contexts_csv={payload['codeowner_review_drift_missing_contexts_csv']}",
@@ -10537,6 +10682,36 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
                     f"## {summary_heading_raw}",
                     "",
                     f"- change_needed: `{payload['codeowner_review_drift_change_needed']}`",
+                    (
+                        "- required_status_checks_change_needed: `"
+                        + str(payload["codeowner_review_drift_required_status_checks_change_needed"])
+                        + "`"
+                    ),
+                    (
+                        "- reconcile_trigger_event_change_needed: `"
+                        + str(payload["codeowner_review_drift_reconcile_trigger_event_change_needed"])
+                        + "`"
+                    ),
+                    (
+                        "- reconcile_trigger_expected_event: `"
+                        + str(payload["codeowner_review_drift_reconcile_trigger_expected_event"])
+                        + "`"
+                    ),
+                    (
+                        "- reconcile_trigger_non_workflow_run_count: `"
+                        + str(payload["codeowner_review_drift_reconcile_trigger_non_workflow_run_count"])
+                        + "`"
+                    ),
+                    (
+                        "- reconcile_trigger_non_workflow_events_csv: `"
+                        + str(payload["codeowner_review_drift_reconcile_trigger_non_workflow_events_csv"])
+                        + "`"
+                    ),
+                    (
+                        "- reconcile_trigger_non_workflow_run_ids_csv: `"
+                        + str(payload["codeowner_review_drift_reconcile_trigger_non_workflow_run_ids_csv"])
+                        + "`"
+                    ),
                     f"- alert_created: `{payload['codeowner_review_drift_alert_created']}`",
                     f"- interrupt_id: `{payload['codeowner_review_drift_interrupt_id']}`",
                     f"- current_contexts_csv: `{payload['codeowner_review_drift_current_contexts_csv']}`",
@@ -10562,7 +10737,7 @@ def cmd_improvement_reconcile_codeowner_review_gate_runtime_alert(args: argparse
     if bool(getattr(args, "strict", False)):
         if report_missing:
             raise SystemExit(2)
-        if required_status_checks_change_needed and (runtime_error != "none" or not bool(interrupt_id)):
+        if change_needed and (runtime_error != "none" or not bool(interrupt_id)):
             raise SystemExit(2)
 
 

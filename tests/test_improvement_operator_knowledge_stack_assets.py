@@ -440,6 +440,20 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("strict_mode", content)
         self.assertIn("reconcile_provenance", content)
 
+    def test_codeowner_review_gate_audit_script_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        script_path = repo_root / "scripts" / "audit_reconcile_codeowner_review_gate.sh"
+        self.assertTrue(script_path.exists())
+        content = script_path.read_text(encoding="utf-8")
+        self.assertIn("reconcile_codeowner_review_gate.sh", content)
+        self.assertIn("--reconcile-workflow-file", content)
+        self.assertIn("--recent-runs-limit", content)
+        self.assertIn("--expected-trigger-event", content)
+        self.assertIn("reconcile_trigger_event_change_needed", content)
+        self.assertIn("reconcile_trigger_non_workflow_run_count", content)
+        self.assertIn("reconcile_trigger_non_workflow_events_csv", content)
+        self.assertIn("reconcile_trigger_non_workflow_run_ids_csv", content)
+
     def test_knowledge_bootstrap_route_wrapper_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         script_path = repo_root / "scripts" / "run_improvement_knowledge_bootstrap_route.sh"
@@ -684,6 +698,33 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("codeowner_review_drift_source_workflow_run_url", content)
         self.assertIn("Fail on drift alert creation error", content)
         self.assertIn("Fail on required-status-check drift", content)
+
+    def test_reconcile_codeowner_review_gate_audit_workflow_template_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        workflow_path = (
+            repo_root
+            / "configs"
+            / "improvement_operator_knowledge_stack"
+            / "github-actions-reconcile-codeowner-review-gate-audit.yml"
+        )
+        self.assertTrue(workflow_path.exists())
+        content = workflow_path.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", content)
+        self.assertIn("schedule:", content)
+        self.assertIn("Audit code-owner review gate baseline and reconcile trigger provenance", content)
+        self.assertIn("audit_reconcile_codeowner_review_gate.sh", content)
+        self.assertIn("--reconcile-workflow-file reconcile-codeowner-review-gate.yml", content)
+        self.assertIn("--recent-runs-limit 20", content)
+        self.assertIn("--expected-trigger-event workflow_run", content)
+        self.assertIn("Open reconcile audit alert", content)
+        self.assertIn("run_improvement_reconcile_codeowner_review_gate_runtime_alert.sh", content)
+        self.assertIn('--summary-heading "Codeowner Review Gate Audit Alert"', content)
+        self.assertIn("codeowner_review_reconcile_audit.json", content)
+        self.assertIn("codeowner_review_reconcile_audit_alert.json", content)
+        self.assertIn("codeowner_review_drift_reconcile_trigger_event_change_needed", content)
+        self.assertIn("codeowner_review_drift_reconcile_trigger_non_workflow_events_csv", content)
+        self.assertIn("Fail on audit alert creation error", content)
+        self.assertIn("Fail on reconcile audit drift", content)
 
     def test_controlled_matrix_nightly_workflow_template_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -1043,6 +1084,39 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("codeowner_review_drift_source_workflow_run_url", content)
         self.assertIn("Fail on drift alert creation error", content)
         self.assertIn("Fail on required-status-check drift", content)
+        self.assertNotIn("python3 - <<'PY'", content)
+
+    def test_active_reconcile_codeowner_audit_workflow_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        workflow_path = (
+            repo_root
+            / ".github"
+            / "workflows"
+            / "reconcile-codeowner-review-gate-audit.yml"
+        )
+        self.assertTrue(workflow_path.exists())
+        content = workflow_path.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", content)
+        self.assertIn("schedule:", content)
+        self.assertIn("JARVIS_ADMIN_GH_TOKEN", content)
+        self.assertIn("Audit code-owner review gate baseline and reconcile trigger provenance", content)
+        self.assertIn("audit_reconcile_codeowner_review_gate.sh", content)
+        self.assertIn("--reconcile-workflow-file reconcile-codeowner-review-gate.yml", content)
+        self.assertIn("--recent-runs-limit 20", content)
+        self.assertIn("--expected-trigger-event workflow_run", content)
+        self.assertIn("improvement reconcile-codeowner-review-gate-outputs", content)
+        self.assertIn('--summary-heading "Codeowner Review Gate Audit"', content)
+        self.assertIn("Open reconcile audit alert", content)
+        self.assertIn("run_improvement_reconcile_codeowner_review_gate_runtime_alert.sh", content)
+        self.assertIn('--summary-heading "Codeowner Review Gate Audit Alert"', content)
+        self.assertIn("codeowner_review_drift_reconcile_trigger_event_change_needed", content)
+        self.assertIn("codeowner_review_drift_reconcile_trigger_non_workflow_run_count", content)
+        self.assertIn("codeowner_review_drift_reconcile_trigger_non_workflow_events_csv", content)
+        self.assertIn("codeowner_review_reconcile_audit.json", content)
+        self.assertIn("codeowner_review_reconcile_audit_alert.json", content)
+        self.assertIn("codeowner-review-reconcile-audit", content)
+        self.assertIn("Fail on audit alert creation error", content)
+        self.assertIn("Fail on reconcile audit drift", content)
         self.assertNotIn("python3 - <<'PY'", content)
 
     def test_no_inline_python_workflow_adapters_remaining(self) -> None:
