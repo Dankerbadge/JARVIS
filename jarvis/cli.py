@@ -8739,6 +8739,62 @@ def cmd_improvement_verify_matrix_coverage_alert(args: argparse.Namespace) -> No
             raise SystemExit(2)
 
 
+def cmd_improvement_verify_matrix_guardrail_gate(args: argparse.Namespace) -> None:
+    report_path = args.report_path.resolve()
+    if not report_path.exists():
+        raise SystemExit(f"missing_operator_report:{report_path}")
+
+    loaded = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise ValueError("invalid_report_file:expected_json_object")
+
+    stage_error_count = _coerce_int(loaded.get("stage_error_count"), default=0)
+    verify_matrix = dict(loaded.get("verify_matrix") or {})
+    verify_matrix_status = str(verify_matrix.get("status") or "unknown").strip().lower() or "unknown"
+    operator_status = str(loaded.get("status") or "unknown").strip().lower() or "unknown"
+
+    failure_reason = "none"
+    if stage_error_count > 0:
+        failure_reason = (
+            "operator_guardrail_gate_failed:stage_error_count>0 "
+            f"(count={stage_error_count})"
+        )
+    elif verify_matrix_status != "ok":
+        failure_reason = (
+            "operator_guardrail_gate_failed:verify_matrix_status_not_ok "
+            f"(status={verify_matrix_status})"
+        )
+
+    status = "ok" if failure_reason == "none" else "warning"
+    payload: dict[str, Any] = {
+        "generated_at": utc_now_iso(),
+        "status": status,
+        "report_path": str(report_path),
+        "operator_status": operator_status,
+        "stage_error_count": int(stage_error_count),
+        "verify_matrix_status": verify_matrix_status,
+        "failure_reason": failure_reason,
+        "guardrail_gate_report": str(report_path),
+        "guardrail_gate_operator_status": operator_status,
+        "guardrail_gate_stage_error_count": int(stage_error_count),
+        "guardrail_gate_verify_matrix_status": verify_matrix_status,
+    }
+
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+
+    if bool(getattr(args, "strict", False)) and failure_reason != "none":
+        raise SystemExit(failure_reason)
+
+
 def _resolve_daily_report_from_improvement_report(
     *,
     report_path: Path,
@@ -13496,6 +13552,25 @@ def main() -> None:
     improvement_verify_matrix_coverage_alert.add_argument("--repo-path", type=Path, default=_default_repo_path())
     improvement_verify_matrix_coverage_alert.add_argument("--db-path", type=Path, default=None)
 
+    improvement_verify_matrix_guardrail_gate = improvement_sub.add_parser(
+        "verify-matrix-guardrail-gate",
+        help="Evaluate operator-cycle guardrail gate status from operator report payload",
+    )
+    improvement_verify_matrix_guardrail_gate.add_argument(
+        "--report-path",
+        type=Path,
+        default=Path("output/ci/operator_cycle/operator_cycle_report.json"),
+        help="Path to operator-cycle report payload",
+    )
+    improvement_verify_matrix_guardrail_gate.add_argument(
+        "--output-path",
+        type=Path,
+        default=Path("output/ci/operator_cycle/verify_matrix_guardrail_gate.json"),
+        help="Path for guardrail gate output payload",
+    )
+    improvement_verify_matrix_guardrail_gate.add_argument("--strict", action="store_true")
+    improvement_verify_matrix_guardrail_gate.add_argument("--json-compact", action="store_true")
+
     improvement_benchmark_frustrations = improvement_sub.add_parser(
         "benchmark-frustrations",
         help="Rank recurring pains, trend acceleration, and implementation win-rates from operator-cycle outputs",
@@ -13893,6 +13968,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "verify-matrix-coverage-alert":
         cmd_improvement_verify_matrix_coverage_alert(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "verify-matrix-guardrail-gate":
+        cmd_improvement_verify_matrix_guardrail_gate(args)
         return
     if args.cmd == "improvement" and args.improvement_cmd == "benchmark-frustrations":
         cmd_improvement_benchmark_frustrations(args)

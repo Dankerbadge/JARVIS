@@ -29,6 +29,7 @@ from jarvis.cli import (
     cmd_improvement_verify_matrix,
     cmd_improvement_verify_matrix_compact,
     cmd_improvement_verify_matrix_coverage_alert,
+    cmd_improvement_verify_matrix_guardrail_gate,
     cmd_improvement_verify_matrix_alert,
 )
 from jarvis.interrupts import InterruptDecision
@@ -8202,6 +8203,129 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 self.assertEqual(len(interrupts), 0)
             finally:
                 runtime.close()
+
+    def test_verify_matrix_guardrail_gate_ok_in_strict_mode_when_gate_conditions_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "stage_error_count": 0,
+                        "verify_matrix": {
+                            "status": "ok",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_path = root / "artifacts" / "verify_matrix_guardrail_gate.json"
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=output_path,
+                strict=True,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_verify_matrix_guardrail_gate(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(int(payload.get("stage_error_count") or 0), 0)
+            self.assertEqual(str(payload.get("verify_matrix_status") or ""), "ok")
+            self.assertEqual(str(payload.get("failure_reason") or ""), "none")
+            self.assertTrue(output_path.exists())
+            written = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(written.get("status") or ""), "ok")
+            self.assertEqual(str(written.get("failure_reason") or ""), "none")
+
+    def test_verify_matrix_guardrail_gate_strict_raises_when_stage_error_count_positive(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "stage_error_count": 2,
+                        "verify_matrix": {
+                            "status": "ok",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_path = root / "artifacts" / "verify_matrix_guardrail_gate.json"
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=output_path,
+                strict=True,
+                json_compact=False,
+            )
+
+            with self.assertRaises(SystemExit) as raised:
+                cmd_improvement_verify_matrix_guardrail_gate(args)
+            self.assertIn(
+                "operator_guardrail_gate_failed:stage_error_count>0",
+                str(raised.exception),
+            )
+            self.assertTrue(output_path.exists())
+            written = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(written.get("status") or ""), "warning")
+            self.assertIn(
+                "operator_guardrail_gate_failed:stage_error_count>0",
+                str(written.get("failure_reason") or ""),
+            )
+
+    def test_verify_matrix_guardrail_gate_strict_raises_when_verify_matrix_status_not_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "stage_error_count": 0,
+                        "verify_matrix": {
+                            "status": "warning",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_path = root / "artifacts" / "verify_matrix_guardrail_gate.json"
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=output_path,
+                strict=True,
+                json_compact=False,
+            )
+
+            with self.assertRaises(SystemExit) as raised:
+                cmd_improvement_verify_matrix_guardrail_gate(args)
+            self.assertIn(
+                "operator_guardrail_gate_failed:verify_matrix_status_not_ok",
+                str(raised.exception),
+            )
+            self.assertTrue(output_path.exists())
+            written = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(written.get("status") or ""), "warning")
+            self.assertIn(
+                "operator_guardrail_gate_failed:verify_matrix_status_not_ok",
+                str(written.get("failure_reason") or ""),
+            )
 
     def test_verify_matrix_alert_creates_delivered_interrupt_on_warning(self) -> None:
         with tempfile.TemporaryDirectory() as td:
