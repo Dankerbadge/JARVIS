@@ -52,11 +52,9 @@ jobs:
             --repo-slug Dankerbadge/JARVIS \
             --branch main \
             --min-collaborators 2 \
-            --required-status-check improvement-gate-status-compact \
-            --required-status-check improvement-knowledge-bootstrap-route \
-            --required-status-check improvement-domain-smoke-nightly \
-            --required-status-check improvement-controlled-matrix-nightly \
-            --required-status-check improvement-evidence-lane-smoke \
+            --required-status-check gate-status \
+            --required-status-check evidence-lane-smoke \
+            --required-status-check release-hygiene \
             --source-workflow-run-id "${{ github.event.workflow_run.id }}" \
             --source-workflow-run-conclusion "${{ github.event.workflow_run.conclusion }}" \
             --source-workflow-name "${{ github.event.workflow_run.name }}" \

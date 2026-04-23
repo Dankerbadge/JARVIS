@@ -38,11 +38,9 @@ jobs:
             --repo-slug Dankerbadge/JARVIS \
             --branch main \
             --min-collaborators 2 \
-            --required-status-check improvement-gate-status-compact \
-            --required-status-check improvement-knowledge-bootstrap-route \
-            --required-status-check improvement-domain-smoke-nightly \
-            --required-status-check improvement-controlled-matrix-nightly \
-            --required-status-check improvement-evidence-lane-smoke \
+            --required-status-check gate-status \
+            --required-status-check evidence-lane-smoke \
+            --required-status-check release-hygiene \
             --source-workflow-run-id "${{ github.run_id }}" \
             --source-workflow-run-conclusion in_progress \
             --source-workflow-name "${{ github.workflow }}" \
@@ -64,7 +62,7 @@ jobs:
         if: ${{ steps.reconcile_drift.outputs.required_status_checks_change_needed == 'true' }}
         id: drift_alert
         run: |
-          RERUN_COMMAND="bash ./scripts/reconcile_codeowner_review_gate.sh --repo-slug Dankerbadge/JARVIS --branch main --min-collaborators 2 --required-status-check improvement-gate-status-compact --required-status-check improvement-knowledge-bootstrap-route --required-status-check improvement-domain-smoke-nightly --required-status-check improvement-controlled-matrix-nightly --required-status-check improvement-evidence-lane-smoke --apply > output/ci/codeowner_review_reconcile.json"
+          RERUN_COMMAND="bash ./scripts/reconcile_codeowner_review_gate.sh --repo-slug Dankerbadge/JARVIS --branch main --min-collaborators 2 --required-status-check gate-status --required-status-check evidence-lane-smoke --required-status-check release-hygiene --apply > output/ci/codeowner_review_reconcile.json"
           ./scripts/run_improvement_reconcile_codeowner_review_gate_runtime_alert.sh \
             output/ci/codeowner_review_reconcile_drift_check.json \
             --output-path output/ci/codeowner_review_reconcile_drift_alert.json \
