@@ -317,6 +317,8 @@ After matrix lanes complete, `domain-smoke-aggregate` downloads
 `output/ci/domain_smoke/domain_smoke_cross_domain_summary.json` and
 `output/ci/domain_smoke/domain_smoke_cross_domain_summary.md`, including ranked
 `top_risks` with rerun/acknowledge commands.
+The cross-domain compact adapter is command-driven via
+`python3 -m jarvis.cli improvement domain-smoke-cross-domain-compact --emit-github-output --summary-heading "Domain Smoke Cross-Domain Summary"`.
 The aggregate summary JSON also carries `operator_ack_bundle` with
 `acknowledge_bundle_command_sequence` so one copied command string can
 acknowledge per-domain interrupts in order.

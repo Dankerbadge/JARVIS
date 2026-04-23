@@ -8615,6 +8615,314 @@ def cmd_improvement_domain_smoke_runtime_alert(args: argparse.Namespace) -> None
             raise SystemExit(2)
 
 
+def cmd_improvement_domain_smoke_cross_domain_compact(args: argparse.Namespace) -> None:
+    artifacts_root = (
+        args.artifacts_root.resolve()
+        if getattr(args, "artifacts_root", None) is not None
+        else Path("output/ci/domain_smoke_artifacts").resolve()
+    )
+    summary_output_path = (
+        args.output_path.resolve()
+        if getattr(args, "output_path", None) is not None
+        else Path("output/ci/domain_smoke/domain_smoke_cross_domain_summary.json").resolve()
+    )
+    summary_markdown_path = (
+        args.markdown_path.resolve()
+        if getattr(args, "markdown_path", None) is not None
+        else Path("output/ci/domain_smoke/domain_smoke_cross_domain_summary.md").resolve()
+    )
+    summary_output_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_markdown_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _load_json(path: Path) -> dict[str, Any]:
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        return dict(loaded) if isinstance(loaded, dict) else {}
+
+    summary_files = sorted(artifacts_root.glob("**/*_smoke_summary.json"))
+    alert_files = sorted(artifacts_root.glob("**/*_smoke_alert.json"))
+    artifact_dirs = sorted(path for path in artifacts_root.glob("domain-smoke-*") if path.is_dir())
+
+    summary_by_domain: dict[str, dict[str, Any]] = {}
+    for path in summary_files:
+        summary_payload = _load_json(path)
+        domain = str(summary_payload.get("domain") or "").strip().lower()
+        if not domain:
+            domain = path.name.replace("_smoke_summary.json", "").strip().lower()
+        if not domain:
+            continue
+        summary_by_domain[domain] = summary_payload
+
+    alert_by_domain: dict[str, dict[str, Any]] = {}
+    for path in alert_files:
+        alert_payload = _load_json(path)
+        domain = str(alert_payload.get("domain") or "").strip().lower()
+        if not domain:
+            domain = path.name.replace("_smoke_alert.json", "").strip().lower()
+        if not domain:
+            continue
+        alert_by_domain[domain] = alert_payload
+
+    domains = set(summary_by_domain) | set(alert_by_domain)
+    for path in artifact_dirs:
+        suffix = path.name.removeprefix("domain-smoke-").strip().lower()
+        if suffix:
+            domains.add(suffix)
+
+    rows: list[dict[str, Any]] = []
+    for domain in sorted(domains):
+        summary_payload = dict(summary_by_domain.get(domain) or {})
+        alert_payload = dict(alert_by_domain.get(domain) or {})
+        smoke_status = str(summary_payload.get("status") or "warning").strip().lower() or "warning"
+        smoke_reason = (
+            str(alert_payload.get("smoke_reason") or "").strip()
+            or str(summary_payload.get("reason") or "").strip()
+            or ("none" if smoke_status == "ok" else f"domain_smoke_status_not_ok:{smoke_status}")
+        )
+        alert_created = bool(alert_payload.get("alert_created"))
+        interrupt_id = str(alert_payload.get("interrupt_id") or "").strip()
+        acknowledge_command = str(alert_payload.get("acknowledge_command") or "").strip()
+        rerun_command = str(alert_payload.get("rerun_command") or "").strip()
+        runtime_error = str(alert_payload.get("runtime_error") or "").strip()
+
+        risk_score = 0
+        if smoke_status != "ok":
+            risk_score += 70
+        if alert_created:
+            risk_score += 20
+        if interrupt_id:
+            risk_score += 5
+        if runtime_error and runtime_error.lower() != "none":
+            risk_score += 8
+        if "missing" in smoke_reason:
+            risk_score += 5
+        if "mismatch" in smoke_reason:
+            risk_score += 4
+
+        if risk_score >= 90:
+            risk_tier = "critical"
+        elif risk_score >= 60:
+            risk_tier = "warn"
+        else:
+            risk_tier = "ok"
+
+        rows.append(
+            {
+                "domain": domain,
+                "smoke_status": smoke_status,
+                "smoke_reason": smoke_reason,
+                "smoke_blocking": 1 if smoke_status != "ok" else 0,
+                "risk_score": int(risk_score),
+                "risk_tier": risk_tier,
+                "alert_created": alert_created,
+                "interrupt_id": interrupt_id or None,
+                "acknowledge_command": acknowledge_command or None,
+                "rerun_command": rerun_command or None,
+                "runtime_error": runtime_error or None,
+                "has_summary_artifact": domain in summary_by_domain,
+                "has_alert_artifact": domain in alert_by_domain,
+                "summary_path": summary_payload.get("summary_path"),
+                "alert_path": alert_payload.get("alert_path"),
+            }
+        )
+
+    rows.sort(key=lambda item: (-int(item.get("risk_score") or 0), str(item.get("domain") or "")))
+    warning_count = sum(1 for row in rows if str(row.get("smoke_status") or "") != "ok")
+    ok_count = sum(1 for row in rows if str(row.get("smoke_status") or "") == "ok")
+    blocking_count = sum(int(row.get("smoke_blocking") or 0) for row in rows)
+    alerts_created_count = sum(1 for row in rows if bool(row.get("alert_created")))
+    top_risks = [row for row in rows if int(row.get("risk_score") or 0) > 0][:4]
+    missing_summary_domains = [
+        str(row.get("domain") or "")
+        for row in rows
+        if not bool(row.get("has_summary_artifact"))
+    ]
+    missing_alert_domains = [
+        str(row.get("domain") or "")
+        for row in rows
+        if int(row.get("smoke_blocking") or 0) > 0 and not bool(row.get("has_alert_artifact"))
+    ]
+    summary_status = "ok" if warning_count == 0 else "warning"
+    if not rows:
+        summary_status = "warning"
+
+    suggested_actions: list[str] = []
+    for row in top_risks[:3]:
+        row_domain = str(row.get("domain") or "unknown")
+        rerun_command = str(row.get("rerun_command") or "").strip()
+        acknowledge_command = str(row.get("acknowledge_command") or "").strip()
+        if rerun_command:
+            suggested_actions.append(f"[{row_domain}] rerun smoke loop: {rerun_command}")
+        if acknowledge_command:
+            suggested_actions.append(f"[{row_domain}] acknowledge interrupt: {acknowledge_command}")
+    if not suggested_actions and rows:
+        suggested_actions.append("No blocking cross-domain smoke risk detected; continue scheduled cadence.")
+    if not rows:
+        suggested_actions.append("No domain smoke artifacts found; verify upstream matrix artifact upload.")
+    suggested_action_count = len(suggested_actions)
+    first_suggested_action = suggested_actions[0] if suggested_actions else "none"
+
+    per_domain_acknowledge_commands: list[str] = []
+    for row in rows:
+        acknowledge_command = str(row.get("acknowledge_command") or "").strip()
+        if acknowledge_command and acknowledge_command not in per_domain_acknowledge_commands:
+            per_domain_acknowledge_commands.append(acknowledge_command)
+    per_domain_acknowledge_sequence = (
+        " && ".join(per_domain_acknowledge_commands)
+        if per_domain_acknowledge_commands
+        else "none"
+    )
+    rerun_preview_commands: list[str] = []
+    for row in rows:
+        rerun_command = str(row.get("rerun_command") or "").strip()
+        if rerun_command and rerun_command not in rerun_preview_commands:
+            rerun_preview_commands.append(rerun_command)
+    rerun_command_count = len(rerun_preview_commands)
+    first_rerun_command = rerun_preview_commands[0] if rerun_preview_commands else "none"
+    per_domain_acknowledge_command_count = len(per_domain_acknowledge_commands)
+    first_per_domain_acknowledge_command = (
+        per_domain_acknowledge_commands[0]
+        if per_domain_acknowledge_commands
+        else "none"
+    )
+
+    payload: dict[str, Any] = {
+        "generated_at": utc_now_iso(),
+        "status": summary_status,
+        "artifact_root": str(artifacts_root),
+        "domain_count": len(rows),
+        "summary_file_count": len(summary_files),
+        "alert_file_count": len(alert_files),
+        "ok_count": ok_count,
+        "warning_count": warning_count,
+        "blocking_count": blocking_count,
+        "alerts_created_count": alerts_created_count,
+        "missing_summary_domains": missing_summary_domains,
+        "missing_alert_domains": missing_alert_domains,
+        "top_risks": top_risks,
+        "domains": rows,
+        "suggested_actions": suggested_actions,
+        "suggested_action_count": suggested_action_count,
+        "first_suggested_action": first_suggested_action,
+        "operator_ack_bundle": {
+            "status": "ready" if per_domain_acknowledge_commands else "empty",
+            "command_count": per_domain_acknowledge_command_count,
+            "commands": per_domain_acknowledge_commands,
+            "command_sequence": per_domain_acknowledge_sequence,
+            "first_command": None
+            if first_per_domain_acknowledge_command == "none"
+            else first_per_domain_acknowledge_command,
+            "per_domain_command_count": per_domain_acknowledge_command_count,
+            "cross_domain_command_count": 0,
+            "cross_domain_interrupt_id": None,
+            "cross_domain_acknowledge_command": None,
+        },
+        "acknowledge_bundle_commands": per_domain_acknowledge_commands,
+        "acknowledge_bundle_command_sequence": per_domain_acknowledge_sequence,
+        "acknowledge_command_count": per_domain_acknowledge_command_count,
+        "first_acknowledge_command": first_per_domain_acknowledge_command,
+        "rerun_preview_commands": rerun_preview_commands,
+        "rerun_command_count": rerun_command_count,
+        "first_rerun_command": first_rerun_command,
+    }
+    summary_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    markdown_lines = [
+        "# Domain Smoke Cross-Domain Summary",
+        "",
+        f"- status: `{summary_status}`",
+        f"- domain_count: `{len(rows)}`",
+        f"- warning_count: `{warning_count}`",
+        f"- blocking_count: `{blocking_count}`",
+        f"- alerts_created_count: `{alerts_created_count}`",
+        "",
+        "## Top Risks",
+        "",
+    ]
+    if top_risks:
+        for row in top_risks:
+            markdown_lines.extend(
+                [
+                    f"- `{row.get('domain')}` risk_score={row.get('risk_score')} status={row.get('smoke_status')} reason={row.get('smoke_reason')}",
+                    f"  - rerun_command: `{row.get('rerun_command') or 'none'}`",
+                    f"  - acknowledge_command: `{row.get('acknowledge_command') or 'none'}`",
+                ]
+            )
+    else:
+        markdown_lines.append("- none")
+    markdown_lines.extend(["", "## Suggested Actions", ""])
+    for action in suggested_actions:
+        markdown_lines.append(f"- {action}")
+    summary_markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+
+    top_domain = str((top_risks[0] or {}).get("domain") or "none") if top_risks else "none"
+    top_risk_score = int((top_risks[0] or {}).get("risk_score") or 0) if top_risks else 0
+    payload["summary_path"] = str(summary_output_path)
+    payload["summary_markdown_path"] = str(summary_markdown_path)
+    payload["cross_domain_status"] = summary_status
+    payload["top_domain"] = top_domain
+    payload["top_risk_score"] = top_risk_score
+
+    if bool(getattr(args, "emit_github_output", False)):
+        output_lines = [
+            f"summary_path={summary_output_path}",
+            f"summary_markdown_path={summary_markdown_path}",
+            f"cross_domain_status={summary_status}",
+            f"domain_count={len(rows)}",
+            f"warning_count={warning_count}",
+            f"blocking_count={blocking_count}",
+            f"alerts_created_count={alerts_created_count}",
+            f"top_domain={top_domain}",
+            f"top_risk_score={top_risk_score}",
+            f"suggested_action_count={suggested_action_count}",
+            f"first_suggested_action={first_suggested_action}",
+            f"acknowledge_command_count={per_domain_acknowledge_command_count}",
+            f"first_acknowledge_command={first_per_domain_acknowledge_command}",
+            f"rerun_command_count={rerun_command_count}",
+            f"first_rerun_command={first_rerun_command}",
+            f"acknowledge_bundle_command_sequence={per_domain_acknowledge_sequence}",
+        ]
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_output = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                    f"- status: `{summary_status}`",
+                    f"- domain_count: `{len(rows)}`",
+                    f"- warning_count: `{warning_count}`",
+                    f"- blocking_count: `{blocking_count}`",
+                    f"- alerts_created_count: `{alerts_created_count}`",
+                    f"- top_domain: `{top_domain}`",
+                    f"- top_risk_score: `{top_risk_score}`",
+                    f"- suggested_action_count: `{suggested_action_count}`",
+                    f"- first_suggested_action: `{first_suggested_action}`",
+                    f"- acknowledge_command_count: `{per_domain_acknowledge_command_count}`",
+                    f"- first_acknowledge_command: `{first_per_domain_acknowledge_command}`",
+                    f"- rerun_command_count: `{rerun_command_count}`",
+                    f"- first_rerun_command: `{first_rerun_command}`",
+                    f"- acknowledge_bundle_command_sequence: `{per_domain_acknowledge_sequence}`",
+                    f"- summary_path: `{summary_output_path}`",
+                    "",
+                ]
+                with summary_output.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+
+
 def cmd_improvement_controlled_matrix_compact(args: argparse.Namespace) -> None:
     artifact_root = (
         args.artifact_root.resolve()
@@ -14995,6 +15303,41 @@ def main() -> None:
     improvement_domain_smoke_runtime_alert.add_argument("--repo-path", type=Path, default=_default_repo_path())
     improvement_domain_smoke_runtime_alert.add_argument("--db-path", type=Path, default=None)
 
+    improvement_domain_smoke_cross_domain_compact = improvement_sub.add_parser(
+        "domain-smoke-cross-domain-compact",
+        help="Build cross-domain domain-smoke compact summary outputs from downloaded smoke artifacts",
+    )
+    improvement_domain_smoke_cross_domain_compact.add_argument(
+        "--artifacts-root",
+        type=Path,
+        default=Path("output/ci/domain_smoke_artifacts"),
+        help="Directory containing downloaded domain-smoke-* artifacts",
+    )
+    improvement_domain_smoke_cross_domain_compact.add_argument(
+        "--output-path",
+        type=Path,
+        default=None,
+        help="Path for cross-domain summary JSON artifact",
+    )
+    improvement_domain_smoke_cross_domain_compact.add_argument(
+        "--markdown-path",
+        type=Path,
+        default=None,
+        help="Path for cross-domain summary markdown artifact",
+    )
+    improvement_domain_smoke_cross_domain_compact.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit cross-domain compact fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_domain_smoke_cross_domain_compact.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
+    )
+    improvement_domain_smoke_cross_domain_compact.add_argument("--json-compact", action="store_true")
+
     improvement_controlled_matrix_compact = improvement_sub.add_parser(
         "controlled-matrix-compact",
         help="Build compact controlled-matrix drift summary JSON/Markdown artifacts from verify-matrix-alert output",
@@ -15644,6 +15987,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "domain-smoke-runtime-alert":
         cmd_improvement_domain_smoke_runtime_alert(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "domain-smoke-cross-domain-compact":
+        cmd_improvement_domain_smoke_cross_domain_compact(args)
         return
     if args.cmd == "improvement" and args.improvement_cmd == "controlled-matrix-compact":
         cmd_improvement_controlled_matrix_compact(args)

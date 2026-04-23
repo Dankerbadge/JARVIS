@@ -15,6 +15,7 @@ from jarvis.cli import (
     cmd_improvement_benchmark_frustrations,
     cmd_improvement_controlled_matrix_compact,
     cmd_improvement_controlled_matrix_runtime_alert,
+    cmd_improvement_domain_smoke_cross_domain_compact,
     cmd_improvement_daily_pipeline,
     cmd_improvement_domain_smoke_outputs,
     cmd_improvement_domain_smoke_runtime_alert,
@@ -9049,6 +9050,126 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 self.assertEqual(str((interrupts[0] or {}).get("interrupt_id") or ""), interrupt_id)
             finally:
                 runtime.close()
+
+    def test_domain_smoke_cross_domain_compact_emits_outputs_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            artifacts_root = root / "output" / "ci" / "domain_smoke_artifacts"
+            quant_dir = artifacts_root / "domain-smoke-quant_finance"
+            fitness_dir = artifacts_root / "domain-smoke-fitness_apps"
+            quant_dir.mkdir(parents=True, exist_ok=True)
+            fitness_dir.mkdir(parents=True, exist_ok=True)
+
+            (quant_dir / "quant_finance_smoke_summary.json").write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "domain": "quant_finance",
+                        "reason": "none",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            rerun_command = (
+                "./scripts/run_improvement_domain_smoke.sh "
+                "./configs/improvement_operator_knowledge_stack.json "
+                "fitness_apps --output-dir output/ci/domain_smoke/fitness_apps --allow-missing"
+            )
+            acknowledge_command = (
+                "python3 -m jarvis.cli interrupts acknowledge int_smoke_fitness "
+                "--actor operator --db-path /tmp/fake_domain_smoke.db"
+            )
+            (fitness_dir / "fitness_apps_smoke_summary.json").write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "domain": "fitness_apps",
+                        "reason": "domain_smoke_status_not_ok:warning",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (fitness_dir / "fitness_apps_smoke_alert.json").write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "domain": "fitness_apps",
+                        "smoke_status": "warning",
+                        "smoke_reason": "domain_smoke_status_not_ok:warning",
+                        "alert_created": True,
+                        "interrupt_id": "int_smoke_fitness",
+                        "acknowledge_command": acknowledge_command,
+                        "rerun_command": rerun_command,
+                        "runtime_error": None,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            summary_path = root / "output" / "ci" / "domain_smoke" / "domain_smoke_cross_domain_summary.json"
+            markdown_path = root / "output" / "ci" / "domain_smoke" / "domain_smoke_cross_domain_summary.md"
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            args = argparse.Namespace(
+                artifacts_root=artifacts_root,
+                output_path=summary_path,
+                markdown_path=markdown_path,
+                emit_github_output=True,
+                summary_heading="Domain Smoke Cross-Domain Summary",
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_domain_smoke_cross_domain_compact(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(int(payload.get("domain_count") or 0), 2)
+            self.assertEqual(int(payload.get("warning_count") or 0), 1)
+            self.assertEqual(int(payload.get("blocking_count") or 0), 1)
+            self.assertEqual(int(payload.get("alerts_created_count") or 0), 1)
+            self.assertEqual(str(payload.get("top_domain") or ""), "fitness_apps")
+            self.assertEqual(str(payload.get("cross_domain_status") or ""), "warning")
+            self.assertTrue(summary_path.exists())
+            self.assertTrue(markdown_path.exists())
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"summary_path={summary_path.resolve()}", output_lines)
+            self.assertIn(f"summary_markdown_path={markdown_path.resolve()}", output_lines)
+            self.assertIn("cross_domain_status=warning", output_lines)
+            self.assertIn("domain_count=2", output_lines)
+            self.assertIn("warning_count=1", output_lines)
+            self.assertIn("blocking_count=1", output_lines)
+            self.assertIn("alerts_created_count=1", output_lines)
+            self.assertIn("top_domain=fitness_apps", output_lines)
+            self.assertIn("top_risk_score=95", output_lines)
+            self.assertIn("acknowledge_command_count=1", output_lines)
+            self.assertIn(f"first_acknowledge_command={acknowledge_command}", output_lines)
+            self.assertIn("rerun_command_count=1", output_lines)
+            self.assertIn(f"first_rerun_command={rerun_command}", output_lines)
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Domain Smoke Cross-Domain Summary", summary)
+            self.assertIn("- status: `warning`", summary)
+            self.assertIn("- domain_count: `2`", summary)
+            self.assertIn("- warning_count: `1`", summary)
+            self.assertIn("- blocking_count: `1`", summary)
+            self.assertIn("- alerts_created_count: `1`", summary)
+            self.assertIn("- top_domain: `fitness_apps`", summary)
+            self.assertIn("- top_risk_score: `95`", summary)
 
     def test_controlled_matrix_compact_emits_github_outputs_and_summary(self) -> None:
         with tempfile.TemporaryDirectory() as td:
