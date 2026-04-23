@@ -522,10 +522,221 @@ jobs:
               handle.write("\n".join(summary_lines) + "\n")
           PY
 
+      - name: Open verify matrix coverage interrupt alert
+        if: ${{ steps.verify_matrix_compact.outputs.missing_domain_count != '0' }}
+        id: verify_matrix_coverage_alert
+        env:
+          VERIFY_MATRIX_COMPACT_PATH: ${{ steps.verify_matrix_compact.outputs.verify_matrix_compact_path }}
+          VERIFY_MATRIX_COMPACT_STATUS: ${{ steps.verify_matrix_compact.outputs.verify_matrix_compact_status }}
+          MISSING_DOMAIN_COUNT: ${{ steps.verify_matrix_compact.outputs.missing_domain_count }}
+          MISSING_DOMAINS_CSV: ${{ steps.verify_matrix_compact.outputs.missing_domains_csv }}
+          FIRST_MISSING_DOMAIN: ${{ steps.verify_matrix_compact.outputs.verify_matrix_first_missing_domain }}
+          VERIFY_MATRIX_RECHECK_COMMAND: ${{ steps.verify_matrix_compact.outputs.verify_matrix_recheck_command }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          from jarvis.ids import new_id
+          from jarvis.interrupts import InterruptDecision
+          from jarvis.runtime import JarvisRuntime
+
+          def _to_int(value, default=0):
+            try:
+              return int(float(str(value).strip()))
+            except Exception:
+              return default
+
+          compact_path = Path(str(os.getenv("VERIFY_MATRIX_COMPACT_PATH") or "")).expanduser().resolve()
+          compact_payload = {}
+          if compact_path.exists():
+            try:
+              loaded = json.loads(compact_path.read_text(encoding="utf-8"))
+            except Exception:
+              loaded = {}
+            if isinstance(loaded, dict):
+              compact_payload = loaded
+
+          missing_domain_count = _to_int(
+            os.getenv("MISSING_DOMAIN_COUNT") or compact_payload.get("missing_domain_count"),
+            default=0,
+          )
+          missing_domains_csv = str(
+            os.getenv("MISSING_DOMAINS_CSV")
+            or compact_payload.get("missing_domains_csv")
+            or "none"
+          ).strip() or "none"
+          first_missing_domain = str(
+            os.getenv("FIRST_MISSING_DOMAIN")
+            or compact_payload.get("first_missing_domain")
+            or "none"
+          ).strip() or "none"
+          recheck_command = str(
+            os.getenv("VERIFY_MATRIX_RECHECK_COMMAND")
+            or compact_payload.get("recheck_command")
+            or "none"
+          ).strip() or "none"
+          compact_status = str(
+            os.getenv("VERIFY_MATRIX_COMPACT_STATUS")
+            or compact_payload.get("status")
+            or "warning"
+          ).strip().lower() or "warning"
+
+          alert_path = Path("output/ci/operator_cycle/verify_matrix_coverage_alert.json").resolve()
+          alert_path.parent.mkdir(parents=True, exist_ok=True)
+          db_path = (alert_path.parent / "jarvis.db").resolve()
+
+          reason = (
+            "verify_matrix_required_domain_coverage_gap"
+            + f" missing_domain_count={missing_domain_count}"
+            + f" missing_domains={missing_domains_csv}"
+            + f" compact_status={compact_status}"
+          )
+          why_now = (
+            "required domain coverage in controlled verify-matrix is incomplete and blocks "
+            "reliable cross-domain promotion decisions."
+          )
+          why_not_later = (
+            "delayed remediation of missing domain coverage can hide blind spots across quant, "
+            "Kalshi weather, fitness, and market-ml loops."
+          )
+
+          interrupt_id = ""
+          acknowledge_command = "none"
+          runtime_error = "none"
+          runtime = None
+          try:
+            runtime = JarvisRuntime(
+              db_path=db_path,
+              repo_path=Path.cwd(),
+            )
+            urgency_score = 0.96 if missing_domain_count >= 2 else 0.92
+            confidence = 0.93 if missing_domain_count >= 2 else 0.9
+            decision = InterruptDecision(
+              interrupt_id=new_id("int"),
+              candidate_id=new_id("cand"),
+              domain="operations",
+              reason=reason,
+              urgency_score=urgency_score,
+              confidence=confidence,
+              suppression_window_hit=False,
+              delivered=True,
+              why_now=why_now,
+              why_not_later=why_not_later,
+              status="delivered",
+            )
+            runtime.interrupt_store.store(decision)
+            interrupt = runtime.interrupt_store.get(decision.interrupt_id) or decision.to_dict()
+            interrupt_id = str(interrupt.get("interrupt_id") or "").strip()
+            if interrupt_id:
+              acknowledge_command = (
+                "python3 -m jarvis.cli interrupts acknowledge "
+                f"{interrupt_id} --actor operator --db-path {db_path}"
+              )
+            runtime.memory.append_event(
+              "improvement.verify_matrix_coverage_alert_created",
+              {
+                "interrupt_id": interrupt_id or None,
+                "compact_path": str(compact_path),
+                "compact_status": compact_status,
+                "missing_domain_count": missing_domain_count,
+                "missing_domains_csv": missing_domains_csv,
+                "first_missing_domain": first_missing_domain,
+                "recheck_command": recheck_command,
+              },
+            )
+          except Exception as exc:  # pragma: no cover - workflow inline guard
+            runtime_error = str(exc).strip() or "unknown_runtime_error"
+          finally:
+            if runtime is not None:
+              runtime.close()
+
+          payload = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "status": "warning",
+            "compact_path": str(compact_path),
+            "compact_status": compact_status,
+            "missing_domain_count": missing_domain_count,
+            "missing_domains_csv": missing_domains_csv,
+            "first_missing_domain": first_missing_domain,
+            "alert_created": bool(interrupt_id),
+            "interrupt_id": interrupt_id or None,
+            "interrupt_db_path": str(db_path),
+            "acknowledge_command": None if acknowledge_command == "none" else acknowledge_command,
+            "recheck_command": None if recheck_command == "none" else recheck_command,
+            "reason": reason,
+            "why_now": why_now,
+            "why_not_later": why_not_later,
+            "runtime_error": None if runtime_error == "none" else runtime_error,
+          }
+          alert_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+          if compact_path and compact_payload:
+            acknowledge_commands = [
+              str(command).strip()
+              for command in list(compact_payload.get("acknowledge_commands") or [])
+              if str(command).strip()
+            ]
+            if acknowledge_command != "none" and acknowledge_command not in acknowledge_commands:
+              acknowledge_commands.append(acknowledge_command)
+            compact_payload["acknowledge_commands"] = acknowledge_commands
+            compact_payload["acknowledge_command_count"] = len(acknowledge_commands)
+            compact_payload["first_acknowledge_command"] = (
+              acknowledge_commands[0] if acknowledge_commands else "none"
+            )
+            compact_payload["coverage_alert_path"] = str(alert_path)
+            compact_payload["coverage_interrupt_id"] = interrupt_id or None
+            compact_payload["coverage_acknowledge_command"] = (
+              None if acknowledge_command == "none" else acknowledge_command
+            )
+            compact_payload["coverage_alert_created"] = bool(interrupt_id)
+            compact_payload["coverage_runtime_error"] = (
+              None if runtime_error == "none" else runtime_error
+            )
+            compact_path.write_text(json.dumps(compact_payload, indent=2), encoding="utf-8")
+
+          print(f"verify_matrix_coverage_alert_path={alert_path}")
+          print(f"verify_matrix_coverage_interrupt_id={interrupt_id or 'none'}")
+          print(f"verify_matrix_coverage_alert_created={1 if interrupt_id else 0}")
+          print(f"verify_matrix_coverage_acknowledge_command={acknowledge_command}")
+          print(f"verify_matrix_coverage_recheck_command={recheck_command}")
+          print(f"verify_matrix_coverage_runtime_error={runtime_error}")
+
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as handle:
+            handle.write(f"verify_matrix_coverage_alert_path={alert_path}\n")
+            handle.write(f"verify_matrix_coverage_interrupt_id={interrupt_id or 'none'}\n")
+            handle.write(f"verify_matrix_coverage_alert_created={1 if interrupt_id else 0}\n")
+            handle.write(f"verify_matrix_coverage_acknowledge_command={acknowledge_command}\n")
+            handle.write(f"verify_matrix_coverage_recheck_command={recheck_command}\n")
+            handle.write(f"verify_matrix_coverage_runtime_error={runtime_error}\n")
+
+          github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+          if github_step_summary:
+            summary_output = Path(github_step_summary).expanduser()
+            summary_lines = [
+              "## Verify Matrix Coverage Interrupt Alert",
+              "",
+              f"- interrupt_id: `{interrupt_id or 'none'}`",
+              f"- alert_created: `{1 if interrupt_id else 0}`",
+              f"- missing_domain_count: `{missing_domain_count}`",
+              f"- first_missing_domain: `{first_missing_domain}`",
+              f"- missing_domains_csv: `{missing_domains_csv}`",
+              f"- acknowledge_command: `{acknowledge_command}`",
+              f"- recheck_command: `{recheck_command}`",
+              f"- runtime_error: `{runtime_error}`",
+              "",
+            ]
+            with summary_output.open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(summary_lines) + "\n")
+          PY
+
       - name: Fail on verify matrix coverage gaps
         if: ${{ steps.verify_matrix_compact.outputs.missing_domain_count != '0' }}
         run: |
-          echo "Verify matrix coverage is missing required domains (count=${{ steps.verify_matrix_compact.outputs.missing_domain_count }}, first=${{ steps.verify_matrix_compact.outputs.verify_matrix_first_missing_domain }}, domains=${{ steps.verify_matrix_compact.outputs.missing_domains_csv }})."
+          echo "Verify matrix coverage is missing required domains (count=${{ steps.verify_matrix_compact.outputs.missing_domain_count }}, first=${{ steps.verify_matrix_compact.outputs.verify_matrix_first_missing_domain }}, domains=${{ steps.verify_matrix_compact.outputs.missing_domains_csv }}, interrupt_id=${{ steps.verify_matrix_coverage_alert.outputs.verify_matrix_coverage_interrupt_id }})."
           exit 1
 
       - name: Guardrail gate
