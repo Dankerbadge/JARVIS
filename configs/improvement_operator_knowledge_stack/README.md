@@ -395,6 +395,11 @@ Single-maintainer safety reconciler (auto-toggle code-owner review gate by colla
   --apply
 ```
 
+For collaborator counts below threshold, it also reconciles
+`required_approving_review_count` down to `0` so single-maintainer branches
+can merge and disables `require_last_push_approval`; when above threshold it
+keeps at least one required approval and preserves last-push approval behavior.
+
 The scheduled reconciler workflow expects `JARVIS_ADMIN_GH_TOKEN` with repo-admin capability so it
 can patch branch-protection review settings automatically.
 

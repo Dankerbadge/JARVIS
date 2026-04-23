@@ -58,3 +58,7 @@ jobs:
           echo "collaborator_count=${{ steps.reconcile.outputs.collaborator_count || 'n/a' }}"
           echo "current_require_code_owner_reviews=${{ steps.reconcile.outputs.current_require_code_owner_reviews || 'n/a' }}"
           echo "desired_require_code_owner_reviews=${{ steps.reconcile.outputs.desired_require_code_owner_reviews || 'n/a' }}"
+          echo "current_required_approving_review_count=${{ steps.reconcile.outputs.current_required_approving_review_count || 'n/a' }}"
+          echo "desired_required_approving_review_count=${{ steps.reconcile.outputs.desired_required_approving_review_count || 'n/a' }}"
+          echo "current_require_last_push_approval=${{ steps.reconcile.outputs.current_require_last_push_approval || 'n/a' }}"
+          echo "desired_require_last_push_approval=${{ steps.reconcile.outputs.desired_require_last_push_approval || 'n/a' }}"

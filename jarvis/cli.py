@@ -8314,12 +8314,30 @@ def cmd_improvement_reconcile_codeowner_review_gate_outputs(args: argparse.Names
     collaborator_count = _coerce_int(loaded.get("collaborator_count"), default=0)
     current_require_code_owner_reviews = bool(reviews.get("current_require_code_owner_reviews"))
     desired_require_code_owner_reviews = bool(reviews.get("desired_require_code_owner_reviews"))
+    current_required_approving_review_count = _coerce_int(
+        reviews.get("current_required_approving_review_count"),
+        default=_coerce_int(reviews.get("required_approving_review_count"), default=1),
+    )
+    desired_required_approving_review_count = _coerce_int(
+        reviews.get("desired_required_approving_review_count"),
+        default=current_required_approving_review_count,
+    )
+    current_require_last_push_approval = bool(
+        reviews.get("current_require_last_push_approval", reviews.get("require_last_push_approval"))
+    )
+    desired_require_last_push_approval = bool(
+        reviews.get("desired_require_last_push_approval", current_require_last_push_approval)
+    )
 
     payload: dict[str, Any] = {
         "report_path": str(report_path),
         "collaborator_count": collaborator_count,
         "current_require_code_owner_reviews": current_require_code_owner_reviews,
         "desired_require_code_owner_reviews": desired_require_code_owner_reviews,
+        "current_required_approving_review_count": current_required_approving_review_count,
+        "desired_required_approving_review_count": desired_required_approving_review_count,
+        "current_require_last_push_approval": current_require_last_push_approval,
+        "desired_require_last_push_approval": desired_require_last_push_approval,
     }
 
     if bool(getattr(args, "emit_github_output", False)):
@@ -8333,6 +8351,10 @@ def cmd_improvement_reconcile_codeowner_review_gate_outputs(args: argparse.Names
                 "desired_require_code_owner_reviews="
                 + ("true" if desired_require_code_owner_reviews else "false")
             ),
+            f"current_required_approving_review_count={current_required_approving_review_count}",
+            f"desired_required_approving_review_count={desired_required_approving_review_count}",
+            "current_require_last_push_approval=" + ("true" if current_require_last_push_approval else "false"),
+            "desired_require_last_push_approval=" + ("true" if desired_require_last_push_approval else "false"),
         ]
         github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
         if github_output:
@@ -8350,6 +8372,10 @@ def cmd_improvement_reconcile_codeowner_review_gate_outputs(args: argparse.Names
                     f"- collaborator_count: `{collaborator_count}`",
                     f"- current_require_code_owner_reviews: `{'true' if current_require_code_owner_reviews else 'false'}`",
                     f"- desired_require_code_owner_reviews: `{'true' if desired_require_code_owner_reviews else 'false'}`",
+                    f"- current_required_approving_review_count: `{current_required_approving_review_count}`",
+                    f"- desired_required_approving_review_count: `{desired_required_approving_review_count}`",
+                    f"- current_require_last_push_approval: `{'true' if current_require_last_push_approval else 'false'}`",
+                    f"- desired_require_last_push_approval: `{'true' if desired_require_last_push_approval else 'false'}`",
                     "",
                 ]
                 with summary_output.open("a", encoding="utf-8") as handle:

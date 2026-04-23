@@ -8958,6 +8958,10 @@ class CliImprovementPipelineTests(unittest.TestCase):
                     {
                         "collaborator_count": 3,
                         "required_pull_request_reviews": {
+                            "current_required_approving_review_count": 1,
+                            "desired_required_approving_review_count": 1,
+                            "current_require_last_push_approval": True,
+                            "desired_require_last_push_approval": True,
                             "current_require_code_owner_reviews": False,
                             "desired_require_code_owner_reviews": True,
                         },
@@ -8990,11 +8994,19 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(payload.get("collaborator_count") or 0), 3)
             self.assertFalse(bool(payload.get("current_require_code_owner_reviews")))
             self.assertTrue(bool(payload.get("desired_require_code_owner_reviews")))
+            self.assertEqual(int(payload.get("current_required_approving_review_count") or 0), 1)
+            self.assertEqual(int(payload.get("desired_required_approving_review_count") or 0), 1)
+            self.assertTrue(bool(payload.get("current_require_last_push_approval")))
+            self.assertTrue(bool(payload.get("desired_require_last_push_approval")))
 
             output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
             self.assertIn("collaborator_count=3", output_lines)
             self.assertIn("current_require_code_owner_reviews=false", output_lines)
             self.assertIn("desired_require_code_owner_reviews=true", output_lines)
+            self.assertIn("current_required_approving_review_count=1", output_lines)
+            self.assertIn("desired_required_approving_review_count=1", output_lines)
+            self.assertIn("current_require_last_push_approval=true", output_lines)
+            self.assertIn("desired_require_last_push_approval=true", output_lines)
 
     def test_domain_smoke_runtime_alert_creates_interrupt_and_emits_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as td:

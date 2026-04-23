@@ -360,6 +360,10 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("--apply", content)
         self.assertIn("protection/required_pull_request_reviews", content)
         self.assertIn("require_code_owner_reviews", content)
+        self.assertIn("desired_required_approving_review_count", content)
+        self.assertIn("current_required_approving_review_count", content)
+        self.assertIn("desired_require_last_push_approval", content)
+        self.assertIn("current_require_last_push_approval", content)
 
     def test_knowledge_bootstrap_route_wrapper_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -699,6 +703,10 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("codeowner_review_reconcile.json", content)
         self.assertIn("improvement reconcile-codeowner-review-gate-outputs", content)
         self.assertIn("--emit-github-output", content)
+        self.assertIn("current_required_approving_review_count", content)
+        self.assertIn("desired_required_approving_review_count", content)
+        self.assertIn("current_require_last_push_approval", content)
+        self.assertIn("desired_require_last_push_approval", content)
         self.assertNotIn("python3 - <<'PY'", content)
 
     def test_no_inline_python_workflow_adapters_remaining(self) -> None:

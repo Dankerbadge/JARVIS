@@ -5,7 +5,7 @@ usage() {
   cat <<'USAGE'
 usage: reconcile_codeowner_review_gate.sh [--repo-slug <owner/repo>] [--branch <name>] [--min-collaborators <int>] [--apply]
 
-Reconciles GitHub branch-protection `require_code_owner_reviews` against collaborator count:
+Reconciles GitHub branch-protection review requirements against collaborator count:
 - enable when collaborator_count >= min_collaborators
 - disable otherwise (single-maintainer deadlock safety)
 
@@ -101,9 +101,9 @@ branch = str(sys.argv[4] or "main")
 min_collaborators = max(1, int(sys.argv[5] or 2))
 
 reviews = dict(protection.get("required_pull_request_reviews") or {})
-required_approving_review_count = int(reviews.get("required_approving_review_count") or 1)
+current_required_approving_review_count = int(reviews.get("required_approving_review_count") or 1)
 dismiss_stale_reviews = bool(reviews.get("dismiss_stale_reviews"))
-require_last_push_approval = bool(reviews.get("require_last_push_approval"))
+current_require_last_push_approval = bool(reviews.get("require_last_push_approval"))
 current_require_code_owner_reviews = bool(reviews.get("require_code_owner_reviews"))
 collaborator_logins = sorted(
     {
@@ -114,7 +114,21 @@ collaborator_logins = sorted(
 )
 collaborator_count = len(collaborator_logins)
 desired_require_code_owner_reviews = collaborator_count >= min_collaborators
-change_needed = current_require_code_owner_reviews != desired_require_code_owner_reviews
+desired_required_approving_review_count = (
+    max(1, current_required_approving_review_count)
+    if desired_require_code_owner_reviews
+    else 0
+)
+desired_require_last_push_approval = (
+    current_require_last_push_approval
+    if desired_require_code_owner_reviews
+    else False
+)
+change_needed = (
+    current_require_code_owner_reviews != desired_require_code_owner_reviews
+    or current_required_approving_review_count != desired_required_approving_review_count
+    or current_require_last_push_approval != desired_require_last_push_approval
+)
 
 summary = {
     "repo_slug": repo_slug,
@@ -123,9 +137,11 @@ summary = {
     "collaborator_count": int(collaborator_count),
     "collaborators": collaborator_logins,
     "required_pull_request_reviews": {
-        "required_approving_review_count": int(required_approving_review_count),
+        "current_required_approving_review_count": int(current_required_approving_review_count),
+        "desired_required_approving_review_count": int(desired_required_approving_review_count),
         "dismiss_stale_reviews": bool(dismiss_stale_reviews),
-        "require_last_push_approval": bool(require_last_push_approval),
+        "current_require_last_push_approval": bool(current_require_last_push_approval),
+        "desired_require_last_push_approval": bool(desired_require_last_push_approval),
         "current_require_code_owner_reviews": bool(current_require_code_owner_reviews),
         "desired_require_code_owner_reviews": bool(desired_require_code_owner_reviews),
         "change_needed": bool(change_needed),
@@ -154,8 +170,8 @@ reviews = dict(obj.get("required_pull_request_reviews") or {})
 payload = {
     "dismiss_stale_reviews": bool(reviews.get("dismiss_stale_reviews")),
     "require_code_owner_reviews": bool(reviews.get("desired_require_code_owner_reviews")),
-    "required_approving_review_count": int(reviews.get("required_approving_review_count") or 1),
-    "require_last_push_approval": bool(reviews.get("require_last_push_approval")),
+    "required_approving_review_count": int(reviews.get("desired_required_approving_review_count") or 0),
+    "require_last_push_approval": bool(reviews.get("desired_require_last_push_approval")),
 }
 print(json.dumps(payload))
 PY
@@ -174,6 +190,8 @@ import sys
 obj = json.loads(sys.argv[1] or "{}")
 reviews = dict(obj.get("required_pull_request_reviews") or {})
 reviews["current_require_code_owner_reviews"] = bool(reviews.get("desired_require_code_owner_reviews"))
+reviews["current_required_approving_review_count"] = int(reviews.get("desired_required_approving_review_count") or 0)
+reviews["current_require_last_push_approval"] = bool(reviews.get("desired_require_last_push_approval"))
 reviews["change_needed"] = False
 obj["required_pull_request_reviews"] = reviews
 obj["applied"] = True

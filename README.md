@@ -1085,6 +1085,11 @@ Single-maintainer safety reconciler (auto-toggle code-owner review gate by colla
   --apply
 ```
 
+When collaborator count is below `--min-collaborators`, the reconciler also
+sets `required_approving_review_count=0` to prevent single-maintainer merge
+deadlocks and disables `require_last_push_approval`; above threshold it keeps
+at least one required approval and preserves last-push approval behavior.
+
 The scheduled reconciler workflow uses `JARVIS_ADMIN_GH_TOKEN` (repo-admin token scope) to patch
 branch protection safely in GitHub Actions.
 
