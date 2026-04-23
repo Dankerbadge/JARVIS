@@ -252,6 +252,9 @@ into `output/ci/` for run-level debug traceability.
 four-domain matrix (`quant_finance`, `kalshi_weather`, `fitness_apps`,
 `market_ml`), executes `run_improvement_domain_smoke.sh` for each lane, and
 uploads per-domain artifacts from `output/ci/domain_smoke/<domain>/`.
+When a lane is blocking, it also writes `<domain>_smoke_alert.json`,
+auto-creates a delivered interrupt in lane-local `jarvis.db`, and emits both
+an `acknowledge_command` and a direct smoke-loop `rerun_command`.
 
 Copy that file into `.github/workflows/` to run `plans gate-status-all`, read
 `output/ci/gate_status_all_compact.json`, and branch on:
