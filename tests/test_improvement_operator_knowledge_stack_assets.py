@@ -255,6 +255,23 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("--report-path", content)
         self.assertIn("--output-path", content)
 
+    def test_kalshi_leaderboard_wrapper_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        script_path = repo_root / "scripts" / "run_improvement_kalshi_leaderboard.sh"
+        self.assertTrue(script_path.exists())
+        content = script_path.read_text(encoding="utf-8")
+        self.assertIn("improvement fitness-leaderboard", content)
+        self.assertIn("JARVIS_IMPROVEMENT_KALSHI_LEADERBOARD_OUTPUT_PATH", content)
+        self.assertIn("JARVIS_IMPROVEMENT_KALSHI_LEADERBOARD_LOOKBACK_DAYS", content)
+        self.assertIn("JARVIS_IMPROVEMENT_KALSHI_LEADERBOARD_DOMAIN", content)
+        self.assertIn("JARVIS_IMPROVEMENT_KALSHI_LEADERBOARD_SOURCE", content)
+        self.assertIn("--domain)", content)
+        self.assertIn("--source)", content)
+        self.assertIn("--min-cross-app-count)", content)
+        self.assertIn("kalshi_weather", content)
+        self.assertIn("kalshi_trade_journal", content)
+        self.assertIn("--min-cross-app-count", content)
+
     def test_active_knowledge_bootstrap_route_workflow_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         workflow_path = (

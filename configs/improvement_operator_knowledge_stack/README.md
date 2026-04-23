@@ -15,6 +15,26 @@ python3 -m jarvis.cli improvement seed-hypotheses \
   --output-path ./configs/improvement_operator_knowledge_stack/output/seed_report.json
 ```
 
+## 1b) Run Kalshi weather leaderboard (standalone)
+
+```bash
+python3 -m jarvis.cli improvement fitness-leaderboard \
+  --input-path ./configs/improvement_operator_knowledge_stack/analysis/kalshi_feedback.jsonl \
+  --domain kalshi_weather \
+  --source kalshi_trade_journal \
+  --lookback-days 10 \
+  --min-cross-app-count 1 \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/kalshi_weather_leaderboard.json
+```
+
+Wrapper:
+
+```bash
+./scripts/run_improvement_kalshi_leaderboard.sh \
+  ./configs/improvement_operator_knowledge_stack/analysis/kalshi_feedback.jsonl \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/kalshi_weather_leaderboard.json
+```
+
 ## 2) Run full operator cycle
 
 ```bash
