@@ -44,6 +44,27 @@
       "fitness_apps": 600,
       "market_ml": 500
     },
+    "seed_lookback_days": 7,
+    "seed_lookback_days_by_domain": {
+      "quant_finance": 10,
+      "kalshi_weather": 10,
+      "fitness_apps": 7,
+      "market_ml": 10
+    },
+    "seed_leaderboard_limit": 12,
+    "seed_leaderboard_limit_by_domain": {
+      "quant_finance": 10,
+      "kalshi_weather": 10,
+      "fitness_apps": 15,
+      "market_ml": 10
+    },
+    "seed_trend_threshold": 0.25,
+    "seed_trend_threshold_by_domain": {
+      "quant_finance": 0.3,
+      "kalshi_weather": 0.3,
+      "fitness_apps": 0.2,
+      "market_ml": 0.3
+    },
     "seed_trends": "new,rising",
     "seed_min_impact_score": 0.0,
     "seed_min_impact_score_by_domain": {
@@ -66,6 +87,40 @@
       "fitness_apps": 2,
       "market_ml": 3
     },
+    "draft_statuses": "queued",
+    "draft_statuses_by_domain": {
+      "quant_finance": "queued,testing",
+      "kalshi_weather": "queued,testing",
+      "fitness_apps": "queued,testing,validated,rejected",
+      "market_ml": "queued,testing"
+    },
+    "draft_limit": 8,
+    "draft_limit_by_domain": {
+      "quant_finance": 6,
+      "kalshi_weather": 6,
+      "fitness_apps": 10,
+      "market_ml": 6
+    },
+    "draft_lookup_limit": 400,
+    "draft_lookup_limit_by_domain": {
+      "quant_finance": 500,
+      "kalshi_weather": 500,
+      "fitness_apps": 600,
+      "market_ml": 500
+    },
+    "draft_environment_by_domain": {
+      "quant_finance": "controlled_backtest",
+      "kalshi_weather": "controlled_backtest",
+      "fitness_apps": "controlled_rollout",
+      "market_ml": "controlled_backtest"
+    },
+    "draft_default_sample_size": 100,
+    "draft_default_sample_size_by_domain": {
+      "quant_finance": 140,
+      "kalshi_weather": 140,
+      "fitness_apps": 120,
+      "market_ml": 150
+    },
     "collect_experiment_debug": true,
     "include_decision_timeline": true,
     "experiment_debug_output_dir": "improvement_operator_knowledge_stack/output/debug_runs",
@@ -74,6 +129,10 @@
     "report_hypothesis_limit": 40,
     "report_experiment_limit": 80,
     "report_queue_limit": 30,
+    "benchmark_top_limit": 12,
+    "verify_matrix_path": "improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json",
+    "verify_matrix_alert_domain": "markets",
+    "verify_matrix_alert_max_items": 3,
     "allow_missing_inputs": true
   },
   "feed_jobs": [

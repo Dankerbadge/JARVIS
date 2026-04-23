@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import shlex
 import sys
 from collections import Counter
 from contextlib import redirect_stdout
@@ -110,6 +111,7 @@ WARNING_POLICY_PROFILES: dict[str, dict[str, Any]] = {
 DEFAULT_FITNESS_APP_FIELDS_CSV = (
     "app_name,app,product,provider,source_context.app_identifier,source_context.app_name,source_context.app,source_context,source"
 )
+DEFAULT_IMPROVEMENT_KNOWLEDGE_DOMAINS_CSV = "quant_finance,kalshi_weather,fitness_apps,market_ml"
 
 
 def _build_demo_repo(repo_path: Path) -> None:
@@ -1565,19 +1567,44 @@ def _build_gate_status_payload(
         for interrupt_id in blocking_interrupt_ids
         if interrupt_id in alert_by_id
     ]
+    blocking_interrupt_statuses = {
+        str(interrupt_id): str((alert_by_id.get(interrupt_id) or {}).get("status") or "")
+        for interrupt_id in blocking_interrupt_ids
+        if str(interrupt_id).strip()
+    }
+    gate_mode = str(gate_status.get("mode") or "disabled")
+    blocked = bool(gate_status.get("blocked"))
+    unlock_ready = bool(
+        gate_mode == "enabled"
+        and (
+            (not blocking_interrupt_ids)
+            or all(
+                str(blocking_interrupt_statuses.get(interrupt_id) or "").strip().lower() == "acknowledged"
+                for interrupt_id in blocking_interrupt_ids
+            )
+        )
+    )
+    recheck_command = f"python3 -m jarvis.cli plans promote-ready {str(plan_id)} {str(step_id)}"
 
     next_action = (
         "Acknowledge each blocking interrupt and rerun plans promote-ready."
-        if bool(gate_status.get("blocked"))
-        else "No blocking critical drift alerts."
+        if blocked
+        else (
+            "Critical drift gate clear; run plans promote-ready when other checks are satisfied."
+            if unlock_ready
+            else "No blocking critical drift alerts."
+        )
     )
     return {
         "plan_id": str(plan_id),
         "step_id": str(step_id),
-        "gate_mode": str(gate_status.get("mode") or "disabled"),
-        "blocked": bool(gate_status.get("blocked")),
+        "gate_mode": gate_mode,
+        "blocked": blocked,
+        "unlock_ready": unlock_ready,
+        "recheck_command": recheck_command,
         "blocking_interrupt_count": len(blocking_interrupt_ids),
         "blocking_interrupt_ids": blocking_interrupt_ids,
+        "blocking_interrupt_statuses": blocking_interrupt_statuses,
         "acknowledge_commands": acknowledge_commands,
         "blocking_alerts": blocking_alerts,
         "next_action": next_action,
@@ -1591,6 +1618,7 @@ def _render_gate_status_payload_text(payload: dict[str, Any]) -> str:
         f"step_id: {payload['step_id']}",
         f"gate_mode: {payload['gate_mode']}",
         f"blocked: {'yes' if bool(payload['blocked']) else 'no'}",
+        f"unlock_ready: {'yes' if bool(payload.get('unlock_ready')) else 'no'}",
         f"blocking_interrupt_count: {int(payload['blocking_interrupt_count'])}",
     ]
     if list(payload.get("blocking_interrupt_ids") or []):
@@ -1606,12 +1634,16 @@ def _render_gate_status_payload_text(payload: dict[str, Any]) -> str:
         lines.extend(f"- {str(command)}" for command in commands)
     else:
         lines.append("- none")
+    recheck_command = str(payload.get("recheck_command") or "").strip()
+    if recheck_command:
+        lines.append(f"recheck_command: {recheck_command}")
     lines.append(f"next_action: {payload['next_action']}")
     return "\n".join(lines)
 
 
 def _render_gate_status_all_ci_summary(payload: dict[str, Any]) -> str:
     blocked_steps = list(payload.get("blocked_steps") or [])
+    unlock_ready_steps = list(payload.get("unlock_ready_steps") or [])
     acknowledge_commands = list(payload.get("acknowledge_commands") or [])
     normalized_ack_commands = [str(command).strip() for command in acknowledge_commands if str(command).strip()]
     errors = list(payload.get("errors") or [])
@@ -1625,6 +1657,7 @@ def _render_gate_status_all_ci_summary(payload: dict[str, Any]) -> str:
         f"- evaluated_step_count: {int(payload.get('evaluated_step_count') or 0)}",
         f"- visible_step_count: {int(payload.get('visible_step_count') or 0)}",
         f"- blocked_step_count: {int(payload.get('blocked_step_count') or 0)}",
+        f"- unlock_ready_step_count: {int(payload.get('unlock_ready_step_count') or 0)}",
         f"- error_count: {int(payload.get('error_count') or 0)}",
         f"- exit_reason: {str(payload.get('exit_reason') or '')}",
         f"- exit_code: {int(payload.get('exit_code') or 0)}",
@@ -1637,6 +1670,18 @@ def _render_gate_status_all_ci_summary(payload: dict[str, Any]) -> str:
             interrupt_text = ", ".join(str(item) for item in interrupt_ids) if interrupt_ids else "none"
             lines.append(
                 f"- {str(row.get('plan_id') or '')}/{str(row.get('step_id') or '')} (interrupt_ids: {interrupt_text})"
+            )
+    else:
+        lines.append("- none")
+
+    lines.append("")
+    lines.append("## Unlock-Ready Steps")
+    if unlock_ready_steps:
+        for row in unlock_ready_steps:
+            command = str(row.get("recheck_command") or "").strip() or "none"
+            lines.append(
+                f"- {str(row.get('plan_id') or '')}/{str(row.get('step_id') or '')} "
+                f"(recheck_command: `{command}`)"
             )
     else:
         lines.append("- none")
@@ -1666,10 +1711,13 @@ def _render_gate_status_all_ci_summary(payload: dict[str, Any]) -> str:
 
 def _build_gate_status_all_ci_json_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {
+        "only_blocked": bool(payload.get("only_blocked")),
+        "only_unlock_ready": bool(payload.get("only_unlock_ready")),
         "scanned_review_count": int(payload.get("scanned_review_count") or 0),
         "evaluated_step_count": int(payload.get("evaluated_step_count") or 0),
         "visible_step_count": int(payload.get("visible_step_count") or 0),
         "blocked_step_count": int(payload.get("blocked_step_count") or 0),
+        "unlock_ready_step_count": int(payload.get("unlock_ready_step_count") or 0),
         "error_count": int(payload.get("error_count") or 0),
         "exit_reason": str(payload.get("exit_reason") or ""),
         "exit_code": int(payload.get("exit_code") or 0),
@@ -1678,14 +1726,24 @@ def _build_gate_status_all_ci_json_payload(payload: dict[str, Any]) -> dict[str,
         "error_exit_triggered": bool(payload.get("error_exit_triggered")),
         "zero_scanned_exit_triggered": bool(payload.get("zero_scanned_exit_triggered")),
         "zero_evaluated_exit_triggered": bool(payload.get("zero_evaluated_exit_triggered")),
+        "zero_unlock_ready_exit_triggered": bool(payload.get("zero_unlock_ready_exit_triggered")),
         "empty_ack_commands_exit_triggered": bool(payload.get("empty_ack_commands_exit_triggered")),
         "blocked_steps": [
             {
                 "plan_id": str(item.get("plan_id") or ""),
                 "step_id": str(item.get("step_id") or ""),
+                "unlock_ready": bool(item.get("unlock_ready")),
                 "blocking_interrupt_ids": list(item.get("blocking_interrupt_ids") or []),
             }
             for item in list(payload.get("blocked_steps") or [])
+        ],
+        "unlock_ready_steps": [
+            {
+                "plan_id": str(item.get("plan_id") or ""),
+                "step_id": str(item.get("step_id") or ""),
+                "recheck_command": str(item.get("recheck_command") or ""),
+            }
+            for item in list(payload.get("unlock_ready_steps") or [])
         ],
         "acknowledge_commands": list(payload.get("acknowledge_commands") or []),
         "errors": [
@@ -1729,15 +1787,18 @@ def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
     runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
     try:
         only_blocked = bool(getattr(args, "only_blocked", False))
+        only_unlock_ready = bool(getattr(args, "only_unlock_ready", False))
         fail_on_blocked = bool(getattr(args, "fail_on_blocked", False))
         fail_on_errors = bool(getattr(args, "fail_on_errors", False))
         fail_on_zero_scanned = bool(getattr(args, "fail_on_zero_scanned", False))
         fail_on_zero_evaluated = bool(getattr(args, "fail_on_zero_evaluated", False))
+        fail_on_zero_unlock_ready = bool(getattr(args, "fail_on_zero_unlock_ready", False))
         fail_on_empty_ack_commands = bool(getattr(args, "fail_on_empty_ack_commands", False))
         blocked_exit_code = max(1, int(getattr(args, "blocked_exit_code", 2) or 2))
         error_exit_code = max(1, int(getattr(args, "error_exit_code", 3) or 3))
         zero_scanned_exit_code = max(1, int(getattr(args, "zero_scanned_exit_code", 5) or 5))
         zero_evaluated_exit_code = max(1, int(getattr(args, "zero_evaluated_exit_code", 4) or 4))
+        zero_unlock_ready_exit_code = max(1, int(getattr(args, "zero_unlock_ready_exit_code", 8) or 8))
         empty_ack_commands_exit_code = max(1, int(getattr(args, "empty_ack_commands_exit_code", 6) or 6))
         emit_ci_summary_path_value = getattr(args, "emit_ci_summary_path", None)
         emit_ci_json_path = (
@@ -1802,6 +1863,7 @@ def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
                     }
                 )
         blocked_rows = [row for row in rows if bool(row.get("blocked"))]
+        unlock_ready_rows = [row for row in rows if bool(row.get("unlock_ready"))]
         deduped_ack_commands: list[str] = []
         seen_commands: set[str] = set()
         for row in blocked_rows:
@@ -1811,11 +1873,16 @@ def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
                     continue
                 seen_commands.add(normalized)
                 deduped_ack_commands.append(normalized)
-        visible_rows = blocked_rows if only_blocked else rows
+        visible_rows = list(rows)
+        if only_blocked:
+            visible_rows = [row for row in visible_rows if bool(row.get("blocked"))]
+        if only_unlock_ready:
+            visible_rows = [row for row in visible_rows if bool(row.get("unlock_ready"))]
         blocked_exit_triggered = fail_on_blocked and bool(blocked_rows)
         error_exit_triggered = fail_on_errors and bool(errors)
         zero_scanned_exit_triggered = fail_on_zero_scanned and len(review_refs) == 0
         zero_evaluated_exit_triggered = fail_on_zero_evaluated and len(review_refs) > 0 and len(rows) == 0
+        zero_unlock_ready_exit_triggered = fail_on_zero_unlock_ready and len(unlock_ready_rows) == 0
         empty_ack_commands_exit_triggered = (
             fail_on_empty_ack_commands and len(blocked_rows) > 0 and len(deduped_ack_commands) == 0
         )
@@ -1828,6 +1895,9 @@ def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
         elif zero_evaluated_exit_triggered:
             exit_code = zero_evaluated_exit_code
             exit_reason = "zero_evaluated_steps"
+        elif zero_unlock_ready_exit_triggered:
+            exit_code = zero_unlock_ready_exit_code
+            exit_reason = "zero_unlock_ready_steps"
         elif empty_ack_commands_exit_triggered:
             exit_code = empty_ack_commands_exit_code
             exit_reason = "empty_ack_commands_missing"
@@ -1840,34 +1910,51 @@ def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
         next_action = (
             "Acknowledge blocker queue commands, then rerun plans promote-ready for affected steps."
             if blocked_rows
-            else "No blocking critical drift alerts across scanned review steps."
+            else (
+                "Critical drift gate clear for unlock-ready steps; run plans promote-ready for release candidates."
+                if unlock_ready_rows
+                else "No blocking critical drift alerts across scanned review steps."
+            )
         )
         payload = {
             "only_blocked": only_blocked,
+            "only_unlock_ready": only_unlock_ready,
             "fail_on_blocked": fail_on_blocked,
             "fail_on_errors": fail_on_errors,
             "fail_on_zero_scanned": fail_on_zero_scanned,
             "fail_on_zero_evaluated": fail_on_zero_evaluated,
+            "fail_on_zero_unlock_ready": fail_on_zero_unlock_ready,
             "fail_on_empty_ack_commands": fail_on_empty_ack_commands,
             "blocked_exit_code": int(blocked_exit_code),
             "error_exit_code": int(error_exit_code),
             "zero_scanned_exit_code": int(zero_scanned_exit_code),
             "zero_evaluated_exit_code": int(zero_evaluated_exit_code),
+            "zero_unlock_ready_exit_code": int(zero_unlock_ready_exit_code),
             "empty_ack_commands_exit_code": int(empty_ack_commands_exit_code),
             "scanned_review_count": len(review_refs),
             "evaluated_step_count": len(rows),
             "visible_step_count": len(visible_rows),
             "non_blocking_step_count": max(0, len(rows) - len(blocked_rows)),
             "blocked_step_count": len(blocked_rows),
+            "unlock_ready_step_count": len(unlock_ready_rows),
             "error_count": len(errors),
             "blocked_steps": [
                 {
                     "plan_id": str(item.get("plan_id") or ""),
                     "step_id": str(item.get("step_id") or ""),
+                    "unlock_ready": bool(item.get("unlock_ready")),
                     "blocking_interrupt_ids": list(item.get("blocking_interrupt_ids") or []),
                     "acknowledge_commands": list(item.get("acknowledge_commands") or []),
                 }
                 for item in blocked_rows
+            ],
+            "unlock_ready_steps": [
+                {
+                    "plan_id": str(item.get("plan_id") or ""),
+                    "step_id": str(item.get("step_id") or ""),
+                    "recheck_command": str(item.get("recheck_command") or ""),
+                }
+                for item in unlock_ready_rows
             ],
             "acknowledge_commands": deduped_ack_commands,
             "errors": errors,
@@ -1879,6 +1966,7 @@ def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
             "error_exit_triggered": bool(error_exit_triggered),
             "zero_scanned_exit_triggered": bool(zero_scanned_exit_triggered),
             "zero_evaluated_exit_triggered": bool(zero_evaluated_exit_triggered),
+            "zero_unlock_ready_exit_triggered": bool(zero_unlock_ready_exit_triggered),
             "empty_ack_commands_exit_triggered": bool(empty_ack_commands_exit_triggered),
             "exit_reason": str(exit_reason),
         }
@@ -1899,20 +1987,24 @@ def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
         if output_mode == "text":
             lines = [
                 f"only_blocked: {'yes' if only_blocked else 'no'}",
+                f"only_unlock_ready: {'yes' if only_unlock_ready else 'no'}",
                 f"fail_on_blocked: {'yes' if fail_on_blocked else 'no'}",
                 f"fail_on_errors: {'yes' if fail_on_errors else 'no'}",
                 f"fail_on_zero_scanned: {'yes' if fail_on_zero_scanned else 'no'}",
                 f"fail_on_zero_evaluated: {'yes' if fail_on_zero_evaluated else 'no'}",
+                f"fail_on_zero_unlock_ready: {'yes' if fail_on_zero_unlock_ready else 'no'}",
                 f"fail_on_empty_ack_commands: {'yes' if fail_on_empty_ack_commands else 'no'}",
                 f"blocked_exit_code: {int(blocked_exit_code)}",
                 f"error_exit_code: {int(error_exit_code)}",
                 f"zero_scanned_exit_code: {int(zero_scanned_exit_code)}",
                 f"zero_evaluated_exit_code: {int(zero_evaluated_exit_code)}",
+                f"zero_unlock_ready_exit_code: {int(zero_unlock_ready_exit_code)}",
                 f"empty_ack_commands_exit_code: {int(empty_ack_commands_exit_code)}",
                 f"scanned_review_count: {int(payload['scanned_review_count'])}",
                 f"evaluated_step_count: {int(payload['evaluated_step_count'])}",
                 f"visible_step_count: {int(payload['visible_step_count'])}",
                 f"blocked_step_count: {int(payload['blocked_step_count'])}",
+                f"unlock_ready_step_count: {int(payload['unlock_ready_step_count'])}",
                 f"error_count: {int(payload['error_count'])}",
             ]
             lines.append("blocker_queue:")
@@ -1922,6 +2014,16 @@ def cmd_plans_gate_status_all(args: argparse.Namespace) -> None:
                     ids_text = ", ".join(str(item) for item in ids) if ids else "none"
                     lines.append(
                         f"- {str(row.get('plan_id') or '')}/{str(row.get('step_id') or '')} interrupt_ids={ids_text}"
+                    )
+            else:
+                lines.append("- none")
+            lines.append("unlock_ready_steps:")
+            if unlock_ready_rows:
+                for row in unlock_ready_rows:
+                    recheck_command = str(row.get("recheck_command") or "").strip() or "none"
+                    lines.append(
+                        f"- {str(row.get('plan_id') or '')}/{str(row.get('step_id') or '')} "
+                        f"recheck_command={recheck_command}"
                     )
             else:
                 lines.append("- none")
@@ -5231,6 +5333,432 @@ def _resolve_seed_lookup_limit(
     return 400, "builtin_default"
 
 
+def _resolve_seed_lookback_days(
+    *,
+    domain: str,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[int, str]:
+    if cli_value is not None:
+        try:
+            return max(1, int(cli_value)), "cli_override"
+        except (TypeError, ValueError):
+            return 7, "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain)
+    by_domain_raw = defaults.get("seed_lookback_days_by_domain")
+    if isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            try:
+                return max(1, int(raw_value)), "config_by_domain"
+            except (TypeError, ValueError):
+                break
+
+    global_default_raw = defaults.get("seed_lookback_days")
+    if global_default_raw is not None:
+        try:
+            return max(1, int(global_default_raw)), "config_global"
+        except (TypeError, ValueError):
+            pass
+
+    return 7, "builtin_default"
+
+
+def _resolve_seed_leaderboard_limit(
+    *,
+    domain: str,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[int, str]:
+    if cli_value is not None:
+        try:
+            return max(1, int(cli_value)), "cli_override"
+        except (TypeError, ValueError):
+            return 12, "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain)
+    by_domain_raw = defaults.get("seed_leaderboard_limit_by_domain")
+    if isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            try:
+                return max(1, int(raw_value)), "config_by_domain"
+            except (TypeError, ValueError):
+                break
+
+    global_default_raw = defaults.get("seed_leaderboard_limit")
+    if global_default_raw is not None:
+        try:
+            return max(1, int(global_default_raw)), "config_global"
+        except (TypeError, ValueError):
+            pass
+
+    return 12, "builtin_default"
+
+
+def _resolve_seed_trend_threshold(
+    *,
+    domain: str,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[float, str]:
+    if cli_value is not None:
+        try:
+            return max(0.0, float(cli_value)), "cli_override"
+        except (TypeError, ValueError):
+            return 0.25, "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain)
+    by_domain_raw = defaults.get("seed_trend_threshold_by_domain")
+    if isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            try:
+                return max(0.0, float(raw_value)), "config_by_domain"
+            except (TypeError, ValueError):
+                break
+
+    global_default_raw = defaults.get("seed_trend_threshold")
+    if global_default_raw is not None:
+        try:
+            return max(0.0, float(global_default_raw)), "config_global"
+        except (TypeError, ValueError):
+            pass
+
+    return 0.25, "builtin_default"
+
+
+def _normalize_draft_statuses_value(raw_value: Any) -> str | None:
+    values = _coerce_status_preferences(raw_value)
+    if not values:
+        return None
+    return ",".join(values)
+
+
+def _resolve_draft_statuses(
+    *,
+    domain: str | None,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[str, str]:
+    if cli_value is not None:
+        cli_normalized = _normalize_draft_statuses_value(cli_value)
+        if cli_normalized is not None:
+            return cli_normalized, "cli_override"
+        return "queued", "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain or "")
+    by_domain_raw = defaults.get("draft_statuses_by_domain")
+    if normalized_domain and isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            resolved = _normalize_draft_statuses_value(raw_value)
+            if resolved is not None:
+                return resolved, "config_by_domain"
+            break
+
+    global_default_raw = defaults.get("draft_statuses")
+    resolved_global = _normalize_draft_statuses_value(global_default_raw)
+    if resolved_global is not None:
+        return resolved_global, "config_global"
+
+    return "queued", "builtin_default"
+
+
+def _resolve_draft_limit(
+    *,
+    domain: str | None,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[int, str]:
+    if cli_value is not None:
+        try:
+            return max(1, int(cli_value)), "cli_override"
+        except (TypeError, ValueError):
+            return 8, "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain or "")
+    by_domain_raw = defaults.get("draft_limit_by_domain")
+    if normalized_domain and isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            try:
+                return max(1, int(raw_value)), "config_by_domain"
+            except (TypeError, ValueError):
+                break
+
+    global_default_raw = defaults.get("draft_limit")
+    if global_default_raw is not None:
+        try:
+            return max(1, int(global_default_raw)), "config_global"
+        except (TypeError, ValueError):
+            pass
+
+    return 8, "builtin_default"
+
+
+def _resolve_draft_lookup_limit(
+    *,
+    domain: str | None,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[int, str]:
+    if cli_value is not None:
+        try:
+            return max(1, int(cli_value)), "cli_override"
+        except (TypeError, ValueError):
+            return 400, "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain or "")
+    by_domain_raw = defaults.get("draft_lookup_limit_by_domain")
+    if normalized_domain and isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            try:
+                return max(1, int(raw_value)), "config_by_domain"
+            except (TypeError, ValueError):
+                break
+
+    global_default_raw = defaults.get("draft_lookup_limit")
+    if global_default_raw is not None:
+        try:
+            return max(1, int(global_default_raw)), "config_global"
+        except (TypeError, ValueError):
+            pass
+
+    return 400, "builtin_default"
+
+
+def _resolve_draft_environment(
+    *,
+    domain: str | None,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[str, str]:
+    if cli_value is not None:
+        cli_raw = str(cli_value).strip()
+        if cli_raw:
+            return cli_raw, "cli_override"
+        return _default_controlled_environment_for_domain(domain or ""), "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain or "")
+    by_domain_raw = defaults.get("draft_environment_by_domain")
+    if normalized_domain and isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            resolved = str(raw_value or "").strip()
+            if resolved:
+                return resolved, "config_by_domain"
+            break
+
+    global_default_raw = str(defaults.get("draft_environment") or "").strip()
+    if global_default_raw:
+        return global_default_raw, "config_global"
+
+    return _default_controlled_environment_for_domain(domain or ""), "builtin_default"
+
+
+def _resolve_draft_default_sample_size(
+    *,
+    domain: str | None,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[int, str]:
+    if cli_value is not None:
+        try:
+            return max(1, int(cli_value)), "cli_override"
+        except (TypeError, ValueError):
+            return 100, "cli_override_invalid"
+
+    normalized_domain = _normalize_seed_domain_name(domain or "")
+    by_domain_raw = defaults.get("draft_default_sample_size_by_domain")
+    if normalized_domain and isinstance(by_domain_raw, dict):
+        for raw_domain, raw_value in by_domain_raw.items():
+            domain_key = _normalize_seed_domain_name(raw_domain)
+            if not domain_key or domain_key != normalized_domain:
+                continue
+            try:
+                return max(1, int(raw_value)), "config_by_domain"
+            except (TypeError, ValueError):
+                break
+
+    global_default_raw = defaults.get("draft_default_sample_size")
+    if global_default_raw is not None:
+        try:
+            return max(1, int(global_default_raw)), "config_global"
+        except (TypeError, ValueError):
+            pass
+
+    return 100, "builtin_default"
+
+
+def _resolve_benchmark_top_limit(
+    *,
+    cli_value: Any,
+    defaults: dict[str, Any],
+) -> tuple[int, str]:
+    if cli_value is not None:
+        try:
+            return max(1, int(cli_value)), "cli_override"
+        except (TypeError, ValueError):
+            return 10, "cli_override_invalid"
+
+    global_default_raw = defaults.get("benchmark_top_limit")
+    if global_default_raw is not None:
+        try:
+            return max(1, int(global_default_raw)), "config_global"
+        except (TypeError, ValueError):
+            pass
+
+    return 10, "builtin_default"
+
+
+def _resolve_verify_matrix_path(
+    *,
+    cli_value: Any,
+    defaults: dict[str, Any],
+    config_path: Path,
+) -> tuple[Path | None, str]:
+    if cli_value is not None and str(cli_value).strip():
+        return _resolve_path_from_base(cli_value, base_dir=Path.cwd()), "cli_override"
+
+    config_raw = defaults.get("verify_matrix_path")
+    if config_raw is not None and str(config_raw).strip():
+        return _resolve_pipeline_path(config_raw, config_path=config_path), "config_global"
+
+    return None, "builtin_default"
+
+
+def _build_operator_cycle_recheck_command(
+    *,
+    config_path: Path,
+    output_dir: Path,
+    verify_matrix_path: Path | None,
+    verify_matrix_alert_domain: str,
+    verify_matrix_alert_max_items: int,
+    verify_matrix_alert_urgency: Any,
+    verify_matrix_alert_confidence: Any,
+) -> str:
+    command_parts = [
+        "python3",
+        "-m",
+        "jarvis.cli",
+        "improvement",
+        "operator-cycle",
+        "--config-path",
+        str(config_path),
+        "--output-dir",
+        str(output_dir),
+        "--verify-matrix-enable",
+        "--verify-matrix-alert-enable",
+    ]
+    if verify_matrix_path is not None:
+        command_parts.extend(["--verify-matrix-path", str(verify_matrix_path)])
+    if str(verify_matrix_alert_domain or "").strip():
+        command_parts.extend(["--verify-matrix-alert-domain", str(verify_matrix_alert_domain)])
+    command_parts.extend(["--verify-matrix-alert-max-items", str(max(1, int(verify_matrix_alert_max_items or 1)))])
+    if verify_matrix_alert_urgency is not None:
+        try:
+            command_parts.extend(["--verify-matrix-alert-urgency", str(float(verify_matrix_alert_urgency))])
+        except (TypeError, ValueError):
+            pass
+    if verify_matrix_alert_confidence is not None:
+        try:
+            command_parts.extend(["--verify-matrix-alert-confidence", str(float(verify_matrix_alert_confidence))])
+        except (TypeError, ValueError):
+            pass
+    return " ".join(shlex.quote(part) for part in command_parts)
+
+
+def _build_operator_cycle_knowledge_bootstrap_command(
+    *,
+    config_path: Path,
+    output_dir: Path,
+    knowledge_domains: str,
+    knowledge_snapshot_dir: Path | None,
+    knowledge_query: str,
+    knowledge_snapshot_label: str | None,
+) -> str:
+    command_parts = [
+        "python3",
+        "-m",
+        "jarvis.cli",
+        "improvement",
+        "operator-cycle",
+        "--config-path",
+        str(config_path),
+        "--output-dir",
+        str(output_dir),
+        "--knowledge-brief-enable",
+        "--knowledge-delta-alert-enable",
+    ]
+    domains_value = str(knowledge_domains or "").strip()
+    if domains_value:
+        command_parts.extend(["--knowledge-delta-domains", domains_value])
+    if knowledge_snapshot_dir is not None:
+        command_parts.extend(["--knowledge-delta-snapshot-dir", str(knowledge_snapshot_dir)])
+    query_value = str(knowledge_query or "").strip()
+    if query_value:
+        command_parts.extend(["--knowledge-brief-query", query_value])
+    snapshot_label_value = str(knowledge_snapshot_label or "").strip()
+    if snapshot_label_value:
+        command_parts.extend(["--knowledge-brief-snapshot-label", snapshot_label_value])
+    return " ".join(shlex.quote(part) for part in command_parts)
+
+
+def _collect_knowledge_snapshot_inventory(snapshot_dir: Path) -> dict[str, Any]:
+    resolved_snapshot_dir = snapshot_dir.resolve()
+    latest_path = (resolved_snapshot_dir / "knowledge_brief_latest.json").resolve()
+    index_path = (resolved_snapshot_dir / "knowledge_brief_index.jsonl").resolve()
+
+    index_rows = _load_knowledge_snapshot_index_rows(index_path)
+    indexed_existing_paths: set[str] = set()
+    for row in index_rows:
+        candidate = str(row.get("path") or "").strip()
+        if not candidate:
+            continue
+        resolved_candidate = Path(candidate).expanduser().resolve()
+        if resolved_candidate.exists():
+            indexed_existing_paths.add(str(resolved_candidate))
+
+    versioned_paths: set[str] = set()
+    if resolved_snapshot_dir.exists():
+        for candidate in resolved_snapshot_dir.glob("knowledge_brief_*.json"):
+            resolved_candidate = candidate.resolve()
+            if resolved_candidate.name == "knowledge_brief_latest.json":
+                continue
+            if resolved_candidate.exists():
+                versioned_paths.add(str(resolved_candidate))
+
+    return {
+        "snapshot_dir": str(resolved_snapshot_dir),
+        "latest_path": str(latest_path),
+        "latest_exists": latest_path.exists(),
+        "index_path": str(index_path),
+        "index_entry_count": len(index_rows),
+        "indexed_existing_snapshot_count": len(indexed_existing_paths),
+        "versioned_snapshot_count": len(versioned_paths),
+        "comparison_candidate_count": len(versioned_paths),
+        "minimum_required_snapshot_count": 2,
+        "bootstrap_ready": len(versioned_paths) >= 2,
+    }
+
+
 def _infer_feedback_seed_context_from_config(*, config_path: Path, domain: str) -> dict[str, Any] | None:
     try:
         loaded = json.loads(config_path.read_text(encoding="utf-8"))
@@ -5288,6 +5816,41 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         output_dir,
         args.inbox_summary_path,
         default_name="operator_inbox_summary.json",
+    )
+    operator_report_path = _resolve_path_near(
+        output_dir,
+        getattr(args, "operator_report_path", None),
+        default_name="operator_cycle_report.json",
+    )
+    benchmark_report_path = _resolve_path_near(
+        output_dir,
+        getattr(args, "benchmark_report_path", None),
+        default_name="benchmark_frustrations_report.json",
+    )
+    verify_matrix_report_path = _resolve_path_near(
+        output_dir,
+        getattr(args, "verify_matrix_report_path", None),
+        default_name="verify_matrix_report.json",
+    )
+    verify_matrix_alert_report_path = _resolve_path_near(
+        output_dir,
+        getattr(args, "verify_matrix_alert_report_path", None),
+        default_name="verify_matrix_alert_report.json",
+    )
+    knowledge_delta_alert_report_path_value = (
+        getattr(args, "knowledge_brief_delta_alert_report_path", None)
+        if getattr(args, "knowledge_brief_delta_alert_report_path", None) is not None
+        else getattr(args, "knowledge_delta_alert_report_path", None)
+    )
+    knowledge_brief_delta_alert_report_path = _resolve_path_near(
+        output_dir,
+        knowledge_delta_alert_report_path_value,
+        default_name="knowledge_brief_delta_alert_report.json",
+    )
+    knowledge_brief_report_path = _resolve_path_near(
+        output_dir,
+        getattr(args, "knowledge_brief_report_path", None),
+        default_name="knowledge_brief_report.json",
     )
     retest_artifact_dir = _resolve_path_near(
         output_dir,
@@ -5377,6 +5940,21 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
     if seed_requested:
         for domain_index, seed_domain in enumerate(seed_domains):
             domain_slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", seed_domain) or f"domain_{domain_index + 1}"
+            resolved_seed_lookback_days, seed_lookback_days_source = _resolve_seed_lookback_days(
+                domain=seed_domain,
+                cli_value=getattr(args, "seed_lookback_days", None),
+                defaults=operator_cycle_defaults,
+            )
+            resolved_seed_leaderboard_limit, seed_leaderboard_limit_source = _resolve_seed_leaderboard_limit(
+                domain=seed_domain,
+                cli_value=getattr(args, "seed_leaderboard_limit", None),
+                defaults=operator_cycle_defaults,
+            )
+            resolved_seed_trend_threshold, seed_trend_threshold_source = _resolve_seed_trend_threshold(
+                domain=seed_domain,
+                cli_value=getattr(args, "seed_trend_threshold", None),
+                defaults=operator_cycle_defaults,
+            )
             resolved_seed_limit, seed_limit_source = _resolve_seed_limit(
                 domain=seed_domain,
                 cli_value=getattr(args, "seed_limit", None),
@@ -5509,16 +6087,16 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         or "created_at,at,submission_date,date,timestamp,occurred_at"
                     ),
                     as_of=getattr(args, "seed_as_of", None),
-                    lookback_days=max(1, int(getattr(args, "seed_lookback_days", 7) or 7)),
+                    lookback_days=max(1, int(resolved_seed_lookback_days)),
                     min_cluster_count=max(1, int(getattr(args, "seed_min_cluster_count", 1) or 1)),
                     cluster_limit=max(1, int(getattr(args, "seed_cluster_limit", 20) or 20)),
-                    leaderboard_limit=max(1, int(getattr(args, "seed_leaderboard_limit", 12) or 12)),
+                    leaderboard_limit=max(1, int(resolved_seed_leaderboard_limit)),
                     cooling_limit=max(1, int(getattr(args, "seed_cooling_limit", 10) or 10)),
                     app_fields=str(getattr(args, "seed_app_fields", DEFAULT_FITNESS_APP_FIELDS_CSV) or DEFAULT_FITNESS_APP_FIELDS_CSV),
                     top_apps_per_cluster=max(1, int(getattr(args, "seed_top_apps_per_cluster", 3) or 3)),
                     min_cross_app_count=max(1, int(resolved_min_cross_app_count_for_leaderboard)),
                     own_app_aliases=getattr(args, "seed_own_app_aliases", None),
-                    trend_threshold=max(0.0, float(getattr(args, "seed_trend_threshold", 0.25) or 0.25)),
+                    trend_threshold=max(0.0, float(resolved_seed_trend_threshold)),
                     include_untimed_current=bool(getattr(args, "seed_include_untimed_current", False)),
                     strict=False,
                     output_path=domain_leaderboard_report_path,
@@ -5582,6 +6160,12 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "input_format": domain_input_format,
                     "leaderboard_report_path": str(domain_leaderboard_report_path),
                     "seed_report_path": str(domain_seed_report_path),
+                    "seed_lookback_days": int(resolved_seed_lookback_days),
+                    "seed_lookback_days_source": str(seed_lookback_days_source),
+                    "seed_leaderboard_limit": int(resolved_seed_leaderboard_limit),
+                    "seed_leaderboard_limit_source": str(seed_leaderboard_limit_source),
+                    "seed_trend_threshold": float(resolved_seed_trend_threshold),
+                    "seed_trend_threshold_source": str(seed_trend_threshold_source),
                     "seed_limit": int(resolved_seed_limit),
                     "seed_limit_source": str(seed_limit_source),
                     "seed_lookup_limit": int(resolved_seed_lookup_limit),
@@ -5654,6 +6238,15 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                         "domain": row.get("domain"),
                         "status": str((row.get("seed_from_leaderboard") or {}).get("status") or ""),
                         "source": row.get("hypothesis_source"),
+                        "lookback_days": int(row.get("seed_lookback_days") or 0),
+                        "lookback_days_source": str(row.get("seed_lookback_days_source") or ""),
+                        "leaderboard_limit": int(row.get("seed_leaderboard_limit") or 0),
+                        "leaderboard_limit_source": str(row.get("seed_leaderboard_limit_source") or ""),
+                        "trend_threshold": _coerce_float(
+                            row.get("seed_trend_threshold"),
+                            default=0.25,
+                        ),
+                        "trend_threshold_source": str(row.get("seed_trend_threshold_source") or ""),
                         "limit": int(row.get("seed_limit") or 0),
                         "limit_source": str(row.get("seed_limit_source") or ""),
                         "lookup_limit": int(row.get("seed_lookup_limit") or 0),
@@ -5813,9 +6406,57 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         else draft_base_config_path.with_name(f"{draft_base_config_path.stem}.operator_cycle_drafted.json").resolve()
     )
 
+    draft_resolution_domain = (
+        str(getattr(args, "draft_domain", None) or "").strip().lower()
+        if getattr(args, "draft_domain", None) is not None
+        else ""
+    ) or None
+    if draft_resolution_domain is None and len(seed_domain_runs) == 1:
+        only_seed_domain = str(seed_domain_runs[0].get("domain") or "").strip().lower()
+        if only_seed_domain:
+            draft_resolution_domain = only_seed_domain
+    if draft_resolution_domain is None and draft_seed_report_path is not None and draft_seed_report_path.exists():
+        try:
+            loaded_draft_seed_domain = json.loads(draft_seed_report_path.read_text(encoding="utf-8"))
+        except Exception:
+            loaded_draft_seed_domain = None
+        if isinstance(loaded_draft_seed_domain, dict):
+            seed_domain_raw = str(loaded_draft_seed_domain.get("domain") or "").strip().lower()
+            if seed_domain_raw and seed_domain_raw not in {"multi_domain", "all", "*"}:
+                draft_resolution_domain = seed_domain_raw
+
+    resolved_draft_statuses, draft_statuses_source = _resolve_draft_statuses(
+        domain=draft_resolution_domain,
+        cli_value=getattr(args, "draft_statuses", None),
+        defaults=operator_cycle_defaults,
+    )
+    resolved_draft_limit, draft_limit_source = _resolve_draft_limit(
+        domain=draft_resolution_domain,
+        cli_value=getattr(args, "draft_limit", None),
+        defaults=operator_cycle_defaults,
+    )
+    resolved_draft_lookup_limit, draft_lookup_limit_source = _resolve_draft_lookup_limit(
+        domain=draft_resolution_domain,
+        cli_value=getattr(args, "draft_lookup_limit", None),
+        defaults=operator_cycle_defaults,
+    )
+    if resolved_draft_lookup_limit < resolved_draft_limit:
+        resolved_draft_lookup_limit = int(resolved_draft_limit)
+        draft_lookup_limit_source = f"{draft_lookup_limit_source}_raised_to_limit"
+    resolved_draft_environment, draft_environment_source = _resolve_draft_environment(
+        domain=draft_resolution_domain,
+        cli_value=getattr(args, "draft_environment", None),
+        defaults=operator_cycle_defaults,
+    )
+    resolved_draft_default_sample_size, draft_default_sample_size_source = _resolve_draft_default_sample_size(
+        domain=draft_resolution_domain,
+        cli_value=getattr(args, "draft_default_sample_size", None),
+        defaults=operator_cycle_defaults,
+    )
+
     draft_payload: dict[str, Any]
     daily_config_path = config_path
-    draft_statuses_value = str(getattr(args, "draft_statuses", "queued") or "queued")
+    draft_statuses_value = str(resolved_draft_statuses)
     draft_statuses_auto_broadened = False
     draft_statuses_auto_reason: str | None = None
     if (
@@ -5835,6 +6476,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                 draft_statuses_value = "queued,testing,validated,rejected"
                 draft_statuses_auto_broadened = True
                 draft_statuses_auto_reason = "seed_created_zero_existing_present"
+                draft_statuses_source = f"{draft_statuses_source}_auto_broadened"
     if draft_requested:
         try:
             draft_args = argparse.Namespace(
@@ -5846,21 +6488,17 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     else None
                 ),
                 statuses=draft_statuses_value,
-                limit=max(1, int(getattr(args, "draft_limit", 8) or 8)),
-                lookup_limit=max(1, int(getattr(args, "draft_lookup_limit", 400) or 400)),
+                limit=max(1, int(resolved_draft_limit)),
+                lookup_limit=max(1, int(resolved_draft_lookup_limit)),
                 pipeline_config_path=draft_base_config_path,
                 write_config_path=draft_output_config_path,
                 in_place=False,
                 artifacts_dir=draft_artifacts_dir,
                 overwrite_artifacts=bool(getattr(args, "draft_overwrite_artifacts", False)),
-                environment=(
-                    str(getattr(args, "draft_environment")).strip()
-                    if getattr(args, "draft_environment", None) is not None
-                    else None
-                ),
+                environment=resolved_draft_environment,
                 default_sample_size=max(
                     1,
-                    int(getattr(args, "draft_default_sample_size", 100) or 100),
+                    int(resolved_draft_default_sample_size),
                 ),
                 strict=False,
                 output_path=draft_report_path,
@@ -5908,6 +6546,16 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
             draft_payload["requested_statuses"] = draft_statuses_value
             draft_payload["statuses_auto_broadened"] = bool(draft_statuses_auto_broadened)
             draft_payload["statuses_auto_reason"] = draft_statuses_auto_reason
+            draft_payload["resolved_domain"] = draft_resolution_domain
+            draft_payload["statuses_source"] = str(draft_statuses_source)
+            draft_payload["resolved_limit"] = int(resolved_draft_limit)
+            draft_payload["limit_source"] = str(draft_limit_source)
+            draft_payload["resolved_lookup_limit"] = int(resolved_draft_lookup_limit)
+            draft_payload["lookup_limit_source"] = str(draft_lookup_limit_source)
+            draft_payload["resolved_environment"] = str(resolved_draft_environment)
+            draft_payload["environment_source"] = str(draft_environment_source)
+            draft_payload["resolved_default_sample_size"] = int(resolved_draft_default_sample_size)
+            draft_payload["default_sample_size_source"] = str(draft_default_sample_size_source)
         except Exception as exc:
             draft_payload = {
                 "status": "error",
@@ -5917,6 +6565,16 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                 "requested_statuses": draft_statuses_value,
                 "statuses_auto_broadened": bool(draft_statuses_auto_broadened),
                 "statuses_auto_reason": draft_statuses_auto_reason,
+                "resolved_domain": draft_resolution_domain,
+                "statuses_source": str(draft_statuses_source),
+                "resolved_limit": int(resolved_draft_limit),
+                "limit_source": str(draft_limit_source),
+                "resolved_lookup_limit": int(resolved_draft_lookup_limit),
+                "lookup_limit_source": str(draft_lookup_limit_source),
+                "resolved_environment": str(resolved_draft_environment),
+                "environment_source": str(draft_environment_source),
+                "resolved_default_sample_size": int(resolved_draft_default_sample_size),
+                "default_sample_size_source": str(draft_default_sample_size_source),
             }
             daily_config_path = draft_base_config_path
             stage_errors.append({"stage": "draft_experiment_jobs", "error": str(exc)})
@@ -5925,6 +6583,19 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
             "status": "skipped_not_requested",
             "output_path": str(draft_report_path),
             "config_output_path": str(config_path),
+            "requested_statuses": draft_statuses_value,
+            "statuses_auto_broadened": bool(draft_statuses_auto_broadened),
+            "statuses_auto_reason": draft_statuses_auto_reason,
+            "resolved_domain": draft_resolution_domain,
+            "statuses_source": str(draft_statuses_source),
+            "resolved_limit": int(resolved_draft_limit),
+            "limit_source": str(draft_limit_source),
+            "resolved_lookup_limit": int(resolved_draft_lookup_limit),
+            "lookup_limit_source": str(draft_lookup_limit_source),
+            "resolved_environment": str(resolved_draft_environment),
+            "environment_source": str(draft_environment_source),
+            "resolved_default_sample_size": int(resolved_draft_default_sample_size),
+            "default_sample_size_source": str(draft_default_sample_size_source),
         }
 
     daily_payload: dict[str, Any]
@@ -6039,10 +6710,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                 }
             )
 
-    promotions: list[dict[str, Any]] = []
+    promotion_candidates: list[dict[str, Any]] = []
     for row in daily_experiment_runs:
         if str(row.get("verdict") or "").strip().lower() == "promote":
-            promotions.append(
+            promotion_candidates.append(
                 {
                     "stage": "daily_pipeline",
                     "hypothesis_id": row.get("hypothesis_id"),
@@ -6051,7 +6722,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
             )
     for row in retest_runs:
         if str(row.get("verdict") or "").strip().lower() == "promote":
-            promotions.append(
+            promotion_candidates.append(
                 {
                     "stage": "execute_retests",
                     "hypothesis_id": row.get("hypothesis_id"),
@@ -6076,7 +6747,9 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "retest_insufficient_data": _count_verdict(retest_runs, "insufficient_data"),
         "retest_needs_iteration": _count_verdict(retest_runs, "needs_iteration"),
         "blocker_count": len(blockers),
-        "promotion_count": len(promotions),
+        "promotion_candidate_count": len(promotion_candidates),
+        "promotion_count": len(promotion_candidates),
+        "blocked_promotion_count": 0,
         "retest_delta_count": len(retest_deltas),
     }
     suggested_actions: list[str] = []
@@ -6097,6 +6770,273 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "daily_pipeline": str(daily_payload.get("status") or ""),
         "execute_retests": str(retest_payload.get("status") or ""),
     }
+    resolved_benchmark_top_limit, benchmark_top_limit_source = _resolve_benchmark_top_limit(
+        cli_value=getattr(args, "benchmark_top_limit", None),
+        defaults=operator_cycle_defaults,
+    )
+    benchmark_requested = bool(
+        getattr(args, "benchmark_enable", False)
+        or getattr(args, "benchmark_report_path", None) is not None
+    )
+    resolved_verify_matrix_path, verify_matrix_path_source = _resolve_verify_matrix_path(
+        cli_value=getattr(args, "verify_matrix_path", None),
+        defaults=operator_cycle_defaults,
+        config_path=config_path,
+    )
+    verify_matrix_requested = bool(
+        getattr(args, "verify_matrix_enable", False)
+        or getattr(args, "verify_matrix_path", None) is not None
+        or resolved_verify_matrix_path is not None
+    )
+    verify_matrix_alert_requested = bool(
+        getattr(args, "verify_matrix_alert_enable", False)
+        or getattr(args, "verify_matrix_alert_report_path", None) is not None
+        or _coerce_bool(operator_cycle_defaults.get("verify_matrix_alert_enable"), default=False)
+    )
+    resolved_verify_matrix_alert_domain = (
+        str(getattr(args, "verify_matrix_alert_domain", None)).strip()
+        if getattr(args, "verify_matrix_alert_domain", None) is not None
+        else str(operator_cycle_defaults.get("verify_matrix_alert_domain") or "").strip()
+    ) or "markets"
+    if getattr(args, "verify_matrix_alert_max_items", None) is not None:
+        resolved_verify_matrix_alert_max_items = max(1, int(getattr(args, "verify_matrix_alert_max_items") or 1))
+    else:
+        resolved_verify_matrix_alert_max_items = max(
+            1,
+            _coerce_int(operator_cycle_defaults.get("verify_matrix_alert_max_items"), default=3),
+        )
+    resolved_verify_matrix_alert_urgency = (
+        getattr(args, "verify_matrix_alert_urgency")
+        if getattr(args, "verify_matrix_alert_urgency", None) is not None
+        else operator_cycle_defaults.get("verify_matrix_alert_urgency")
+    )
+    resolved_verify_matrix_alert_confidence = (
+        getattr(args, "verify_matrix_alert_confidence")
+        if getattr(args, "verify_matrix_alert_confidence", None) is not None
+        else operator_cycle_defaults.get("verify_matrix_alert_confidence")
+    )
+    knowledge_delta_alert_enable_arg = (
+        getattr(args, "knowledge_delta_alert_enable", None)
+        if getattr(args, "knowledge_delta_alert_enable", None) is not None
+        else getattr(args, "knowledge_brief_delta_alert_enable", None)
+    )
+    knowledge_delta_alert_domain_arg = (
+        getattr(args, "knowledge_delta_alert_domain", None)
+        if getattr(args, "knowledge_delta_alert_domain", None) is not None
+        else getattr(args, "knowledge_brief_delta_alert_domain", None)
+    )
+    knowledge_delta_alert_max_items_arg = (
+        getattr(args, "knowledge_delta_alert_max_items", None)
+        if getattr(args, "knowledge_delta_alert_max_items", None) is not None
+        else getattr(args, "knowledge_brief_delta_alert_max_items", None)
+    )
+    knowledge_delta_alert_urgency_arg = (
+        getattr(args, "knowledge_delta_alert_urgency", None)
+        if getattr(args, "knowledge_delta_alert_urgency", None) is not None
+        else getattr(args, "knowledge_brief_delta_alert_urgency", None)
+    )
+    knowledge_delta_alert_confidence_arg = (
+        getattr(args, "knowledge_delta_alert_confidence", None)
+        if getattr(args, "knowledge_delta_alert_confidence", None) is not None
+        else getattr(args, "knowledge_brief_delta_alert_confidence", None)
+    )
+    knowledge_brief_enable_arg = getattr(args, "knowledge_brief_enable", None)
+    knowledge_brief_requested = bool(
+        _coerce_bool(knowledge_brief_enable_arg, default=False)
+        or _coerce_bool(knowledge_delta_alert_enable_arg, default=False)
+        or getattr(args, "knowledge_brief_report_path", None) is not None
+        or knowledge_delta_alert_report_path_value is not None
+        or _coerce_bool(operator_cycle_defaults.get("knowledge_brief_enable"), default=False)
+        or _coerce_bool(operator_cycle_defaults.get("knowledge_delta_alert_enable"), default=False)
+    )
+    resolved_knowledge_brief_query = (
+        str(getattr(args, "knowledge_brief_query", None)).strip()
+        if getattr(args, "knowledge_brief_query", None) is not None
+        else str(operator_cycle_defaults.get("knowledge_brief_query") or "").strip()
+    )
+    resolved_knowledge_brief_snapshot_label = (
+        str(getattr(args, "knowledge_brief_snapshot_label", None)).strip()
+        if getattr(args, "knowledge_brief_snapshot_label", None) is not None
+        else str(operator_cycle_defaults.get("knowledge_brief_snapshot_label") or "").strip()
+    ) or None
+    resolved_knowledge_brief_displeasure_limit = max(
+        1,
+        _coerce_int(operator_cycle_defaults.get("knowledge_brief_displeasure_limit"), default=8),
+    )
+    resolved_knowledge_brief_hypothesis_limit = max(
+        1,
+        _coerce_int(operator_cycle_defaults.get("knowledge_brief_hypothesis_limit"), default=80),
+    )
+    resolved_knowledge_brief_experiment_limit = max(
+        1,
+        _coerce_int(operator_cycle_defaults.get("knowledge_brief_experiment_limit"), default=120),
+    )
+    resolved_knowledge_brief_controlled_test_limit = max(
+        1,
+        _coerce_int(operator_cycle_defaults.get("knowledge_brief_controlled_test_limit"), default=5),
+    )
+    resolved_knowledge_brief_min_cluster_count = max(
+        1,
+        _coerce_int(operator_cycle_defaults.get("knowledge_brief_min_cluster_count"), default=2),
+    )
+    knowledge_delta_alert_requested = bool(
+        _coerce_bool(knowledge_delta_alert_enable_arg, default=False)
+        or knowledge_delta_alert_report_path_value is not None
+        or getattr(args, "knowledge_delta_snapshot_dir", None) is not None
+        or getattr(args, "knowledge_delta_current_snapshot_path", None) is not None
+        or getattr(args, "knowledge_delta_previous_snapshot_path", None) is not None
+        or _coerce_bool(operator_cycle_defaults.get("knowledge_delta_alert_enable"), default=False)
+    )
+    if knowledge_delta_alert_requested:
+        knowledge_brief_requested = True
+    resolved_knowledge_delta_domains = str(
+        getattr(args, "knowledge_delta_domains", None)
+        if getattr(args, "knowledge_delta_domains", None) is not None
+        else operator_cycle_defaults.get("knowledge_delta_domains")
+    ).strip()
+    if not resolved_knowledge_delta_domains:
+        resolved_knowledge_delta_domains = DEFAULT_IMPROVEMENT_KNOWLEDGE_DOMAINS_CSV
+
+    raw_knowledge_snapshot_dir = (
+        getattr(args, "knowledge_delta_snapshot_dir", None)
+        if getattr(args, "knowledge_delta_snapshot_dir", None) is not None
+        else operator_cycle_defaults.get("knowledge_delta_snapshot_dir")
+    )
+    resolved_knowledge_snapshot_dir: Path | None = None
+    if raw_knowledge_snapshot_dir is not None and str(raw_knowledge_snapshot_dir).strip():
+        if getattr(args, "knowledge_delta_snapshot_dir", None) is not None:
+            resolved_knowledge_snapshot_dir = _resolve_path_from_base(
+                raw_knowledge_snapshot_dir,
+                base_dir=Path.cwd(),
+            ).resolve()
+        else:
+            resolved_knowledge_snapshot_dir = _resolve_pipeline_path(
+                raw_knowledge_snapshot_dir,
+                config_path=config_path,
+            ).resolve()
+
+    raw_knowledge_current_snapshot_path = (
+        getattr(args, "knowledge_delta_current_snapshot_path", None)
+        if getattr(args, "knowledge_delta_current_snapshot_path", None) is not None
+        else operator_cycle_defaults.get("knowledge_delta_current_snapshot_path")
+    )
+    resolved_knowledge_current_snapshot_path: Path | None = None
+    if raw_knowledge_current_snapshot_path is not None and str(raw_knowledge_current_snapshot_path).strip():
+        if getattr(args, "knowledge_delta_current_snapshot_path", None) is not None:
+            resolved_knowledge_current_snapshot_path = _resolve_path_from_base(
+                raw_knowledge_current_snapshot_path,
+                base_dir=Path.cwd(),
+            ).resolve()
+        else:
+            resolved_knowledge_current_snapshot_path = _resolve_pipeline_path(
+                raw_knowledge_current_snapshot_path,
+                config_path=config_path,
+            ).resolve()
+
+    raw_knowledge_previous_snapshot_path = (
+        getattr(args, "knowledge_delta_previous_snapshot_path", None)
+        if getattr(args, "knowledge_delta_previous_snapshot_path", None) is not None
+        else operator_cycle_defaults.get("knowledge_delta_previous_snapshot_path")
+    )
+    resolved_knowledge_previous_snapshot_path: Path | None = None
+    if raw_knowledge_previous_snapshot_path is not None and str(raw_knowledge_previous_snapshot_path).strip():
+        if getattr(args, "knowledge_delta_previous_snapshot_path", None) is not None:
+            resolved_knowledge_previous_snapshot_path = _resolve_path_from_base(
+                raw_knowledge_previous_snapshot_path,
+                base_dir=Path.cwd(),
+            ).resolve()
+        else:
+            resolved_knowledge_previous_snapshot_path = _resolve_pipeline_path(
+                raw_knowledge_previous_snapshot_path,
+                config_path=config_path,
+            ).resolve()
+
+    if getattr(args, "knowledge_delta_top_limit", None) is not None:
+        resolved_knowledge_delta_top_limit = max(1, int(getattr(args, "knowledge_delta_top_limit") or 1))
+    else:
+        resolved_knowledge_delta_top_limit = max(
+            1,
+            _coerce_int(operator_cycle_defaults.get("knowledge_delta_top_limit"), default=10),
+        )
+    resolved_knowledge_delta_alert_domain = (
+        str(knowledge_delta_alert_domain_arg).strip()
+        if knowledge_delta_alert_domain_arg is not None
+        else str(operator_cycle_defaults.get("knowledge_delta_alert_domain") or "").strip()
+    ) or "operations"
+    if knowledge_delta_alert_max_items_arg is not None:
+        resolved_knowledge_delta_alert_max_items = max(
+            1,
+            int(knowledge_delta_alert_max_items_arg or 1),
+        )
+    else:
+        resolved_knowledge_delta_alert_max_items = max(
+            1,
+            _coerce_int(operator_cycle_defaults.get("knowledge_delta_alert_max_items"), default=3),
+        )
+    resolved_knowledge_delta_alert_urgency = (
+        knowledge_delta_alert_urgency_arg
+        if knowledge_delta_alert_urgency_arg is not None
+        else operator_cycle_defaults.get("knowledge_delta_alert_urgency")
+    )
+    resolved_knowledge_delta_alert_confidence = (
+        knowledge_delta_alert_confidence_arg
+        if knowledge_delta_alert_confidence_arg is not None
+        else operator_cycle_defaults.get("knowledge_delta_alert_confidence")
+    )
+    if getattr(args, "knowledge_delta_min_worsening_score", None) is not None:
+        resolved_knowledge_delta_min_worsening_score = max(
+            1,
+            int(getattr(args, "knowledge_delta_min_worsening_score") or 1),
+        )
+    else:
+        resolved_knowledge_delta_min_worsening_score = max(
+            1,
+            _coerce_int(operator_cycle_defaults.get("knowledge_delta_min_worsening_score"), default=2),
+        )
+    if getattr(args, "knowledge_delta_min_urgency_delta", None) is not None:
+        resolved_knowledge_delta_min_urgency_delta = max(
+            0.0,
+            float(getattr(args, "knowledge_delta_min_urgency_delta") or 0.0),
+        )
+    else:
+        resolved_knowledge_delta_min_urgency_delta = max(
+            0.0,
+            _coerce_float(operator_cycle_defaults.get("knowledge_delta_min_urgency_delta"), default=0.25),
+        )
+    if getattr(args, "knowledge_delta_min_failure_rate_delta", None) is not None:
+        resolved_knowledge_delta_min_failure_rate_delta = max(
+            0.0,
+            float(getattr(args, "knowledge_delta_min_failure_rate_delta") or 0.0),
+        )
+    else:
+        resolved_knowledge_delta_min_failure_rate_delta = max(
+            0.0,
+            _coerce_float(operator_cycle_defaults.get("knowledge_delta_min_failure_rate_delta"), default=0.05),
+        )
+    if getattr(args, "knowledge_delta_min_blocked_guardrail_delta", None) is not None:
+        resolved_knowledge_delta_min_blocked_guardrail_delta = max(
+            1,
+            int(getattr(args, "knowledge_delta_min_blocked_guardrail_delta") or 1),
+        )
+    else:
+        resolved_knowledge_delta_min_blocked_guardrail_delta = max(
+            1,
+            _coerce_int(operator_cycle_defaults.get("knowledge_delta_min_blocked_guardrail_delta"), default=1),
+        )
+    promotion_lock_recheck_command = _build_operator_cycle_recheck_command(
+        config_path=config_path,
+        output_dir=output_dir,
+        verify_matrix_path=resolved_verify_matrix_path,
+        verify_matrix_alert_domain=resolved_verify_matrix_alert_domain,
+        verify_matrix_alert_max_items=resolved_verify_matrix_alert_max_items,
+        verify_matrix_alert_urgency=resolved_verify_matrix_alert_urgency,
+        verify_matrix_alert_confidence=resolved_verify_matrix_alert_confidence,
+    )
+    benchmark_payload: dict[str, Any]
+    verify_payload: dict[str, Any]
+    verify_alert_payload: dict[str, Any]
+    knowledge_brief_payload: dict[str, Any]
+    knowledge_delta_alert_payload: dict[str, Any]
     stage_error_count = (
         int(pull_payload.get("error_count") or 0)
         + int(leaderboard_payload.get("error_count") or 0)
@@ -6106,27 +7046,27 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         + int(retest_payload.get("error_count") or 0)
         + len(stage_errors)
     )
-    overall_status = "ok"
-    if stage_errors or stage_error_count > 0 or any(status == "error" for status in stage_statuses.values()):
-        overall_status = "warning"
+    overall_status = "warning" if (
+        stage_errors
+        or stage_error_count > 0
+        or any(status == "error" for status in stage_statuses.values())
+    ) else "ok"
 
-    inbox_summary = {
+    inbox_summary_base = {
         "generated_at": utc_now_iso(),
         "config_path": str(config_path),
         "daily_config_path": str(daily_config_path),
         "output_dir": str(output_dir),
         "stage_statuses": stage_statuses,
         "metrics": metrics,
-        "promotions": promotions,
+        "promotions": promotion_candidates,
         "blockers": blockers,
         "retest_deltas": retest_deltas,
         "retest_transition_counts": retest_transition_counts,
         "suggested_actions": suggested_actions,
     }
-    inbox_summary_path.parent.mkdir(parents=True, exist_ok=True)
-    inbox_summary_path.write_text(json.dumps(inbox_summary, indent=2), encoding="utf-8")
 
-    payload = {
+    payload_for_benchmark = {
         "generated_at": utc_now_iso(),
         "status": overall_status,
         "config_path": str(config_path),
@@ -6149,8 +7089,604 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         "fitness_leaderboard": leaderboard_payload,
         "seed_from_leaderboard": seed_payload,
         "draft": draft_payload,
+        "summary": inbox_summary_base,
+    }
+    operator_report_path.parent.mkdir(parents=True, exist_ok=True)
+    operator_report_path.write_text(json.dumps(payload_for_benchmark, indent=2), encoding="utf-8")
+
+    if benchmark_requested:
+        try:
+            benchmark_args = argparse.Namespace(
+                report_path=operator_report_path,
+                top_limit=max(1, int(resolved_benchmark_top_limit)),
+                output_path=benchmark_report_path,
+                strict=False,
+                json_compact=False,
+            )
+            benchmark_payload = _invoke_cli_json_command(
+                cmd_improvement_benchmark_frustrations,
+                args=benchmark_args,
+            )
+            benchmark_payload["top_limit_source"] = str(benchmark_top_limit_source)
+        except Exception as exc:
+            benchmark_payload = {
+                "status": "error",
+                "error": str(exc),
+                "output_path": str(benchmark_report_path),
+                "top_limit": int(resolved_benchmark_top_limit),
+                "top_limit_source": str(benchmark_top_limit_source),
+            }
+            stage_errors.append({"stage": "benchmark_frustrations", "error": str(exc)})
+    else:
+        benchmark_payload = {
+            "status": "skipped_not_requested",
+            "output_path": str(benchmark_report_path),
+            "top_limit": int(resolved_benchmark_top_limit),
+            "top_limit_source": str(benchmark_top_limit_source),
+        }
+
+    benchmark_actions = [
+        str(item).strip()
+        for item in list(benchmark_payload.get("suggested_actions") or [])
+        if str(item).strip()
+    ]
+    for action in benchmark_actions[:2]:
+        if action not in suggested_actions:
+            suggested_actions.append(action)
+
+    stage_statuses["benchmark_frustrations"] = str(benchmark_payload.get("status") or "")
+    if verify_matrix_requested:
+        if resolved_verify_matrix_path is None:
+            verify_payload = {
+                "status": "error",
+                "error": "missing_verify_matrix_path",
+                "output_path": str(verify_matrix_report_path),
+                "matrix_path_source": str(verify_matrix_path_source),
+                "error_count": 1,
+            }
+            stage_errors.append({"stage": "verify_matrix", "error": "missing_verify_matrix_path"})
+        else:
+            try:
+                verify_args = argparse.Namespace(
+                    matrix_path=resolved_verify_matrix_path,
+                    report_path=operator_report_path,
+                    output_path=verify_matrix_report_path,
+                    strict=False,
+                    json_compact=False,
+                )
+                verify_payload = _invoke_cli_json_command(
+                    cmd_improvement_verify_matrix,
+                    args=verify_args,
+                )
+                verify_payload["matrix_path_source"] = str(verify_matrix_path_source)
+            except Exception as exc:
+                verify_payload = {
+                    "status": "error",
+                    "error": str(exc),
+                    "output_path": str(verify_matrix_report_path),
+                    "matrix_path": str(resolved_verify_matrix_path),
+                    "matrix_path_source": str(verify_matrix_path_source),
+                    "error_count": 1,
+                }
+                stage_errors.append({"stage": "verify_matrix", "error": str(exc)})
+    else:
+        verify_payload = {
+            "status": "skipped_not_requested",
+            "output_path": str(verify_matrix_report_path),
+            "matrix_path": (
+                str(resolved_verify_matrix_path)
+                if resolved_verify_matrix_path is not None
+                else None
+            ),
+            "matrix_path_source": str(verify_matrix_path_source),
+            "error_count": 0,
+        }
+
+    if str(verify_payload.get("status") or "") == "warning":
+        verify_drift_severity = str(verify_payload.get("drift_severity") or "unknown")
+        suggested_actions.append(
+            "Resolve verify-matrix drift before advancing promotions "
+            f"(severity={verify_drift_severity})."
+        )
+
+    stage_statuses["verify_matrix"] = str(verify_payload.get("status") or "")
+    if verify_matrix_alert_requested:
+        if resolved_verify_matrix_path is None:
+            verify_alert_payload = {
+                "status": "error",
+                "error": "missing_verify_matrix_path",
+                "output_path": str(verify_matrix_alert_report_path),
+                "error_count": 1,
+                "alert_created": False,
+            }
+            stage_errors.append({"stage": "verify_matrix_alert", "error": "missing_verify_matrix_path"})
+        else:
+            try:
+                verify_alert_args = argparse.Namespace(
+                    matrix_path=resolved_verify_matrix_path,
+                    report_path=operator_report_path,
+                    alert_domain=resolved_verify_matrix_alert_domain,
+                    alert_urgency=resolved_verify_matrix_alert_urgency,
+                    alert_confidence=resolved_verify_matrix_alert_confidence,
+                    alert_max_items=max(1, int(resolved_verify_matrix_alert_max_items)),
+                    output_path=verify_matrix_alert_report_path,
+                    strict=False,
+                    json_compact=False,
+                    repo_path=args.repo_path,
+                    db_path=args.db_path,
+                )
+                verify_alert_payload = _invoke_cli_json_command(
+                    cmd_improvement_verify_matrix_alert,
+                    args=verify_alert_args,
+                )
+                verify_alert_payload["alert_domain_source"] = (
+                    "cli_override"
+                    if getattr(args, "verify_matrix_alert_domain", None) is not None
+                    else (
+                        "config_global"
+                        if operator_cycle_defaults.get("verify_matrix_alert_domain") is not None
+                        else "builtin_default"
+                    )
+                )
+                verify_alert_payload["alert_max_items_source"] = (
+                    "cli_override"
+                    if getattr(args, "verify_matrix_alert_max_items", None) is not None
+                    else (
+                        "config_global"
+                        if operator_cycle_defaults.get("verify_matrix_alert_max_items") is not None
+                        else "builtin_default"
+                    )
+                )
+            except Exception as exc:
+                verify_alert_payload = {
+                    "status": "error",
+                    "error": str(exc),
+                    "output_path": str(verify_matrix_alert_report_path),
+                    "matrix_path": str(resolved_verify_matrix_path),
+                    "error_count": 1,
+                    "alert_created": False,
+                }
+                stage_errors.append({"stage": "verify_matrix_alert", "error": str(exc)})
+    else:
+        verify_alert_payload = {
+            "status": "skipped_not_requested",
+            "output_path": str(verify_matrix_alert_report_path),
+            "matrix_path": (
+                str(resolved_verify_matrix_path)
+                if resolved_verify_matrix_path is not None
+                else None
+            ),
+            "error_count": 0,
+            "alert_created": False,
+        }
+
+    verify_alert_actions = [
+        str(item).strip()
+        for item in list(verify_alert_payload.get("mitigation_actions") or [])
+        if str(item).strip()
+    ]
+    for action in verify_alert_actions[:2]:
+        if action not in suggested_actions:
+            suggested_actions.append(action)
+
+    stage_statuses["verify_matrix_alert"] = str(verify_alert_payload.get("status") or "")
+    if knowledge_brief_requested:
+        try:
+            knowledge_brief_args = argparse.Namespace(
+                domains=resolved_knowledge_delta_domains,
+                query=resolved_knowledge_brief_query,
+                displeasure_limit=max(1, int(resolved_knowledge_brief_displeasure_limit)),
+                hypothesis_limit=max(1, int(resolved_knowledge_brief_hypothesis_limit)),
+                experiment_limit=max(1, int(resolved_knowledge_brief_experiment_limit)),
+                controlled_test_limit=max(1, int(resolved_knowledge_brief_controlled_test_limit)),
+                min_cluster_count=max(1, int(resolved_knowledge_brief_min_cluster_count)),
+                snapshot_dir=resolved_knowledge_snapshot_dir,
+                snapshot_label=resolved_knowledge_brief_snapshot_label,
+                write_snapshot=True,
+                output_path=knowledge_brief_report_path,
+                strict=False,
+                json_compact=False,
+                repo_path=args.repo_path,
+                db_path=args.db_path,
+            )
+            knowledge_brief_payload = _invoke_cli_json_command(
+                cmd_improvement_knowledge_brief,
+                args=knowledge_brief_args,
+            )
+            knowledge_brief_payload["domains_source"] = (
+                "cli_override"
+                if getattr(args, "knowledge_delta_domains", None) is not None
+                else (
+                    "config_global"
+                    if operator_cycle_defaults.get("knowledge_delta_domains") is not None
+                    else "builtin_default"
+                )
+            )
+            knowledge_brief_payload["query_source"] = (
+                "cli_override"
+                if getattr(args, "knowledge_brief_query", None) is not None
+                else (
+                    "config_global"
+                    if operator_cycle_defaults.get("knowledge_brief_query") is not None
+                    else "builtin_default"
+                )
+            )
+            knowledge_brief_payload["snapshot_label_source"] = (
+                "cli_override"
+                if getattr(args, "knowledge_brief_snapshot_label", None) is not None
+                else (
+                    "config_global"
+                    if operator_cycle_defaults.get("knowledge_brief_snapshot_label") is not None
+                    else "builtin_default"
+                )
+            )
+        except Exception as exc:
+            knowledge_brief_payload = {
+                "status": "error",
+                "error": str(exc),
+                "output_path": str(knowledge_brief_report_path),
+                "error_count": 1,
+                "domains": _normalize_improvement_knowledge_domains(resolved_knowledge_delta_domains),
+            }
+            stage_errors.append({"stage": "knowledge_brief", "error": str(exc)})
+    else:
+        knowledge_brief_payload = {
+            "status": "skipped_not_requested",
+            "output_path": str(knowledge_brief_report_path),
+            "error_count": 0,
+            "domains": _normalize_improvement_knowledge_domains(resolved_knowledge_delta_domains),
+        }
+
+    knowledge_brief_actions = [
+        str(item).strip()
+        for item in list(knowledge_brief_payload.get("suggested_actions") or [])
+        if str(item).strip()
+    ]
+    for action in knowledge_brief_actions[:2]:
+        if action not in suggested_actions:
+            suggested_actions.append(action)
+
+    stage_statuses["knowledge_brief"] = str(knowledge_brief_payload.get("status") or "")
+    if knowledge_delta_alert_requested:
+        try:
+            knowledge_delta_alert_args = argparse.Namespace(
+                domains=resolved_knowledge_delta_domains,
+                snapshot_dir=resolved_knowledge_snapshot_dir,
+                current_snapshot_path=resolved_knowledge_current_snapshot_path,
+                previous_snapshot_path=resolved_knowledge_previous_snapshot_path,
+                top_limit=max(1, int(resolved_knowledge_delta_top_limit)),
+                alert_domain=resolved_knowledge_delta_alert_domain,
+                alert_urgency=resolved_knowledge_delta_alert_urgency,
+                alert_confidence=resolved_knowledge_delta_alert_confidence,
+                alert_max_items=max(1, int(resolved_knowledge_delta_alert_max_items)),
+                min_worsening_score=max(1, int(resolved_knowledge_delta_min_worsening_score)),
+                min_urgency_delta=max(0.0, float(resolved_knowledge_delta_min_urgency_delta)),
+                min_failure_rate_delta=max(0.0, float(resolved_knowledge_delta_min_failure_rate_delta)),
+                min_blocked_guardrail_delta=max(1, int(resolved_knowledge_delta_min_blocked_guardrail_delta)),
+                output_path=knowledge_brief_delta_alert_report_path,
+                strict=False,
+                json_compact=False,
+                repo_path=args.repo_path,
+                db_path=args.db_path,
+            )
+            knowledge_delta_alert_payload = _invoke_cli_json_command(
+                cmd_improvement_knowledge_brief_delta_alert,
+                args=knowledge_delta_alert_args,
+            )
+            knowledge_delta_alert_payload["domains_source"] = (
+                "cli_override"
+                if getattr(args, "knowledge_delta_domains", None) is not None
+                else (
+                    "config_global"
+                    if operator_cycle_defaults.get("knowledge_delta_domains") is not None
+                    else "builtin_default"
+                )
+            )
+            knowledge_delta_alert_payload["top_limit_source"] = (
+                "cli_override"
+                if getattr(args, "knowledge_delta_top_limit", None) is not None
+                else (
+                    "config_global"
+                    if operator_cycle_defaults.get("knowledge_delta_top_limit") is not None
+                    else "builtin_default"
+                )
+            )
+            knowledge_delta_alert_payload["alert_domain_source"] = (
+                "cli_override"
+                if knowledge_delta_alert_domain_arg is not None
+                else (
+                    "config_global"
+                    if operator_cycle_defaults.get("knowledge_delta_alert_domain") is not None
+                    else "builtin_default"
+                )
+            )
+            knowledge_delta_alert_payload["alert_max_items_source"] = (
+                "cli_override"
+                if knowledge_delta_alert_max_items_arg is not None
+                else (
+                    "config_global"
+                    if operator_cycle_defaults.get("knowledge_delta_alert_max_items") is not None
+                    else "builtin_default"
+                )
+            )
+        except Exception as exc:
+            knowledge_delta_alert_payload = {
+                "status": "error",
+                "error": str(exc),
+                "output_path": str(knowledge_brief_delta_alert_report_path),
+                "error_count": 1,
+                "alert_created": False,
+                "domains": _normalize_improvement_knowledge_domains(resolved_knowledge_delta_domains),
+            }
+            stage_errors.append({"stage": "knowledge_brief_delta_alert", "error": str(exc)})
+    else:
+        knowledge_delta_alert_payload = {
+            "status": "skipped_not_requested",
+            "output_path": str(knowledge_brief_delta_alert_report_path),
+            "error_count": 0,
+            "alert_created": False,
+            "domains": _normalize_improvement_knowledge_domains(resolved_knowledge_delta_domains),
+        }
+
+    knowledge_alert_actions = [
+        str(item).strip()
+        for item in list(knowledge_delta_alert_payload.get("mitigation_actions") or [])
+        if str(item).strip()
+    ]
+    for action in knowledge_alert_actions[:2]:
+        if action not in suggested_actions:
+            suggested_actions.append(action)
+
+    stage_statuses["knowledge_brief_delta_alert"] = str(knowledge_delta_alert_payload.get("status") or "")
+    knowledge_snapshot_dir_for_bootstrap = (
+        resolved_knowledge_snapshot_dir
+        if resolved_knowledge_snapshot_dir is not None
+        else _resolve_knowledge_snapshot_dir(
+            repo_path=args.repo_path.resolve(),
+            snapshot_dir_value=None,
+        )
+    )
+    knowledge_snapshot_inventory = _collect_knowledge_snapshot_inventory(knowledge_snapshot_dir_for_bootstrap)
+    knowledge_delta_stage_status = str(stage_statuses.get("knowledge_brief_delta_alert") or "").strip().lower()
+    knowledge_bootstrap_required = bool(knowledge_delta_alert_payload.get("bootstrap_required")) or (
+        knowledge_delta_alert_requested and knowledge_delta_stage_status == "skipped_bootstrap"
+    )
+    knowledge_bootstrap_next_action_command = (
+        _build_operator_cycle_knowledge_bootstrap_command(
+            config_path=config_path,
+            output_dir=output_dir,
+            knowledge_domains=resolved_knowledge_delta_domains,
+            knowledge_snapshot_dir=knowledge_snapshot_dir_for_bootstrap,
+            knowledge_query=resolved_knowledge_brief_query,
+            knowledge_snapshot_label=resolved_knowledge_brief_snapshot_label,
+        )
+        if knowledge_bootstrap_required
+        else None
+    )
+    knowledge_bootstrap_active = bool(knowledge_brief_requested or knowledge_delta_alert_requested)
+    knowledge_bootstrap_phase = (
+        "not_requested"
+        if not knowledge_bootstrap_active
+        else ("bootstrap_pending" if knowledge_bootstrap_required else "ready")
+    )
+    knowledge_bootstrap_state = {
+        "active": knowledge_bootstrap_active,
+        "phase": knowledge_bootstrap_phase,
+        "bootstrap_required": knowledge_bootstrap_required,
+        "stage_status": str(stage_statuses.get("knowledge_brief_delta_alert") or ""),
+        "snapshot_dir": str(knowledge_snapshot_dir_for_bootstrap),
+        "versioned_snapshot_count": int(knowledge_snapshot_inventory.get("versioned_snapshot_count") or 0),
+        "indexed_snapshot_count": int(knowledge_snapshot_inventory.get("indexed_existing_snapshot_count") or 0),
+        "latest_snapshot_available": bool(knowledge_snapshot_inventory.get("latest_exists")),
+        "minimum_required_snapshot_count": int(knowledge_snapshot_inventory.get("minimum_required_snapshot_count") or 2),
+        "bootstrap_ready": bool(knowledge_snapshot_inventory.get("bootstrap_ready")),
+        "next_action_command": knowledge_bootstrap_next_action_command,
+        "next_action": (
+            "Bootstrap in progress: capture one more knowledge snapshot, then rerun operator-cycle."
+            if knowledge_bootstrap_required
+            else (
+                "Knowledge bootstrap ready for delta comparisons."
+                if knowledge_delta_alert_requested
+                else "Knowledge delta alert not requested."
+            )
+        ),
+        "snapshot_inventory": knowledge_snapshot_inventory,
+    }
+    promotion_lock_interrupt_ids: list[str] = []
+    if bool(verify_alert_payload.get("alert_created")):
+        alert_block = dict(verify_alert_payload.get("alert") or {})
+        alert_interrupt_id = str(alert_block.get("interrupt_id") or "").strip()
+        if alert_interrupt_id:
+            promotion_lock_interrupt_ids.append(alert_interrupt_id)
+    promotion_lock_acknowledge_commands = [
+        str(item).strip()
+        for item in list(verify_alert_payload.get("acknowledge_commands") or [])
+        if str(item).strip()
+    ]
+    if not promotion_lock_acknowledge_commands:
+        promotion_lock_acknowledge_commands = [
+            f"python3 -m jarvis.cli interrupts acknowledge {interrupt_id} --actor operator"
+            for interrupt_id in promotion_lock_interrupt_ids
+            if interrupt_id
+        ]
+    promotion_lock_active = bool(promotion_lock_interrupt_ids) or bool(verify_alert_payload.get("alert_created"))
+    promotion_lock_interrupt_statuses: dict[str, str] = {}
+    promotion_lock_unlock_resolution_error: str | None = None
+    if promotion_lock_interrupt_ids:
+        try:
+            status_runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+            try:
+                for interrupt_id in promotion_lock_interrupt_ids:
+                    interrupt_row = status_runtime.interrupt_store.get(interrupt_id) or {}
+                    interrupt_status = str(interrupt_row.get("status") or "").strip().lower() or "missing"
+                    promotion_lock_interrupt_statuses[interrupt_id] = interrupt_status
+            finally:
+                status_runtime.close()
+        except Exception as exc:
+            promotion_lock_unlock_resolution_error = str(exc)
+            for interrupt_id in promotion_lock_interrupt_ids:
+                promotion_lock_interrupt_statuses.setdefault(interrupt_id, "unknown")
+    promotion_lock_unlock_ready = bool(promotion_lock_interrupt_ids) and all(
+        str(promotion_lock_interrupt_statuses.get(interrupt_id) or "").strip().lower() == "acknowledged"
+        for interrupt_id in promotion_lock_interrupt_ids
+    )
+    promotion_lock = {
+        "active": promotion_lock_active,
+        "source": "verify_matrix_alert",
+        "requires_acknowledgement": promotion_lock_active,
+        "blocking_interrupt_ids": promotion_lock_interrupt_ids,
+        "blocking_interrupt_statuses": promotion_lock_interrupt_statuses,
+        "acknowledge_commands": promotion_lock_acknowledge_commands,
+        "unlock_ready": promotion_lock_unlock_ready,
+        "recheck_command": promotion_lock_recheck_command,
+        "next_action": (
+            "Run operator-cycle recheck to release frozen promotions."
+            if promotion_lock_active and promotion_lock_unlock_ready
+            else (
+                "Acknowledge each blocking interrupt before advancing promotions."
+                if promotion_lock_active
+                else "No promotion lock active."
+            )
+        ),
+    }
+    if promotion_lock_unlock_resolution_error:
+        promotion_lock["unlock_readiness_error"] = promotion_lock_unlock_resolution_error
+    if promotion_lock_active:
+        suggested_actions.append("Promotion lock active until verify-matrix alert interrupts are acknowledged.")
+    if promotion_lock_unlock_ready and promotion_lock_active:
+        suggested_actions.append("Blocking interrupts acknowledged; run operator-cycle recheck to release frozen promotions.")
+    promotions = list(promotion_candidates)
+    blocked_promotions: list[dict[str, Any]] = []
+    if promotion_lock_active and promotion_candidates:
+        blocked_promotions = [
+            {
+                **dict(row),
+                "blocked_by": "verify_matrix_alert",
+                "blocking_interrupt_ids": list(promotion_lock_interrupt_ids),
+                "unlock_readiness": {
+                    "status": (
+                        "ready_to_recheck"
+                        if promotion_lock_unlock_ready
+                        else "blocked_pending_acknowledgement"
+                    ),
+                    "unlock_ready": promotion_lock_unlock_ready,
+                    "requires_acknowledgement": not promotion_lock_unlock_ready,
+                    "blocking_interrupt_ids": list(promotion_lock_interrupt_ids),
+                    "blocking_interrupt_statuses": dict(promotion_lock_interrupt_statuses),
+                    "acknowledge_commands": list(promotion_lock_acknowledge_commands),
+                    "recheck_command": promotion_lock_recheck_command,
+                    "next_action": (
+                        "Rerun operator-cycle verification to release this frozen promotion."
+                        if promotion_lock_unlock_ready
+                        else "Acknowledge each blocking interrupt, then rerun operator-cycle verification."
+                    ),
+                },
+            }
+            for row in promotion_candidates
+            if isinstance(row, dict)
+        ]
+        promotions = []
+        suggested_actions.append(
+            f"{len(blocked_promotions)} promotion candidate(s) frozen by verify-matrix alert lock."
+        )
+    metrics["promotion_count"] = len(promotions)
+    metrics["blocked_promotion_count"] = len(blocked_promotions)
+    promotion_lock["blocked_promotion_count"] = len(blocked_promotions)
+    promotion_lock["promotion_candidates_count"] = len(promotion_candidates)
+    promotion_lock["unlock_ready"] = promotion_lock_unlock_ready
+
+    stage_error_count = (
+        int(pull_payload.get("error_count") or 0)
+        + int(leaderboard_payload.get("error_count") or 0)
+        + int(seed_payload.get("error_count") or 0)
+        + int(draft_payload.get("error_count") or 0)
+        + int(daily_payload.get("error_count") or 0)
+        + int(retest_payload.get("error_count") or 0)
+        + int(benchmark_payload.get("error_count") or 0)
+        + int(verify_payload.get("error_count") or 0)
+        + int(verify_alert_payload.get("error_count") or 0)
+        + int(knowledge_brief_payload.get("error_count") or 0)
+        + int(knowledge_delta_alert_payload.get("error_count") or 0)
+        + len(stage_errors)
+    )
+    overall_status = "warning" if (
+        stage_errors
+        or stage_error_count > 0
+        or any(status == "error" for status in stage_statuses.values())
+        or str(stage_statuses.get("verify_matrix") or "") == "warning"
+        or str(stage_statuses.get("verify_matrix_alert") or "") == "warning"
+        or str(stage_statuses.get("knowledge_brief_delta_alert") or "") == "warning"
+    ) else "ok"
+
+    inbox_summary = {
+        "generated_at": utc_now_iso(),
+        "config_path": str(config_path),
+        "daily_config_path": str(daily_config_path),
+        "output_dir": str(output_dir),
+        "stage_statuses": stage_statuses,
+        "metrics": metrics,
+        "promotions": promotions,
+        "blocked_promotions": blocked_promotions,
+        "blockers": blockers,
+        "retest_deltas": retest_deltas,
+        "retest_transition_counts": retest_transition_counts,
+        "benchmark": benchmark_payload,
+        "verify_matrix": verify_payload,
+        "verify_matrix_alert": verify_alert_payload,
+        "knowledge_brief": knowledge_brief_payload,
+        "knowledge_brief_delta_alert": knowledge_delta_alert_payload,
+        "knowledge_bootstrap_state": knowledge_bootstrap_state,
+        "promotion_lock": promotion_lock,
+        "suggested_actions": suggested_actions,
+    }
+    inbox_summary_path.parent.mkdir(parents=True, exist_ok=True)
+    inbox_summary_path.write_text(json.dumps(inbox_summary, indent=2), encoding="utf-8")
+
+    payload = {
+        "generated_at": utc_now_iso(),
+        "status": overall_status,
+        "config_path": str(config_path),
+        "daily_config_path": str(daily_config_path),
+        "output_dir": str(output_dir),
+        "operator_report_path": str(operator_report_path),
+        "pull_report_path": str(pull_report_path),
+        "seed_leaderboard_report_path": str(seed_leaderboard_report_path),
+        "seed_report_path": str(seed_report_output_path),
+        "draft_report_path": str(draft_report_path),
+        "draft_output_config_path": str(draft_output_config_path),
+        "draft_artifacts_dir": str(draft_artifacts_dir),
+        "benchmark_report_path": str(benchmark_report_path),
+        "verify_matrix_report_path": str(verify_matrix_report_path),
+        "verify_matrix_alert_report_path": str(verify_matrix_alert_report_path),
+        "knowledge_brief_report_path": str(knowledge_brief_report_path),
+        "knowledge_brief_delta_alert_report_path": str(knowledge_brief_delta_alert_report_path),
+        "daily_report_path": str(daily_report_path),
+        "retest_report_path": str(retest_report_path),
+        "inbox_summary_path": str(inbox_summary_path),
+        "stage_statuses": stage_statuses,
+        "stage_error_count": stage_error_count,
+        "stage_errors": stage_errors,
+        "seed_domains": list(seed_domains),
+        "seed_domain_runs": seed_domain_runs,
+        "fitness_leaderboard": leaderboard_payload,
+        "seed_from_leaderboard": seed_payload,
+        "draft": draft_payload,
+        "benchmark": benchmark_payload,
+        "metrics": metrics,
+        "promotions": promotions,
+        "blocked_promotions": blocked_promotions,
+        "blockers": blockers,
+        "retest_deltas": retest_deltas,
+        "retest_transition_counts": retest_transition_counts,
+        "verify_matrix": verify_payload,
+        "verify_matrix_alert": verify_alert_payload,
+        "knowledge_brief": knowledge_brief_payload,
+        "knowledge_brief_delta_alert": knowledge_delta_alert_payload,
+        "knowledge_bootstrap_state": knowledge_bootstrap_state,
+        "promotion_lock": promotion_lock,
         "summary": inbox_summary,
     }
+    operator_report_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     _print_json_payload(
         payload,
         compact=bool(getattr(args, "json_compact", False)),
@@ -6609,6 +8145,11 @@ def cmd_improvement_verify_matrix_alert(args: argparse.Namespace) -> None:
                 "why_now": interrupt.get("why_now"),
                 "why_not_later": interrupt.get("why_not_later"),
                 "top_scenarios": scenario_refs[:top_items],
+                "acknowledge_command": (
+                    f"python3 -m jarvis.cli interrupts acknowledge {interrupt.get('interrupt_id')} --actor operator"
+                    if str(interrupt.get("interrupt_id") or "").strip()
+                    else None
+                ),
             }
             alert_created = True
         finally:
@@ -6623,6 +8164,11 @@ def cmd_improvement_verify_matrix_alert(args: argparse.Namespace) -> None:
         "severity_profile": severity_profile,
         "alert_created": alert_created,
         "alert": alert_payload,
+        "acknowledge_commands": (
+            [str(alert_payload.get("acknowledge_command"))]
+            if isinstance(alert_payload, dict) and str(alert_payload.get("acknowledge_command") or "").strip()
+            else []
+        ),
         "mitigation_actions": mitigation_actions,
         "verification": verification_payload,
     }
@@ -6897,6 +8443,1951 @@ def _collect_implementation_outcomes(
         row["guardrail_block_rate"] = round(blocked_guardrail_count / run_count, 4)
         rows.append(row)
     return rows
+
+
+def _normalize_improvement_knowledge_domains(raw_value: Any) -> list[str]:
+    requested = _parse_csv_items(str(raw_value or ""))
+    if not requested:
+        requested = _parse_csv_items(DEFAULT_IMPROVEMENT_KNOWLEDGE_DOMAINS_CSV)
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in requested:
+        value = str(item or "").strip().lower()
+        value = re.sub(r"[^a-z0-9_]+", "_", value).strip("_")
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+    return normalized or _parse_csv_items(DEFAULT_IMPROVEMENT_KNOWLEDGE_DOMAINS_CSV)
+
+
+def _knowledge_text_blob(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return " ".join(_knowledge_text_blob(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(_knowledge_text_blob(item) for item in value)
+    return str(value)
+
+
+def _tokenize_knowledge_query(raw_query: Any) -> list[str]:
+    text = str(raw_query or "").strip().lower()
+    if not text:
+        return []
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for token in re.split(r"[^a-z0-9]+", text):
+        normalized = str(token or "").strip()
+        if len(normalized) < 2 or normalized in seen:
+            continue
+        seen.add(normalized)
+        tokens.append(normalized)
+    return tokens
+
+
+def _knowledge_query_score(tokens: list[str], *values: Any) -> int:
+    if not tokens:
+        return 0
+    haystack = " ".join(_knowledge_text_blob(value) for value in values).strip().lower()
+    if not haystack:
+        return 0
+    return sum(1 for token in tokens if token in haystack)
+
+
+def _filter_knowledge_rows_by_query(
+    rows: list[dict[str, Any]],
+    *,
+    query_tokens: list[str],
+    text_builder: Any,
+) -> list[dict[str, Any]]:
+    if not query_tokens:
+        return [dict(row) for row in rows]
+    scored: list[tuple[int, int, dict[str, Any]]] = []
+    for index, row in enumerate(rows):
+        score = _knowledge_query_score(query_tokens, text_builder(row))
+        if score <= 0:
+            continue
+        enriched = dict(row)
+        enriched["query_score"] = int(score)
+        scored.append((int(score), index, enriched))
+    scored.sort(key=lambda item: (-int(item[0]), int(item[1])))
+    return [item[2] for item in scored]
+
+
+def _slugify_knowledge_snapshot_component(
+    raw_value: Any,
+    *,
+    default: str,
+    max_length: int = 28,
+) -> str:
+    value = str(raw_value or "").strip().lower()
+    value = re.sub(r"[^a-z0-9]+", "_", value).strip("_")
+    if not value:
+        value = default
+    clipped = value[: max(1, int(max_length))]
+    clipped = clipped.strip("_")
+    return clipped or default
+
+
+def _resolve_knowledge_snapshot_dir(
+    *,
+    repo_path: Path,
+    snapshot_dir_value: Path | str | None,
+) -> Path:
+    if snapshot_dir_value is None:
+        return (repo_path / "analysis" / "improvement" / "knowledge_snapshots").resolve()
+    return _resolve_path_from_base(snapshot_dir_value, base_dir=repo_path).resolve()
+
+
+def _build_knowledge_snapshot_metadata(
+    *,
+    generated_at: str,
+    domains: list[str],
+    query: str,
+    snapshot_label: str | None,
+) -> dict[str, str]:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    domain_hint = _slugify_knowledge_snapshot_component(
+        "-".join(domains[:2]) if domains else "",
+        default="domains",
+        max_length=24,
+    )
+    query_hint = _slugify_knowledge_snapshot_component(
+        query,
+        default="all_queries",
+        max_length=24,
+    )
+    label_hint = _slugify_knowledge_snapshot_component(
+        snapshot_label,
+        default="",
+        max_length=24,
+    )
+    fingerprint = hashlib.sha1(
+        json.dumps(
+            {
+                "generated_at": generated_at,
+                "domains": list(domains),
+                "query": str(query or ""),
+                "label": str(snapshot_label or ""),
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()[:8]
+    snapshot_id_parts = [timestamp, domain_hint, query_hint]
+    if label_hint:
+        snapshot_id_parts.append(label_hint)
+    snapshot_id_parts.append(fingerprint)
+    snapshot_id = "_".join(snapshot_id_parts)
+    snapshot_file_name = f"knowledge_brief_{snapshot_id}.json"
+    return {
+        "snapshot_id": snapshot_id,
+        "snapshot_file_name": snapshot_file_name,
+    }
+
+
+def _coerce_optional_snapshot_path(raw_value: Any, *, base_dir: Path) -> Path | None:
+    if raw_value is None:
+        return None
+    raw_text = str(raw_value).strip()
+    if not raw_text:
+        return None
+    return _resolve_path_from_base(raw_text, base_dir=base_dir).resolve()
+
+
+def _load_knowledge_snapshot_payload(path: Path) -> dict[str, Any]:
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise ValueError(f"invalid_knowledge_snapshot_payload:{path}:expected_json_object")
+    return dict(loaded)
+
+
+def _load_knowledge_snapshot_index_rows(index_path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not index_path.exists():
+        return rows
+    for line_number, raw_line in enumerate(index_path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = str(raw_line or "").strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        path_value = str(row.get("path") or "").strip()
+        if path_value:
+            row = dict(row)
+            row["path"] = str(Path(path_value).expanduser().resolve())
+        row["_line_number"] = line_number
+        rows.append(dict(row))
+    return rows
+
+
+def _resolve_knowledge_delta_snapshot_paths(
+    *,
+    snapshot_dir: Path,
+    current_snapshot_path: Path | None,
+    previous_snapshot_path: Path | None,
+) -> tuple[Path, Path, dict[str, Any]]:
+    snapshot_dir = snapshot_dir.resolve()
+    latest_path = (snapshot_dir / "knowledge_brief_latest.json").resolve()
+    index_path = (snapshot_dir / "knowledge_brief_index.jsonl").resolve()
+    index_rows = _load_knowledge_snapshot_index_rows(index_path)
+
+    candidate_paths: list[Path] = []
+    seen_candidates: set[str] = set()
+    for row in index_rows:
+        candidate = str(row.get("path") or "").strip()
+        if not candidate:
+            continue
+        resolved = Path(candidate).expanduser().resolve()
+        key = str(resolved)
+        if key in seen_candidates or not resolved.exists():
+            continue
+        seen_candidates.add(key)
+        candidate_paths.append(resolved)
+    for candidate in sorted(snapshot_dir.glob("knowledge_brief_*.json")):
+        resolved = candidate.resolve()
+        if resolved.name == "knowledge_brief_latest.json":
+            continue
+        key = str(resolved)
+        if key in seen_candidates or not resolved.exists():
+            continue
+        seen_candidates.add(key)
+        candidate_paths.append(resolved)
+
+    current_source = "explicit"
+    if current_snapshot_path is None:
+        if latest_path.exists():
+            current_snapshot_path = latest_path
+            current_source = "latest_alias"
+        elif candidate_paths:
+            current_snapshot_path = candidate_paths[-1]
+            current_source = "latest_versioned_fallback"
+        else:
+            raise ValueError(f"knowledge_snapshot_current_not_found:{snapshot_dir}")
+    current_snapshot_path = current_snapshot_path.resolve()
+    if not current_snapshot_path.exists():
+        raise ValueError(f"knowledge_snapshot_current_missing:{current_snapshot_path}")
+
+    previous_source = "explicit"
+    if previous_snapshot_path is None:
+        selected_previous: Path | None = None
+        if current_snapshot_path == latest_path and len(candidate_paths) >= 2:
+            selected_previous = candidate_paths[-2]
+            previous_source = "index_previous_to_latest"
+        elif current_snapshot_path in candidate_paths:
+            current_index = candidate_paths.index(current_snapshot_path)
+            if current_index > 0:
+                selected_previous = candidate_paths[current_index - 1]
+                previous_source = "index_previous_to_current"
+        else:
+            for candidate in reversed(candidate_paths):
+                if candidate != current_snapshot_path:
+                    selected_previous = candidate
+                    previous_source = "latest_non_current_fallback"
+                    break
+        previous_snapshot_path = selected_previous
+
+    if previous_snapshot_path is None:
+        raise ValueError(f"knowledge_snapshot_previous_not_found:{snapshot_dir}")
+    previous_snapshot_path = previous_snapshot_path.resolve()
+    if not previous_snapshot_path.exists():
+        raise ValueError(f"knowledge_snapshot_previous_missing:{previous_snapshot_path}")
+
+    if previous_snapshot_path == current_snapshot_path and len(candidate_paths) >= 2:
+        if current_snapshot_path == latest_path:
+            previous_snapshot_path = candidate_paths[-2]
+            previous_source = "index_previous_to_latest"
+        else:
+            try:
+                current_index = candidate_paths.index(current_snapshot_path)
+                if current_index > 0:
+                    previous_snapshot_path = candidate_paths[current_index - 1]
+                    previous_source = "index_previous_to_current"
+            except ValueError:
+                pass
+
+    if previous_snapshot_path == current_snapshot_path:
+        raise ValueError(f"knowledge_snapshot_previous_equals_current:{current_snapshot_path}")
+
+    metadata = {
+        "snapshot_dir": str(snapshot_dir),
+        "latest_path": str(latest_path),
+        "index_path": str(index_path),
+        "index_entry_count": len(index_rows),
+        "versioned_snapshot_count": len(candidate_paths),
+        "current_snapshot_source": current_source,
+        "previous_snapshot_source": previous_source,
+    }
+    return current_snapshot_path, previous_snapshot_path, metadata
+
+
+def _parse_knowledge_delta_error_code(raw_error: str) -> str:
+    text = str(raw_error or "").strip().lower()
+    if not text:
+        return ""
+    return text.split(":", 1)[0].strip()
+
+
+def _is_knowledge_delta_bootstrap_error(raw_error: str) -> bool:
+    code = _parse_knowledge_delta_error_code(raw_error)
+    return code in {
+        "knowledge_snapshot_previous_not_found",
+        "knowledge_snapshot_previous_equals_current",
+    }
+
+
+def _collect_knowledge_domain_metrics(
+    snapshot: dict[str, Any],
+    *,
+    allowed_domains: set[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    metrics: dict[str, dict[str, Any]] = {}
+    knowledge_gaps_by_domain: Counter[str] = Counter()
+    for gap in list(snapshot.get("knowledge_gaps") or []):
+        gap_text = str(gap or "").strip()
+        if not gap_text or ":" not in gap_text:
+            continue
+        domain, _ = gap_text.split(":", 1)
+        normalized_domain = str(domain or "").strip().lower()
+        if not normalized_domain:
+            continue
+        knowledge_gaps_by_domain[normalized_domain] += 1
+
+    for row in [item for item in list(snapshot.get("domain_briefs") or []) if isinstance(item, dict)]:
+        domain = str(row.get("domain") or "").strip().lower()
+        if not domain:
+            continue
+        if allowed_domains is not None and domain not in allowed_domains:
+            continue
+        hypothesis_counts = dict(row.get("hypothesis_counts") or {})
+        experiment_summary = dict(row.get("experiment_summary") or {})
+        metrics[domain] = {
+            "domain": domain,
+            "friction_signal_count": int(row.get("friction_signal_count") or 0),
+            "open_friction_count": int(row.get("open_friction_count") or 0),
+            "displeasure_cluster_count": int(row.get("displeasure_cluster_count") or 0),
+            "hypothesis_total_count": int(
+                hypothesis_counts.get("total")
+                if hypothesis_counts.get("total") is not None
+                else sum(int(value or 0) for value in hypothesis_counts.values())
+            ),
+            "experiment_run_count": int(experiment_summary.get("run_count") or 0),
+            "experiment_promote_count": int(experiment_summary.get("promote_count") or 0),
+            "experiment_blocked_guardrail_count": int(experiment_summary.get("blocked_guardrail_count") or 0),
+            "debug_hotspot_count": len([item for item in list(row.get("debug_hotspots") or []) if isinstance(item, dict)]),
+            "controlled_test_candidate_count": len(
+                [item for item in list(row.get("controlled_test_candidates") or []) if isinstance(item, dict)]
+            ),
+            "knowledge_gap_count": int(knowledge_gaps_by_domain.get(domain) or 0),
+        }
+    return metrics
+
+
+def _collect_knowledge_priority_map(
+    snapshot: dict[str, Any],
+    *,
+    allowed_domains: set[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    mapped: dict[str, dict[str, Any]] = {}
+    for row in [item for item in list(snapshot.get("cross_domain_priority_board") or []) if isinstance(item, dict)]:
+        domain = str(row.get("domain") or "").strip().lower()
+        friction_key = _normalize_friction_key(row.get("friction_key"))
+        if not domain or not friction_key:
+            continue
+        if allowed_domains is not None and domain not in allowed_domains:
+            continue
+        mapped[f"{domain}:{friction_key}"] = {
+            "domain": domain,
+            "friction_key": friction_key,
+            "title": str(row.get("title") or ""),
+            "summary": str(row.get("summary") or ""),
+            "urgency_score": _coerce_float(row.get("urgency_score"), default=0.0),
+            "impact_score": _coerce_float(row.get("impact_score"), default=0.0),
+            "blocked_guardrail_rate": _coerce_float(row.get("blocked_guardrail_rate"), default=0.0),
+            "signal_count": int(row.get("signal_count") or 0),
+        }
+    return mapped
+
+
+def _collect_knowledge_debug_map(
+    snapshot: dict[str, Any],
+    *,
+    allowed_domains: set[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    mapped: dict[str, dict[str, Any]] = {}
+    for row in [item for item in list(snapshot.get("debug_hotspots") or []) if isinstance(item, dict)]:
+        domain = str(row.get("domain") or "").strip().lower()
+        friction_key = _normalize_friction_key(row.get("friction_key"))
+        if not domain or not friction_key:
+            continue
+        if allowed_domains is not None and domain not in allowed_domains:
+            continue
+        mapped[f"{domain}:{friction_key}"] = {
+            "domain": domain,
+            "friction_key": friction_key,
+            "failure_rate": _coerce_float(row.get("failure_rate"), default=0.0),
+            "blocked_guardrail_count": int(row.get("blocked_guardrail_count") or 0),
+            "run_count": int(row.get("run_count") or 0),
+            "confidence_gap": bool(row.get("confidence_gap")),
+        }
+    return mapped
+
+
+def cmd_improvement_knowledge_brief(args: argparse.Namespace) -> None:
+    runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+    try:
+        repo_path = args.repo_path.resolve()
+        domains = _normalize_improvement_knowledge_domains(getattr(args, "domains", None))
+        query = str(getattr(args, "query", "") or "").strip()
+        query_tokens = _tokenize_knowledge_query(query)
+        displeasure_limit = max(1, int(getattr(args, "displeasure_limit", 8) or 8))
+        hypothesis_limit = max(1, int(getattr(args, "hypothesis_limit", 80) or 80))
+        experiment_limit = max(1, int(getattr(args, "experiment_limit", 120) or 120))
+        controlled_test_limit = max(1, int(getattr(args, "controlled_test_limit", 5) or 5))
+        min_cluster_count = max(1, int(getattr(args, "min_cluster_count", 2) or 2))
+
+        domain_briefs: list[dict[str, Any]] = []
+        cross_domain_priority_rows: list[dict[str, Any]] = []
+        global_debug_hotspots: list[dict[str, Any]] = []
+        global_controlled_test_candidates: list[dict[str, Any]] = []
+        knowledge_gaps: list[str] = []
+        critical_knowledge_gaps: list[str] = []
+
+        for domain in domains:
+            frictions = runtime.list_domain_frictions(
+                domain=domain,
+                status=None,
+                source=None,
+                limit=max(200, int(displeasure_limit) * 60),
+            )
+            open_friction_count = sum(1 for row in frictions if str(row.get("status") or "").strip().lower() == "open")
+
+            displeasure_summary = runtime.summarize_domain_displeasures(
+                domain=domain,
+                min_count=1,
+                limit=max(20, int(displeasure_limit) * 4),
+            )
+            displeasure_rows_raw = [row for row in list(displeasure_summary.get("clusters") or []) if isinstance(row, dict)]
+            top_displeasure_rows = [
+                {
+                    "domain": domain,
+                    "canonical_key": str(row.get("canonical_key") or ""),
+                    "friction_key": _normalize_friction_key(row.get("canonical_key")),
+                    "signal_count": int(row.get("signal_count") or 0),
+                    "impact_score": round(_coerce_float(row.get("impact_score"), default=0.0), 4),
+                    "avg_severity": round(_coerce_float(row.get("avg_severity"), default=0.0), 4),
+                    "avg_frustration_score": round(_coerce_float(row.get("avg_frustration_score"), default=0.0), 4),
+                    "top_tags": [dict(item) for item in list(row.get("top_tags") or []) if isinstance(item, dict)],
+                    "top_sources": [dict(item) for item in list(row.get("top_sources") or []) if isinstance(item, dict)],
+                    "example_summary": str(row.get("example_summary") or ""),
+                    "latest_seen_at": row.get("latest_seen_at"),
+                }
+                for row in displeasure_rows_raw
+            ]
+            top_displeasure_rows = _filter_knowledge_rows_by_query(
+                top_displeasure_rows,
+                query_tokens=query_tokens,
+                text_builder=lambda row: [
+                    row.get("canonical_key"),
+                    row.get("friction_key"),
+                    row.get("example_summary"),
+                    row.get("top_tags"),
+                    row.get("top_sources"),
+                ],
+            )
+            top_displeasure_rows = top_displeasure_rows[:displeasure_limit]
+
+            hypotheses = [
+                row
+                for row in runtime.list_hypotheses(domain=domain, status=None, limit=hypothesis_limit)
+                if isinstance(row, dict)
+            ]
+            experiments = [
+                row
+                for row in runtime.list_hypothesis_experiments(domain=domain, status=None, limit=experiment_limit)
+                if isinstance(row, dict)
+            ]
+
+            latest_run_by_hypothesis: dict[str, dict[str, Any]] = {}
+            for run in experiments:
+                hypothesis_id = str(run.get("hypothesis_id") or "").strip()
+                if not hypothesis_id or hypothesis_id in latest_run_by_hypothesis:
+                    continue
+                latest_run_by_hypothesis[hypothesis_id] = run
+
+            hypothesis_status_counts: dict[str, int] = {}
+            hypothesis_friction_by_id: dict[str, str] = {}
+            friction_stats: dict[str, dict[str, Any]] = {}
+            top_hypothesis_rows: list[dict[str, Any]] = []
+            hypothesis_controlled_candidates: list[dict[str, Any]] = []
+
+            for hypothesis in hypotheses:
+                hypothesis_id = str(hypothesis.get("hypothesis_id") or "").strip()
+                status = str(hypothesis.get("status") or "queued").strip().lower() or "queued"
+                hypothesis_status_counts[status] = int(hypothesis_status_counts.get(status) or 0) + 1
+                friction_key = _normalize_friction_key(hypothesis.get("friction_key"))
+                if friction_key:
+                    hypothesis_friction_by_id[hypothesis_id] = friction_key
+                    stats = friction_stats.setdefault(
+                        friction_key,
+                        {
+                            "domain": domain,
+                            "friction_key": friction_key,
+                            "linked_hypothesis_ids": [],
+                            "queued_hypothesis_count": 0,
+                            "testing_hypothesis_count": 0,
+                            "validated_hypothesis_count": 0,
+                            "rejected_hypothesis_count": 0,
+                            "run_count": 0,
+                            "promote_count": 0,
+                            "blocked_guardrail_count": 0,
+                            "needs_iteration_count": 0,
+                            "insufficient_data_count": 0,
+                            "invalid_measurement_count": 0,
+                            "other_verdict_count": 0,
+                        },
+                    )
+                    if hypothesis_id and hypothesis_id not in list(stats.get("linked_hypothesis_ids") or []):
+                        stats.setdefault("linked_hypothesis_ids", []).append(hypothesis_id)
+                    if status == "queued":
+                        stats["queued_hypothesis_count"] = int(stats.get("queued_hypothesis_count") or 0) + 1
+                    elif status == "testing":
+                        stats["testing_hypothesis_count"] = int(stats.get("testing_hypothesis_count") or 0) + 1
+                    elif status == "validated":
+                        stats["validated_hypothesis_count"] = int(stats.get("validated_hypothesis_count") or 0) + 1
+                    elif status == "rejected":
+                        stats["rejected_hypothesis_count"] = int(stats.get("rejected_hypothesis_count") or 0) + 1
+
+                metadata = dict(hypothesis.get("metadata") or {}) if isinstance(hypothesis.get("metadata"), dict) else {}
+                last_run = latest_run_by_hypothesis.get(hypothesis_id) or {}
+                evaluation = dict(last_run.get("evaluation") or {}) if isinstance(last_run.get("evaluation"), dict) else {}
+                top_hypothesis_rows.append(
+                    {
+                        "domain": domain,
+                        "hypothesis_id": hypothesis_id,
+                        "title": str(hypothesis.get("title") or ""),
+                        "status": status,
+                        "risk_level": str(hypothesis.get("risk_level") or ""),
+                        "friction_key": friction_key or None,
+                        "priority_score": round(_coerce_float(metadata.get("priority_score"), default=0.0), 4),
+                        "statement": str(hypothesis.get("statement") or ""),
+                        "proposed_change": str(hypothesis.get("proposed_change") or ""),
+                        "last_experiment_verdict": str(evaluation.get("verdict") or "").strip().lower() or None,
+                        "last_experiment_at": last_run.get("created_at"),
+                    }
+                )
+                hypothesis_controlled_candidates.append(
+                    {
+                        "domain": domain,
+                        "hypothesis_id": hypothesis_id or None,
+                        "title": str(hypothesis.get("title") or ""),
+                        "friction_key": friction_key or None,
+                        "statement": str(hypothesis.get("statement") or ""),
+                        "proposed_change": str(hypothesis.get("proposed_change") or ""),
+                        "priority_score": round(_coerce_float(metadata.get("priority_score"), default=0.0), 4),
+                        "risk_level": str(hypothesis.get("risk_level") or "medium"),
+                        "recommended_environment": _default_controlled_environment_for_domain(domain),
+                        "success_criteria": dict(hypothesis.get("success_criteria") or {}),
+                        "evidence": {
+                            "source": "registered_hypothesis",
+                            "status": status,
+                            "last_experiment_verdict": str(evaluation.get("verdict") or "").strip().lower() or None,
+                            "last_experiment_at": last_run.get("created_at"),
+                        },
+                    }
+                )
+
+            for run in experiments:
+                hypothesis_id = str(run.get("hypothesis_id") or "").strip()
+                if not hypothesis_id:
+                    continue
+                friction_key = _normalize_friction_key(hypothesis_friction_by_id.get(hypothesis_id))
+                if not friction_key:
+                    continue
+                stats = friction_stats.setdefault(
+                    friction_key,
+                    {
+                        "domain": domain,
+                        "friction_key": friction_key,
+                        "linked_hypothesis_ids": [],
+                        "queued_hypothesis_count": 0,
+                        "testing_hypothesis_count": 0,
+                        "validated_hypothesis_count": 0,
+                        "rejected_hypothesis_count": 0,
+                        "run_count": 0,
+                        "promote_count": 0,
+                        "blocked_guardrail_count": 0,
+                        "needs_iteration_count": 0,
+                        "insufficient_data_count": 0,
+                        "invalid_measurement_count": 0,
+                        "other_verdict_count": 0,
+                    },
+                )
+                stats["run_count"] = int(stats.get("run_count") or 0) + 1
+                evaluation = dict(run.get("evaluation") or {}) if isinstance(run.get("evaluation"), dict) else {}
+                verdict = str(evaluation.get("verdict") or run.get("verdict") or "").strip().lower()
+                if verdict == "promote":
+                    stats["promote_count"] = int(stats.get("promote_count") or 0) + 1
+                elif verdict == "blocked_guardrail":
+                    stats["blocked_guardrail_count"] = int(stats.get("blocked_guardrail_count") or 0) + 1
+                elif verdict == "needs_iteration":
+                    stats["needs_iteration_count"] = int(stats.get("needs_iteration_count") or 0) + 1
+                elif verdict == "insufficient_data":
+                    stats["insufficient_data_count"] = int(stats.get("insufficient_data_count") or 0) + 1
+                elif verdict == "invalid_measurement":
+                    stats["invalid_measurement_count"] = int(stats.get("invalid_measurement_count") or 0) + 1
+                else:
+                    stats["other_verdict_count"] = int(stats.get("other_verdict_count") or 0) + 1
+
+            top_hypothesis_rows.sort(
+                key=lambda row: (
+                    -float(row.get("priority_score") or 0.0),
+                    str(row.get("status") or ""),
+                    str(row.get("title") or ""),
+                )
+            )
+            top_hypothesis_rows = _filter_knowledge_rows_by_query(
+                top_hypothesis_rows,
+                query_tokens=query_tokens,
+                text_builder=lambda row: [
+                    row.get("title"),
+                    row.get("friction_key"),
+                    row.get("statement"),
+                    row.get("proposed_change"),
+                    row.get("last_experiment_verdict"),
+                ],
+            )
+            top_hypothesis_rows = top_hypothesis_rows[: max(displeasure_limit, min(20, hypothesis_limit))]
+
+            debug_hotspots: list[dict[str, Any]] = []
+            for stats in friction_stats.values():
+                run_count = int(stats.get("run_count") or 0)
+                if run_count <= 0:
+                    continue
+                blocked_guardrail_count = int(stats.get("blocked_guardrail_count") or 0)
+                needs_iteration_count = int(stats.get("needs_iteration_count") or 0)
+                insufficient_data_count = int(stats.get("insufficient_data_count") or 0)
+                invalid_measurement_count = int(stats.get("invalid_measurement_count") or 0)
+                failure_count = (
+                    blocked_guardrail_count
+                    + needs_iteration_count
+                    + insufficient_data_count
+                    + invalid_measurement_count
+                )
+                confidence_gap = run_count < 2
+                if failure_count <= 0 and not confidence_gap:
+                    continue
+                debug_hotspots.append(
+                    {
+                        "domain": domain,
+                        "friction_key": stats.get("friction_key"),
+                        "run_count": run_count,
+                        "failure_count": int(failure_count),
+                        "failure_rate": round(float(failure_count) / float(max(1, run_count)), 4),
+                        "blocked_guardrail_count": blocked_guardrail_count,
+                        "blocked_guardrail_rate": round(float(blocked_guardrail_count) / float(max(1, run_count)), 4),
+                        "needs_iteration_count": needs_iteration_count,
+                        "insufficient_data_count": insufficient_data_count,
+                        "invalid_measurement_count": invalid_measurement_count,
+                        "confidence_gap": bool(confidence_gap),
+                        "linked_hypothesis_ids": list(stats.get("linked_hypothesis_ids") or []),
+                    }
+                )
+            debug_hotspots.sort(
+                key=lambda row: (
+                    -float(row.get("failure_rate") or 0.0),
+                    -int(row.get("blocked_guardrail_count") or 0),
+                    -int(row.get("run_count") or 0),
+                    str(row.get("friction_key") or ""),
+                )
+            )
+            debug_hotspots = _filter_knowledge_rows_by_query(
+                debug_hotspots,
+                query_tokens=query_tokens,
+                text_builder=lambda row: [
+                    row.get("friction_key"),
+                    row.get("linked_hypothesis_ids"),
+                ],
+            )
+            debug_hotspots = debug_hotspots[:displeasure_limit]
+
+            controlled_candidates_raw = runtime.propose_friction_hypotheses(
+                domain=domain,
+                min_count=min_cluster_count,
+                limit=max(controlled_test_limit, controlled_test_limit * 3),
+            )
+            controlled_test_candidates = [
+                {
+                    "domain": domain,
+                    "title": str(row.get("title") or ""),
+                    "friction_key": _normalize_friction_key(row.get("friction_key")),
+                    "statement": str(row.get("statement") or ""),
+                    "proposed_change": str(row.get("proposed_change") or ""),
+                    "priority_score": round(_coerce_float(row.get("priority_score"), default=0.0), 4),
+                    "risk_level": str(row.get("risk_level") or "medium"),
+                    "recommended_environment": _default_controlled_environment_for_domain(domain),
+                    "success_criteria": dict(row.get("success_criteria") or {}),
+                    "evidence": dict(row.get("evidence") or {}),
+                }
+                for row in list(controlled_candidates_raw or [])
+                if isinstance(row, dict)
+            ]
+            controlled_test_candidates = _filter_knowledge_rows_by_query(
+                controlled_test_candidates,
+                query_tokens=query_tokens,
+                text_builder=lambda row: [
+                    row.get("title"),
+                    row.get("friction_key"),
+                    row.get("statement"),
+                    row.get("proposed_change"),
+                    row.get("evidence"),
+                ],
+            )
+            controlled_test_candidates.extend(
+                _filter_knowledge_rows_by_query(
+                    hypothesis_controlled_candidates,
+                    query_tokens=query_tokens,
+                    text_builder=lambda row: [
+                        row.get("title"),
+                        row.get("friction_key"),
+                        row.get("statement"),
+                        row.get("proposed_change"),
+                        row.get("hypothesis_id"),
+                        row.get("evidence"),
+                    ],
+                )
+            )
+            controlled_test_candidates.sort(
+                key=lambda row: (
+                    -int(row.get("query_score") or 0),
+                    -float(row.get("priority_score") or 0.0),
+                    str(row.get("title") or ""),
+                )
+            )
+            deduped_controlled_candidates: list[dict[str, Any]] = []
+            seen_controlled_keys: set[str] = set()
+            for row in controlled_test_candidates:
+                hypothesis_id = str(row.get("hypothesis_id") or "").strip()
+                friction_key = str(row.get("friction_key") or "").strip().lower()
+                title = str(row.get("title") or "").strip().lower()
+                dedupe_key = hypothesis_id or f"{friction_key}:{title}"
+                if not dedupe_key or dedupe_key in seen_controlled_keys:
+                    continue
+                seen_controlled_keys.add(dedupe_key)
+                deduped_controlled_candidates.append(row)
+                if len(deduped_controlled_candidates) >= controlled_test_limit:
+                    break
+            controlled_test_candidates = deduped_controlled_candidates
+
+            run_verdict_counts: Counter[str] = Counter()
+            for run in experiments:
+                evaluation = dict(run.get("evaluation") or {}) if isinstance(run.get("evaluation"), dict) else {}
+                verdict = str(evaluation.get("verdict") or run.get("verdict") or "").strip().lower() or "unknown"
+                run_verdict_counts[verdict] += 1
+
+            for row in top_displeasure_rows:
+                friction_key = _normalize_friction_key(row.get("friction_key") or row.get("canonical_key"))
+                stats = dict(friction_stats.get(friction_key) or {})
+                run_count = int(stats.get("run_count") or 0)
+                promote_count = int(stats.get("promote_count") or 0)
+                blocked_guardrail_count = int(stats.get("blocked_guardrail_count") or 0)
+                promote_rate = float(promote_count) / float(run_count) if run_count > 0 else 0.0
+                blocked_guardrail_rate = float(blocked_guardrail_count) / float(run_count) if run_count > 0 else 0.0
+                active_hypothesis_count = int(stats.get("queued_hypothesis_count") or 0) + int(
+                    stats.get("testing_hypothesis_count") or 0
+                )
+                impact_score = _coerce_float(row.get("impact_score"), default=0.0)
+                urgency_score = (
+                    impact_score
+                    * (1.0 + blocked_guardrail_rate + (1.0 - promote_rate))
+                    * (1.0 + min(1.5, float(active_hypothesis_count) * 0.25))
+                )
+                cross_domain_priority_rows.append(
+                    {
+                        "domain": domain,
+                        "title": str(row.get("canonical_key") or friction_key or "unlabeled_friction"),
+                        "summary": str(row.get("example_summary") or row.get("canonical_key") or friction_key or ""),
+                        "canonical_key": row.get("canonical_key"),
+                        "friction_key": friction_key,
+                        "impact_score": round(float(impact_score), 4),
+                        "signal_count": int(row.get("signal_count") or 0),
+                        "run_count": run_count,
+                        "promote_rate": round(float(promote_rate), 4),
+                        "blocked_guardrail_rate": round(float(blocked_guardrail_rate), 4),
+                        "active_hypothesis_count": active_hypothesis_count,
+                        "urgency_score": round(float(urgency_score), 4),
+                        "query_score": int(row.get("query_score") or 0),
+                    }
+                )
+
+            global_debug_hotspots.extend(debug_hotspots)
+            global_controlled_test_candidates.extend(controlled_test_candidates)
+
+            domain_actions: list[str] = []
+            if not frictions:
+                domain_actions.append(
+                    f"Ingest additional {domain} feedback so common displeasures can be measured before new implementations."
+                )
+                gap = f"{domain}:missing_friction_signals"
+                knowledge_gaps.append(gap)
+                critical_knowledge_gaps.append(gap)
+            if not hypotheses:
+                domain_actions.append(f"Seed at least one {domain} hypothesis from current displeasure clusters.")
+                knowledge_gaps.append(f"{domain}:missing_hypotheses")
+            if not experiments:
+                domain_actions.append(f"Run controlled {domain} experiments to validate benefits before rollout.")
+                knowledge_gaps.append(f"{domain}:missing_experiment_runs")
+            if not controlled_test_candidates:
+                knowledge_gaps.append(f"{domain}:missing_controlled_test_candidates")
+            if debug_hotspots:
+                domain_actions.append(
+                    "Debug highest-risk friction first: "
+                    f"{debug_hotspots[0].get('friction_key')} "
+                    f"(blocked_guardrail_count={debug_hotspots[0].get('blocked_guardrail_count')}, "
+                    f"failure_rate={debug_hotspots[0].get('failure_rate')})."
+                )
+            if controlled_test_candidates:
+                domain_actions.append(
+                    "Schedule controlled validation for "
+                    f"{controlled_test_candidates[0].get('friction_key')} "
+                    f"in {controlled_test_candidates[0].get('recommended_environment')}."
+                )
+            if not domain_actions:
+                domain_actions.append(
+                    f"{domain} knowledge loop is healthy; continue ingest -> hypothesis -> controlled-test cadence."
+                )
+
+            hypothesis_status_counts["total"] = int(len(hypotheses))
+            experiment_summary = {
+                "run_count": int(len(experiments)),
+                "promote_count": int(run_verdict_counts.get("promote") or 0),
+                "blocked_guardrail_count": int(run_verdict_counts.get("blocked_guardrail") or 0),
+                "needs_iteration_count": int(run_verdict_counts.get("needs_iteration") or 0),
+                "insufficient_data_count": int(run_verdict_counts.get("insufficient_data") or 0),
+                "invalid_measurement_count": int(run_verdict_counts.get("invalid_measurement") or 0),
+                "other_verdict_count": int(
+                    sum(
+                        int(count)
+                        for verdict, count in run_verdict_counts.items()
+                        if verdict
+                        not in {
+                            "promote",
+                            "blocked_guardrail",
+                            "needs_iteration",
+                            "insufficient_data",
+                            "invalid_measurement",
+                        }
+                    )
+                ),
+            }
+
+            domain_briefs.append(
+                {
+                    "domain": domain,
+                    "query": query or None,
+                    "query_token_count": len(query_tokens),
+                    "friction_signal_count": int(len(frictions)),
+                    "open_friction_count": int(open_friction_count),
+                    "displeasure_cluster_count": int(displeasure_summary.get("cluster_count") or 0),
+                    "top_displeasures": top_displeasure_rows,
+                    "hypothesis_counts": hypothesis_status_counts,
+                    "top_hypotheses": top_hypothesis_rows,
+                    "experiment_summary": experiment_summary,
+                    "debug_hotspots": debug_hotspots,
+                    "controlled_test_candidates": controlled_test_candidates,
+                    "suggested_actions": domain_actions,
+                }
+            )
+
+        cross_domain_priority_rows.sort(
+            key=lambda row: (
+                -int(row.get("query_score") or 0),
+                -float(row.get("urgency_score") or 0.0),
+                -float(row.get("impact_score") or 0.0),
+                str(row.get("domain") or ""),
+                str(row.get("friction_key") or ""),
+            )
+        )
+        cross_domain_priority_board = cross_domain_priority_rows[: max(10, int(displeasure_limit) * 3)]
+        global_debug_hotspots.sort(
+            key=lambda row: (
+                -int(row.get("query_score") or 0),
+                -float(row.get("failure_rate") or 0.0),
+                -int(row.get("blocked_guardrail_count") or 0),
+                -int(row.get("run_count") or 0),
+                str(row.get("domain") or ""),
+                str(row.get("friction_key") or ""),
+            )
+        )
+        global_controlled_test_candidates.sort(
+            key=lambda row: (
+                -int(row.get("query_score") or 0),
+                -float(row.get("priority_score") or 0.0),
+                str(row.get("domain") or ""),
+                str(row.get("title") or ""),
+            )
+        )
+        capped_debug_hotspots = global_debug_hotspots[: max(10, int(displeasure_limit) * 3)]
+        capped_controlled_test_candidates = global_controlled_test_candidates[
+            : max(10, int(controlled_test_limit) * 3)
+        ]
+
+        suggested_actions: list[str] = []
+        for row in cross_domain_priority_board[:3]:
+            suggested_actions.append(
+                "Prioritize "
+                f"{row.get('domain')}:{row.get('friction_key')} "
+                f"(urgency_score={row.get('urgency_score')}, impact_score={row.get('impact_score')}, "
+                f"blocked_guardrail_rate={row.get('blocked_guardrail_rate')})."
+            )
+        if knowledge_gaps:
+            for gap in knowledge_gaps[:3]:
+                suggested_actions.append(f"Close knowledge gap: {gap}.")
+        if not suggested_actions:
+            suggested_actions.append(
+                "Knowledge brief is populated; continue controlled testing and keep ingest cadence active."
+            )
+
+        status = "ok" if not critical_knowledge_gaps else "warning"
+        generated_at = utc_now_iso()
+        payload = {
+            "generated_at": generated_at,
+            "status": status,
+            "domains": domains,
+            "query": query or None,
+            "query_tokens": query_tokens,
+            "limits": {
+                "displeasure_limit": displeasure_limit,
+                "hypothesis_limit": hypothesis_limit,
+                "experiment_limit": experiment_limit,
+                "controlled_test_limit": controlled_test_limit,
+                "min_cluster_count": min_cluster_count,
+            },
+            "domain_brief_count": len(domain_briefs),
+            "domain_briefs": domain_briefs,
+            "cross_domain_priority_board_count": len(cross_domain_priority_board),
+            "cross_domain_priority_board": cross_domain_priority_board,
+            "debug_hotspot_count": len(capped_debug_hotspots),
+            "debug_hotspots": capped_debug_hotspots,
+            "controlled_test_candidate_count": len(capped_controlled_test_candidates),
+            "controlled_test_candidates": capped_controlled_test_candidates,
+            "knowledge_gaps": sorted(set(str(item) for item in knowledge_gaps if str(item))),
+            "suggested_actions": suggested_actions,
+        }
+
+        output_path = args.output_path.resolve() if args.output_path is not None else None
+        if output_path is not None:
+            payload["output_path"] = str(output_path)
+
+        write_snapshot = bool(getattr(args, "write_snapshot", True))
+        snapshot_label_raw = str(getattr(args, "snapshot_label", "") or "").strip()
+        snapshot_label = snapshot_label_raw or None
+        snapshot_dir = _resolve_knowledge_snapshot_dir(
+            repo_path=repo_path,
+            snapshot_dir_value=getattr(args, "snapshot_dir", None),
+        )
+        knowledge_snapshot: dict[str, Any] = {
+            "enabled": False,
+            "write_snapshot": bool(write_snapshot),
+            "snapshot_dir": str(snapshot_dir),
+            "snapshot_label": snapshot_label,
+        }
+        if write_snapshot:
+            snapshot_dir.mkdir(parents=True, exist_ok=True)
+            snapshot_meta = _build_knowledge_snapshot_metadata(
+                generated_at=generated_at,
+                domains=domains,
+                query=query,
+                snapshot_label=snapshot_label,
+            )
+            snapshot_id = str(snapshot_meta.get("snapshot_id") or "").strip()
+            snapshot_file_name = str(snapshot_meta.get("snapshot_file_name") or "").strip()
+            snapshot_path = (snapshot_dir / snapshot_file_name).resolve()
+            latest_path = (snapshot_dir / "knowledge_brief_latest.json").resolve()
+            index_path = (snapshot_dir / "knowledge_brief_index.jsonl").resolve()
+            snapshot_payload = dict(payload)
+            snapshot_payload["knowledge_snapshot"] = {
+                "enabled": True,
+                "snapshot_id": snapshot_id,
+                "path": str(snapshot_path),
+                "snapshot_dir": str(snapshot_dir),
+                "latest_path": str(latest_path),
+                "index_path": str(index_path),
+                "write_snapshot": True,
+                "snapshot_label": snapshot_label,
+            }
+            snapshot_path.write_text(json.dumps(snapshot_payload, indent=2), encoding="utf-8")
+            latest_path.write_text(json.dumps(snapshot_payload, indent=2), encoding="utf-8")
+            index_row = {
+                "generated_at": generated_at,
+                "snapshot_id": snapshot_id,
+                "path": str(snapshot_path),
+                "status": str(payload.get("status") or ""),
+                "domains": list(domains),
+                "query": query or None,
+                "domain_brief_count": int(payload.get("domain_brief_count") or 0),
+                "cross_domain_priority_board_count": int(payload.get("cross_domain_priority_board_count") or 0),
+                "debug_hotspot_count": int(payload.get("debug_hotspot_count") or 0),
+                "controlled_test_candidate_count": int(payload.get("controlled_test_candidate_count") or 0),
+                "knowledge_gap_count": len(list(payload.get("knowledge_gaps") or [])),
+            }
+            with index_path.open("a", encoding="utf-8") as fp:
+                fp.write(json.dumps(index_row, sort_keys=True))
+                fp.write("\n")
+            knowledge_snapshot = {
+                "enabled": True,
+                "write_snapshot": True,
+                "snapshot_id": snapshot_id,
+                "path": str(snapshot_path),
+                "snapshot_dir": str(snapshot_dir),
+                "latest_path": str(latest_path),
+                "index_path": str(index_path),
+                "snapshot_label": snapshot_label,
+            }
+        else:
+            knowledge_snapshot["reason"] = "disabled_by_flag"
+        payload["knowledge_snapshot"] = knowledge_snapshot
+
+        if output_path is not None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        _print_json_payload(
+            payload,
+            compact=bool(getattr(args, "json_compact", False)),
+        )
+        if status != "ok" and bool(getattr(args, "strict", False)):
+            raise SystemExit(2)
+    finally:
+        runtime.close()
+
+
+def cmd_improvement_knowledge_brief_delta(args: argparse.Namespace) -> None:
+    repo_path = args.repo_path.resolve()
+    domains = _normalize_improvement_knowledge_domains(getattr(args, "domains", None))
+    allowed_domains = set(domains) if domains else None
+    top_limit = max(1, int(getattr(args, "top_limit", 10) or 10))
+    snapshot_dir = _resolve_knowledge_snapshot_dir(
+        repo_path=repo_path,
+        snapshot_dir_value=getattr(args, "snapshot_dir", None),
+    )
+    current_snapshot_path_input = _coerce_optional_snapshot_path(
+        getattr(args, "current_snapshot_path", None),
+        base_dir=snapshot_dir,
+    )
+    previous_snapshot_path_input = _coerce_optional_snapshot_path(
+        getattr(args, "previous_snapshot_path", None),
+        base_dir=snapshot_dir,
+    )
+    generated_at = utc_now_iso()
+
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+
+    try:
+        current_snapshot_path, previous_snapshot_path, resolution_meta = _resolve_knowledge_delta_snapshot_paths(
+            snapshot_dir=snapshot_dir,
+            current_snapshot_path=current_snapshot_path_input,
+            previous_snapshot_path=previous_snapshot_path_input,
+        )
+        current_snapshot = _load_knowledge_snapshot_payload(current_snapshot_path)
+        previous_snapshot = _load_knowledge_snapshot_payload(previous_snapshot_path)
+        current_snapshot_meta = (
+            dict(current_snapshot.get("knowledge_snapshot") or {})
+            if isinstance(current_snapshot.get("knowledge_snapshot"), dict)
+            else {}
+        )
+        previous_snapshot_meta = (
+            dict(previous_snapshot.get("knowledge_snapshot") or {})
+            if isinstance(previous_snapshot.get("knowledge_snapshot"), dict)
+            else {}
+        )
+        current_snapshot_effective_path = Path(
+            str(current_snapshot_meta.get("path") or current_snapshot_path)
+        ).expanduser().resolve()
+        previous_snapshot_effective_path = Path(
+            str(previous_snapshot_meta.get("path") or previous_snapshot_path)
+        ).expanduser().resolve()
+    except Exception as exc:
+        error_text = str(exc)
+        error_code = _parse_knowledge_delta_error_code(error_text)
+        bootstrap_required = _is_knowledge_delta_bootstrap_error(error_text)
+        status = "skipped_bootstrap" if bootstrap_required else "warning"
+        if bootstrap_required:
+            suggested_actions = [
+                "Bootstrap in progress: rerun `improvement knowledge-brief` to capture a second snapshot before delta comparisons.",
+                "After the next snapshot is written, rerun `improvement knowledge-brief-delta` (or operator-cycle) to evaluate regressions.",
+            ]
+        else:
+            suggested_actions = [
+                "Generate at least two `improvement knowledge-brief` snapshots before running `knowledge-brief-delta`.",
+                "If snapshots exist in a different directory, pass --snapshot-dir or explicit --current-snapshot-path/--previous-snapshot-path.",
+            ]
+        payload = {
+            "generated_at": generated_at,
+            "status": status,
+            "domains": domains,
+            "error": error_text,
+            "error_code": error_code,
+            "bootstrap_required": bootstrap_required,
+            "snapshot_dir": str(snapshot_dir),
+            "current_snapshot_path": str(current_snapshot_path_input) if current_snapshot_path_input is not None else None,
+            "previous_snapshot_path": str(previous_snapshot_path_input) if previous_snapshot_path_input is not None else None,
+            "domain_deltas": [],
+            "accelerating_frictions": [],
+            "cooling_frictions": [],
+            "debug_regressions": [],
+            "suggested_actions": suggested_actions,
+        }
+        if output_path is not None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            payload["output_path"] = str(output_path)
+        _print_json_payload(payload, compact=bool(getattr(args, "json_compact", False)))
+        if status not in {"ok", "skipped_bootstrap"} and bool(getattr(args, "strict", False)):
+            raise SystemExit(2)
+        return
+
+    previous_domain_metrics = _collect_knowledge_domain_metrics(previous_snapshot, allowed_domains=allowed_domains)
+    current_domain_metrics = _collect_knowledge_domain_metrics(current_snapshot, allowed_domains=allowed_domains)
+    domain_names = sorted(set(previous_domain_metrics.keys()) | set(current_domain_metrics.keys()) | set(domains))
+
+    domain_deltas: list[dict[str, Any]] = []
+    for domain in domain_names:
+        previous = dict(previous_domain_metrics.get(domain) or {})
+        current = dict(current_domain_metrics.get(domain) or {})
+
+        def _metric(name: str, *, source: dict[str, Any]) -> int:
+            return int(source.get(name) or 0)
+
+        def _delta(name: str) -> int:
+            return _metric(name, source=current) - _metric(name, source=previous)
+
+        open_friction_delta = _delta("open_friction_count")
+        debug_hotspot_delta = _delta("debug_hotspot_count")
+        blocked_guardrail_delta = _delta("experiment_blocked_guardrail_count")
+        promote_delta = _delta("experiment_promote_count")
+        knowledge_gap_delta = _delta("knowledge_gap_count")
+
+        worsening_score = (
+            max(0, open_friction_delta)
+            + max(0, debug_hotspot_delta)
+            + max(0, blocked_guardrail_delta)
+            + max(0, knowledge_gap_delta)
+            + max(0, -promote_delta)
+        )
+        improvement_score = (
+            max(0, -open_friction_delta)
+            + max(0, -debug_hotspot_delta)
+            + max(0, -blocked_guardrail_delta)
+            + max(0, promote_delta)
+            + max(0, -knowledge_gap_delta)
+        )
+        trend = "flat"
+        if worsening_score > improvement_score and worsening_score > 0:
+            trend = "worsening"
+        elif improvement_score > worsening_score and improvement_score > 0:
+            trend = "improving"
+        elif worsening_score > 0 or improvement_score > 0:
+            trend = "mixed"
+
+        domain_deltas.append(
+            {
+                "domain": domain,
+                "trend": trend,
+                "worsening_score": int(worsening_score),
+                "improvement_score": int(improvement_score),
+                "current": current,
+                "previous": previous,
+                "delta": {
+                    "friction_signal_count": _delta("friction_signal_count"),
+                    "open_friction_count": open_friction_delta,
+                    "displeasure_cluster_count": _delta("displeasure_cluster_count"),
+                    "hypothesis_total_count": _delta("hypothesis_total_count"),
+                    "experiment_run_count": _delta("experiment_run_count"),
+                    "experiment_promote_count": promote_delta,
+                    "experiment_blocked_guardrail_count": blocked_guardrail_delta,
+                    "debug_hotspot_count": debug_hotspot_delta,
+                    "controlled_test_candidate_count": _delta("controlled_test_candidate_count"),
+                    "knowledge_gap_count": knowledge_gap_delta,
+                },
+            }
+        )
+
+    domain_deltas.sort(
+        key=lambda row: (
+            -int(row.get("worsening_score") or 0),
+            int(row.get("improvement_score") or 0),
+            str(row.get("domain") or ""),
+        )
+    )
+
+    previous_priority = _collect_knowledge_priority_map(previous_snapshot, allowed_domains=allowed_domains)
+    current_priority = _collect_knowledge_priority_map(current_snapshot, allowed_domains=allowed_domains)
+    priority_delta_rows: list[dict[str, Any]] = []
+    for key in sorted(set(previous_priority.keys()) | set(current_priority.keys())):
+        previous = dict(previous_priority.get(key) or {})
+        current = dict(current_priority.get(key) or {})
+        urgency_delta = _coerce_float(current.get("urgency_score"), default=0.0) - _coerce_float(
+            previous.get("urgency_score"),
+            default=0.0,
+        )
+        impact_delta = _coerce_float(current.get("impact_score"), default=0.0) - _coerce_float(
+            previous.get("impact_score"),
+            default=0.0,
+        )
+        blocked_rate_delta = _coerce_float(current.get("blocked_guardrail_rate"), default=0.0) - _coerce_float(
+            previous.get("blocked_guardrail_rate"),
+            default=0.0,
+        )
+        priority_delta_rows.append(
+            {
+                "domain": str(current.get("domain") or previous.get("domain") or "").strip().lower(),
+                "friction_key": str(current.get("friction_key") or previous.get("friction_key") or ""),
+                "title": str(current.get("title") or previous.get("title") or ""),
+                "summary": str(current.get("summary") or previous.get("summary") or ""),
+                "urgency_score_current": round(_coerce_float(current.get("urgency_score"), default=0.0), 4),
+                "urgency_score_previous": round(_coerce_float(previous.get("urgency_score"), default=0.0), 4),
+                "urgency_delta": round(float(urgency_delta), 4),
+                "impact_score_current": round(_coerce_float(current.get("impact_score"), default=0.0), 4),
+                "impact_score_previous": round(_coerce_float(previous.get("impact_score"), default=0.0), 4),
+                "impact_delta": round(float(impact_delta), 4),
+                "blocked_guardrail_rate_current": round(
+                    _coerce_float(current.get("blocked_guardrail_rate"), default=0.0),
+                    4,
+                ),
+                "blocked_guardrail_rate_previous": round(
+                    _coerce_float(previous.get("blocked_guardrail_rate"), default=0.0),
+                    4,
+                ),
+                "blocked_guardrail_rate_delta": round(float(blocked_rate_delta), 4),
+                "signal_count_current": int(current.get("signal_count") or 0),
+                "signal_count_previous": int(previous.get("signal_count") or 0),
+                "is_new_in_current": bool(current and not previous),
+                "was_removed_from_current": bool(previous and not current),
+            }
+        )
+
+    accelerating_frictions = [
+        row for row in priority_delta_rows if float(row.get("urgency_delta") or 0.0) > 0.0
+    ]
+    accelerating_frictions.sort(
+        key=lambda row: (
+            -float(row.get("urgency_delta") or 0.0),
+            -float(row.get("impact_delta") or 0.0),
+            str(row.get("domain") or ""),
+            str(row.get("friction_key") or ""),
+        )
+    )
+    cooling_frictions = [
+        row for row in priority_delta_rows if float(row.get("urgency_delta") or 0.0) < 0.0
+    ]
+    cooling_frictions.sort(
+        key=lambda row: (
+            float(row.get("urgency_delta") or 0.0),
+            float(row.get("impact_delta") or 0.0),
+            str(row.get("domain") or ""),
+            str(row.get("friction_key") or ""),
+        )
+    )
+
+    previous_debug = _collect_knowledge_debug_map(previous_snapshot, allowed_domains=allowed_domains)
+    current_debug = _collect_knowledge_debug_map(current_snapshot, allowed_domains=allowed_domains)
+    debug_regressions: list[dict[str, Any]] = []
+    for key in sorted(set(previous_debug.keys()) | set(current_debug.keys())):
+        previous = dict(previous_debug.get(key) or {})
+        current = dict(current_debug.get(key) or {})
+        failure_rate_delta = _coerce_float(current.get("failure_rate"), default=0.0) - _coerce_float(
+            previous.get("failure_rate"),
+            default=0.0,
+        )
+        blocked_guardrail_delta = int(current.get("blocked_guardrail_count") or 0) - int(
+            previous.get("blocked_guardrail_count") or 0
+        )
+        run_count_delta = int(current.get("run_count") or 0) - int(previous.get("run_count") or 0)
+        if failure_rate_delta <= 0.0 and blocked_guardrail_delta <= 0 and not (current and not previous):
+            continue
+        debug_regressions.append(
+            {
+                "domain": str(current.get("domain") or previous.get("domain") or "").strip().lower(),
+                "friction_key": str(current.get("friction_key") or previous.get("friction_key") or ""),
+                "failure_rate_current": round(_coerce_float(current.get("failure_rate"), default=0.0), 4),
+                "failure_rate_previous": round(_coerce_float(previous.get("failure_rate"), default=0.0), 4),
+                "failure_rate_delta": round(float(failure_rate_delta), 4),
+                "blocked_guardrail_count_current": int(current.get("blocked_guardrail_count") or 0),
+                "blocked_guardrail_count_previous": int(previous.get("blocked_guardrail_count") or 0),
+                "blocked_guardrail_count_delta": int(blocked_guardrail_delta),
+                "run_count_current": int(current.get("run_count") or 0),
+                "run_count_previous": int(previous.get("run_count") or 0),
+                "run_count_delta": int(run_count_delta),
+                "is_new_in_current": bool(current and not previous),
+                "confidence_gap_current": bool(current.get("confidence_gap")),
+            }
+        )
+    debug_regressions.sort(
+        key=lambda row: (
+            -float(row.get("failure_rate_delta") or 0.0),
+            -int(row.get("blocked_guardrail_count_delta") or 0),
+            -int(row.get("run_count_delta") or 0),
+            str(row.get("domain") or ""),
+            str(row.get("friction_key") or ""),
+        )
+    )
+
+    status = "ok"
+    data_gaps: list[str] = []
+    if not domain_deltas:
+        status = "warning"
+        data_gaps.append("missing_domain_deltas")
+    if not previous_domain_metrics:
+        status = "warning"
+        data_gaps.append("previous_snapshot_missing_domain_metrics")
+    if not current_domain_metrics:
+        status = "warning"
+        data_gaps.append("current_snapshot_missing_domain_metrics")
+
+    summary = {
+        "domain_count": len(domain_deltas),
+        "worsening_domain_count": len([row for row in domain_deltas if str(row.get("trend") or "") == "worsening"]),
+        "improving_domain_count": len([row for row in domain_deltas if str(row.get("trend") or "") == "improving"]),
+        "accelerating_friction_count": len(accelerating_frictions),
+        "cooling_friction_count": len(cooling_frictions),
+        "debug_regression_count": len(debug_regressions),
+    }
+
+    suggested_actions: list[str] = []
+    for row in domain_deltas[:3]:
+        if int(row.get("worsening_score") or 0) <= 0:
+            continue
+        delta = dict(row.get("delta") or {})
+        suggested_actions.append(
+            "Stabilize "
+            f"{row.get('domain')} first "
+            f"(open_friction_delta={delta.get('open_friction_count')}, "
+            f"blocked_guardrail_delta={delta.get('experiment_blocked_guardrail_count')}, "
+            f"debug_hotspot_delta={delta.get('debug_hotspot_count')})."
+        )
+    for row in accelerating_frictions[:2]:
+        suggested_actions.append(
+            "Run controlled validation on accelerating friction "
+            f"{row.get('domain')}:{row.get('friction_key')} "
+            f"(urgency_delta={row.get('urgency_delta')}, blocked_guardrail_rate_delta={row.get('blocked_guardrail_rate_delta')})."
+        )
+    for row in debug_regressions[:2]:
+        suggested_actions.append(
+            "Debug regression hotspot "
+            f"{row.get('domain')}:{row.get('friction_key')} "
+            f"(failure_rate_delta={row.get('failure_rate_delta')}, "
+            f"blocked_guardrail_count_delta={row.get('blocked_guardrail_count_delta')})."
+        )
+    if data_gaps:
+        for gap in data_gaps[:2]:
+            suggested_actions.append(f"Close data gap: {gap}.")
+    if not suggested_actions:
+        suggested_actions.append("Knowledge delta is stable; keep continuous ingestion and controlled-test cadence.")
+
+    payload = {
+        "generated_at": generated_at,
+        "status": status,
+        "bootstrap_required": False,
+        "domains": domains,
+        "top_limit": top_limit,
+        "snapshot_dir": str(snapshot_dir),
+        "current_snapshot_path": str(current_snapshot_effective_path),
+        "previous_snapshot_path": str(previous_snapshot_effective_path),
+        "current_snapshot_source": str(resolution_meta.get("current_snapshot_source") or ""),
+        "previous_snapshot_source": str(resolution_meta.get("previous_snapshot_source") or ""),
+        "current_snapshot_selection_source": str(resolution_meta.get("current_snapshot_source") or ""),
+        "previous_snapshot_selection_source": str(resolution_meta.get("previous_snapshot_source") or ""),
+        "current_snapshot_path_source": str(resolution_meta.get("current_snapshot_source") or ""),
+        "previous_snapshot_path_source": str(resolution_meta.get("previous_snapshot_source") or ""),
+        "snapshot_selection_source": "explicit"
+        if str(resolution_meta.get("current_snapshot_source") or "").startswith("explicit")
+        and str(resolution_meta.get("previous_snapshot_source") or "").startswith("explicit")
+        else "auto",
+        "current_snapshot_generated_at": current_snapshot.get("generated_at"),
+        "previous_snapshot_generated_at": previous_snapshot.get("generated_at"),
+        "snapshot_selection": {
+            **resolution_meta,
+            "current_snapshot_path": str(current_snapshot_effective_path),
+            "previous_snapshot_path": str(previous_snapshot_effective_path),
+            "current_snapshot_requested_path": str(current_snapshot_path),
+            "previous_snapshot_requested_path": str(previous_snapshot_path),
+            "current_source": str(resolution_meta.get("current_snapshot_source") or ""),
+            "previous_source": str(resolution_meta.get("previous_snapshot_source") or ""),
+            "source": "explicit"
+            if str(resolution_meta.get("current_snapshot_source") or "").startswith("explicit")
+            and str(resolution_meta.get("previous_snapshot_source") or "").startswith("explicit")
+            else "auto",
+            "current_snapshot_generated_at": current_snapshot.get("generated_at"),
+            "previous_snapshot_generated_at": previous_snapshot.get("generated_at"),
+            "domains": domains,
+        },
+        "summary": summary,
+        "domain_delta_count": len(domain_deltas),
+        "domain_deltas": domain_deltas[: max(top_limit, len(domains))],
+        "accelerating_friction_count": len(accelerating_frictions),
+        "accelerating_frictions": accelerating_frictions[:top_limit],
+        "cooling_friction_count": len(cooling_frictions),
+        "cooling_frictions": cooling_frictions[:top_limit],
+        "debug_regression_count": len(debug_regressions),
+        "debug_regressions": debug_regressions[:top_limit],
+        "data_gaps": data_gaps,
+        "suggested_actions": suggested_actions,
+    }
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(payload, compact=bool(getattr(args, "json_compact", False)))
+    if status not in {"ok", "skipped_bootstrap"} and bool(getattr(args, "strict", False)):
+        raise SystemExit(2)
+
+
+def _classify_knowledge_delta_alert_severity(
+    delta_payload: dict[str, Any],
+    *,
+    min_worsening_score: int = 2,
+    min_urgency_delta: float = 0.25,
+    min_failure_rate_delta: float = 0.05,
+    min_blocked_guardrail_delta: int = 1,
+) -> dict[str, Any]:
+    status = str(delta_payload.get("status") or "").strip().lower()
+    domain_deltas = [row for row in list(delta_payload.get("domain_deltas") or []) if isinstance(row, dict)]
+    accelerating_rows = [row for row in list(delta_payload.get("accelerating_frictions") or []) if isinstance(row, dict)]
+    debug_rows = [row for row in list(delta_payload.get("debug_regressions") or []) if isinstance(row, dict)]
+
+    worsening_domains: list[dict[str, Any]] = []
+    for row in domain_deltas:
+        worsening_score = int(row.get("worsening_score") or 0)
+        delta = dict(row.get("delta") or {})
+        blocked_guardrail_delta = int(delta.get("experiment_blocked_guardrail_count") or 0)
+        if worsening_score >= max(1, int(min_worsening_score)) or blocked_guardrail_delta >= int(min_blocked_guardrail_delta):
+            worsening_domains.append(row)
+
+    accelerating_frictions = [
+        row
+        for row in accelerating_rows
+        if float(row.get("urgency_delta") or 0.0) >= float(min_urgency_delta)
+        or float(row.get("blocked_guardrail_rate_delta") or 0.0) > 0.0
+    ]
+    debug_regressions = [
+        row
+        for row in debug_rows
+        if float(row.get("failure_rate_delta") or 0.0) >= float(min_failure_rate_delta)
+        or int(row.get("blocked_guardrail_count_delta") or 0) >= int(min_blocked_guardrail_delta)
+    ]
+    critical_domains = []
+    for row in worsening_domains:
+        delta = dict(row.get("delta") or {})
+        blocked_guardrail_delta = int(delta.get("experiment_blocked_guardrail_count") or 0)
+        debug_hotspot_delta = int(delta.get("debug_hotspot_count") or 0)
+        if blocked_guardrail_delta >= max(1, int(min_blocked_guardrail_delta)) or debug_hotspot_delta >= 2:
+            critical_domains.append(row)
+
+    total_regression_signals = len(worsening_domains) + len(accelerating_frictions) + len(debug_regressions)
+    if total_regression_signals <= 0:
+        return {
+            "severity": "none",
+            "score": 0,
+            "status": status or "ok",
+            "worsening_domain_count": 0,
+            "accelerating_friction_count": 0,
+            "debug_regression_count": 0,
+            "critical_domain_count": 0,
+            "total_regression_signals": 0,
+            "recommended_urgency": None,
+            "recommended_confidence": None,
+            "reasons": ["no_threshold_breaches"],
+            "worsening_domains": [],
+            "accelerating_frictions": [],
+            "debug_regressions": [],
+        }
+
+    reasons: list[str] = []
+    score = 0
+    if worsening_domains:
+        score += 2
+        reasons.append("worsening_domains_detected")
+    if len(worsening_domains) >= 2:
+        score += 1
+        reasons.append("multiple_worsening_domains")
+    if accelerating_frictions:
+        score += 2
+        reasons.append("accelerating_frictions_detected")
+    if len(accelerating_frictions) >= 2:
+        score += 1
+        reasons.append("multiple_accelerating_frictions")
+    if debug_regressions:
+        score += 2
+        reasons.append("debug_regressions_detected")
+    if len(debug_regressions) >= 2:
+        score += 1
+        reasons.append("multiple_debug_regressions")
+    if critical_domains:
+        score += 2
+        reasons.append("critical_domain_regressions")
+    if status != "ok":
+        score += 1
+        reasons.append("delta_payload_warning_status")
+
+    severity = "critical" if score >= 6 else "warn"
+    return {
+        "severity": severity,
+        "score": int(score),
+        "status": status or "ok",
+        "worsening_domain_count": len(worsening_domains),
+        "accelerating_friction_count": len(accelerating_frictions),
+        "debug_regression_count": len(debug_regressions),
+        "critical_domain_count": len(critical_domains),
+        "total_regression_signals": int(total_regression_signals),
+        "recommended_urgency": 0.97 if severity == "critical" else 0.88,
+        "recommended_confidence": 0.94 if severity == "critical" else 0.83,
+        "reasons": reasons,
+        "worsening_domains": worsening_domains,
+        "accelerating_frictions": accelerating_frictions,
+        "debug_regressions": debug_regressions,
+    }
+
+
+def _build_knowledge_delta_mitigations(
+    delta_payload: dict[str, Any],
+    *,
+    severity_profile: dict[str, Any],
+    max_items: int = 3,
+) -> list[str]:
+    severity = str(severity_profile.get("severity") or "none")
+    worsening_domains = [
+        row
+        for row in list(severity_profile.get("worsening_domains") or [])
+        if isinstance(row, dict)
+    ]
+    accelerating = [
+        row
+        for row in list(severity_profile.get("accelerating_frictions") or [])
+        if isinstance(row, dict)
+    ]
+    debug_rows = [
+        row
+        for row in list(severity_profile.get("debug_regressions") or [])
+        if isinstance(row, dict)
+    ]
+    actions: list[str] = []
+    if severity == "critical":
+        actions.append("Escalate immediately: freeze promoted implementations in affected domains until regressions are triaged.")
+    for row in worsening_domains[: max(1, int(max_items))]:
+        delta = dict(row.get("delta") or {})
+        actions.append(
+            "Stabilize domain "
+            f"{row.get('domain')} "
+            f"(worsening_score={row.get('worsening_score')}, "
+            f"open_friction_delta={delta.get('open_friction_count')}, "
+            f"blocked_guardrail_delta={delta.get('experiment_blocked_guardrail_count')})."
+        )
+    for row in accelerating[: max(1, int(max_items))]:
+        actions.append(
+            "Prioritize accelerating friction "
+            f"{row.get('domain')}:{row.get('friction_key')} "
+            f"(urgency_delta={row.get('urgency_delta')}, impact_delta={row.get('impact_delta')})."
+        )
+    for row in debug_rows[: max(1, int(max_items))]:
+        actions.append(
+            "Debug regression hotspot "
+            f"{row.get('domain')}:{row.get('friction_key')} "
+            f"(failure_rate_delta={row.get('failure_rate_delta')}, "
+            f"blocked_guardrail_count_delta={row.get('blocked_guardrail_count_delta')})."
+        )
+    if not actions:
+        actions.append("No high-priority knowledge delta regressions detected; continue monitoring and controlled validation cadence.")
+    return actions
+
+
+def cmd_improvement_knowledge_brief_delta_alert(args: argparse.Namespace) -> None:
+    snapshot_dir = _resolve_knowledge_snapshot_dir(
+        repo_path=args.repo_path.resolve(),
+        snapshot_dir_value=getattr(args, "snapshot_dir", None),
+    )
+    top_limit = max(1, int(getattr(args, "top_limit", 10) or 10))
+    alert_max_items = max(1, int(getattr(args, "alert_max_items", 3) or 3))
+
+    delta_args = argparse.Namespace(
+        domains=getattr(args, "domains", None),
+        snapshot_dir=getattr(args, "snapshot_dir", None),
+        current_snapshot_path=getattr(args, "current_snapshot_path", None),
+        previous_snapshot_path=getattr(args, "previous_snapshot_path", None),
+        top_limit=top_limit,
+        output_path=None,
+        strict=False,
+        json_compact=False,
+        repo_path=args.repo_path,
+        db_path=args.db_path,
+    )
+    delta_payload = _invoke_cli_json_command(
+        cmd_improvement_knowledge_brief_delta,
+        args=delta_args,
+    )
+    delta_status = str(delta_payload.get("status") or "warning").strip().lower() or "warning"
+    bootstrap_required = bool(delta_payload.get("bootstrap_required"))
+    severity_profile = _classify_knowledge_delta_alert_severity(
+        delta_payload,
+        min_worsening_score=max(1, int(getattr(args, "min_worsening_score", 2) or 2)),
+        min_urgency_delta=max(0.0, float(getattr(args, "min_urgency_delta", 0.25) or 0.25)),
+        min_failure_rate_delta=max(0.0, float(getattr(args, "min_failure_rate_delta", 0.05) or 0.05)),
+        min_blocked_guardrail_delta=max(
+            1,
+            int(getattr(args, "min_blocked_guardrail_delta", 1) or 1),
+        ),
+    )
+    drift_severity = str(severity_profile.get("severity") or "none")
+    mitigations = _build_knowledge_delta_mitigations(
+        delta_payload,
+        severity_profile=severity_profile,
+        max_items=alert_max_items,
+    )
+    if delta_status == "skipped_bootstrap":
+        delta_suggested_actions = [
+            str(item).strip()
+            for item in list(delta_payload.get("suggested_actions") or [])
+            if str(item).strip()
+        ]
+        mitigations = delta_suggested_actions[: max(1, alert_max_items)] or [
+            "Bootstrap in progress: capture another knowledge snapshot before alerting on regressions.",
+        ]
+    alert_payload: dict[str, Any] | None = None
+    alert_created = False
+
+    if drift_severity in {"warn", "critical"}:
+        recommended_urgency = _coerce_float(severity_profile.get("recommended_urgency"), default=0.88)
+        recommended_confidence = _coerce_float(severity_profile.get("recommended_confidence"), default=0.83)
+        raw_urgency = getattr(args, "alert_urgency", None)
+        raw_confidence = getattr(args, "alert_confidence", None)
+        alert_urgency = max(
+            0.0,
+            min(
+                1.0,
+                (
+                    _coerce_float(raw_urgency, default=recommended_urgency)
+                    if raw_urgency is not None
+                    else recommended_urgency
+                ),
+            ),
+        )
+        alert_confidence = max(
+            0.0,
+            min(
+                1.0,
+                (
+                    _coerce_float(raw_confidence, default=recommended_confidence)
+                    if raw_confidence is not None
+                    else recommended_confidence
+                ),
+            ),
+        )
+        alert_domain = str(getattr(args, "alert_domain", "operations") or "operations").strip().lower() or "operations"
+
+        worsening_domains = [
+            str(row.get("domain") or "").strip().lower()
+            for row in list(severity_profile.get("worsening_domains") or [])[:alert_max_items]
+            if isinstance(row, dict) and str(row.get("domain") or "").strip()
+        ]
+        accelerating_refs = [
+            f"{str(row.get('domain') or '').strip().lower()}:{str(row.get('friction_key') or '').strip()}"
+            for row in list(severity_profile.get("accelerating_frictions") or [])[:alert_max_items]
+            if isinstance(row, dict)
+            and str(row.get("domain") or "").strip()
+            and str(row.get("friction_key") or "").strip()
+        ]
+        debug_refs = [
+            f"{str(row.get('domain') or '').strip().lower()}:{str(row.get('friction_key') or '').strip()}"
+            for row in list(severity_profile.get("debug_regressions") or [])[:alert_max_items]
+            if isinstance(row, dict)
+            and str(row.get("domain") or "").strip()
+            and str(row.get("friction_key") or "").strip()
+        ]
+        reason = (
+            "knowledge_delta_regression_detected"
+            + f" severity={drift_severity}"
+            + f" worsening_domains={int(severity_profile.get('worsening_domain_count') or 0)}"
+            + f" accelerating_frictions={int(severity_profile.get('accelerating_friction_count') or 0)}"
+            + f" debug_regressions={int(severity_profile.get('debug_regression_count') or 0)}"
+            + f" domains={','.join(worsening_domains[:alert_max_items]) if worsening_domains else 'none'}"
+        )
+        why_now = "knowledge delta thresholds indicate active regression risk across tracked domains."
+        why_not_later = "delaying triage can compound friction growth, guardrail failures, and downstream regressions."
+
+        runtime = JarvisRuntime(db_path=args.db_path.resolve(), repo_path=args.repo_path.resolve())
+        try:
+            decision = InterruptDecision(
+                interrupt_id=new_id("int"),
+                candidate_id=new_id("cand"),
+                domain=alert_domain,
+                reason=reason,
+                urgency_score=alert_urgency,
+                confidence=alert_confidence,
+                suppression_window_hit=False,
+                delivered=True,
+                why_now=why_now,
+                why_not_later=why_not_later,
+                status="delivered",
+            )
+            runtime.interrupt_store.store(decision)
+            interrupt = runtime.interrupt_store.get(decision.interrupt_id) or decision.to_dict()
+            runtime.memory.append_event(
+                "improvement.knowledge_delta_alert_created",
+                {
+                    "interrupt_id": interrupt.get("interrupt_id"),
+                    "domain": alert_domain,
+                    "drift_severity": drift_severity,
+                    "severity_profile": severity_profile,
+                    "snapshot_dir": str(snapshot_dir),
+                    "current_snapshot_path": delta_payload.get("current_snapshot_path"),
+                    "previous_snapshot_path": delta_payload.get("previous_snapshot_path"),
+                    "worsening_domains": worsening_domains,
+                    "accelerating_refs": accelerating_refs,
+                    "debug_refs": debug_refs,
+                    "mitigation_actions": mitigations,
+                },
+            )
+            alert_payload = {
+                "interrupt_id": interrupt.get("interrupt_id"),
+                "domain": interrupt.get("domain"),
+                "status": interrupt.get("status"),
+                "drift_severity": drift_severity,
+                "urgency_score": interrupt.get("urgency_score"),
+                "confidence": interrupt.get("confidence"),
+                "reason": interrupt.get("reason"),
+                "why_now": interrupt.get("why_now"),
+                "why_not_later": interrupt.get("why_not_later"),
+                "worsening_domains": worsening_domains,
+                "accelerating_refs": accelerating_refs,
+                "debug_refs": debug_refs,
+                "acknowledge_command": (
+                    f"python3 -m jarvis.cli interrupts acknowledge {interrupt.get('interrupt_id')} --actor operator"
+                    if str(interrupt.get("interrupt_id") or "").strip()
+                    else None
+                ),
+            }
+            alert_created = True
+        finally:
+            runtime.close()
+
+    status = "warning" if alert_created else delta_status
+    payload = {
+        "generated_at": utc_now_iso(),
+        "status": status,
+        "domains": _normalize_improvement_knowledge_domains(getattr(args, "domains", None)),
+        "snapshot_dir": str(snapshot_dir),
+        "bootstrap_required": bootstrap_required,
+        "drift_severity": drift_severity,
+        "severity_profile": severity_profile,
+        "alert_created": alert_created,
+        "alert": alert_payload,
+        "acknowledge_commands": (
+            [str(alert_payload.get("acknowledge_command"))]
+            if isinstance(alert_payload, dict) and str(alert_payload.get("acknowledge_command") or "").strip()
+            else []
+        ),
+        "mitigation_actions": mitigations,
+        "delta": delta_payload,
+        "thresholds": {
+            "min_worsening_score": max(1, int(getattr(args, "min_worsening_score", 2) or 2)),
+            "min_urgency_delta": max(0.0, float(getattr(args, "min_urgency_delta", 0.25) or 0.25)),
+            "min_failure_rate_delta": max(0.0, float(getattr(args, "min_failure_rate_delta", 0.05) or 0.05)),
+            "min_blocked_guardrail_delta": max(1, int(getattr(args, "min_blocked_guardrail_delta", 1) or 1)),
+        },
+    }
+
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if status not in {"ok", "skipped_bootstrap"} and bool(getattr(args, "strict", False)):
+        raise SystemExit(2)
+
+
+def _coerce_knowledge_domains_csv_from_report(report_payload: dict[str, Any]) -> str:
+    knowledge_alert_block = dict(report_payload.get("knowledge_brief_delta_alert") or {})
+    knowledge_brief_block = dict(report_payload.get("knowledge_brief") or {})
+    candidates = [
+        knowledge_alert_block.get("domains"),
+        knowledge_brief_block.get("domains"),
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            raw = candidate
+        elif isinstance(candidate, (list, tuple, set)):
+            raw = ",".join(str(item).strip() for item in candidate if str(item).strip())
+        else:
+            raw = str(candidate or "")
+        normalized = _normalize_improvement_knowledge_domains(raw)
+        if normalized:
+            return ",".join(normalized)
+    return DEFAULT_IMPROVEMENT_KNOWLEDGE_DOMAINS_CSV
+
+
+def _build_knowledge_route_operator_cycle_command(report_payload: dict[str, Any]) -> str | None:
+    config_path_raw = str(report_payload.get("config_path") or "").strip()
+    if not config_path_raw:
+        return None
+    config_path = Path(config_path_raw).expanduser()
+    if not config_path.is_absolute():
+        config_path = (Path.cwd() / config_path).resolve()
+    else:
+        config_path = config_path.resolve()
+
+    output_dir_raw = str(report_payload.get("output_dir") or "").strip()
+    if output_dir_raw:
+        output_dir = Path(output_dir_raw).expanduser()
+        if not output_dir.is_absolute():
+            output_dir = (Path.cwd() / output_dir).resolve()
+        else:
+            output_dir = output_dir.resolve()
+    else:
+        output_dir = (config_path.parent / "output" / "improvement" / "operator_cycle").resolve()
+
+    knowledge_bootstrap_state = dict(report_payload.get("knowledge_bootstrap_state") or {})
+    snapshot_dir_raw = str(knowledge_bootstrap_state.get("snapshot_dir") or "").strip()
+    snapshot_dir = Path(snapshot_dir_raw).expanduser().resolve() if snapshot_dir_raw else None
+
+    knowledge_brief_block = dict(report_payload.get("knowledge_brief") or {})
+    query = str(knowledge_brief_block.get("query") or "").strip()
+    snapshot_label: str | None = None
+    knowledge_snapshot_block = dict(knowledge_brief_block.get("knowledge_snapshot") or {})
+    snapshot_metadata = dict(knowledge_snapshot_block.get("metadata") or {})
+    snapshot_label_raw = str(snapshot_metadata.get("label") or "").strip()
+    if snapshot_label_raw:
+        snapshot_label = snapshot_label_raw
+
+    return _build_operator_cycle_knowledge_bootstrap_command(
+        config_path=config_path,
+        output_dir=output_dir,
+        knowledge_domains=_coerce_knowledge_domains_csv_from_report(report_payload),
+        knowledge_snapshot_dir=snapshot_dir,
+        knowledge_query=query,
+        knowledge_snapshot_label=snapshot_label,
+    )
+
+
+def _resolve_knowledge_bootstrap_phase_from_report(
+    report_payload: dict[str, Any],
+) -> tuple[str, str, str]:
+    knowledge_bootstrap_state = dict(report_payload.get("knowledge_bootstrap_state") or {})
+    stage_statuses = dict(report_payload.get("stage_statuses") or {})
+    phase_raw = str(knowledge_bootstrap_state.get("phase") or "").strip().lower()
+    if phase_raw in {"bootstrap_pending", "ready", "not_requested"}:
+        stage_status = str(
+            knowledge_bootstrap_state.get("stage_status")
+            or stage_statuses.get("knowledge_brief_delta_alert")
+            or ""
+        ).strip().lower()
+        return phase_raw, "knowledge_bootstrap_state.phase", stage_status
+
+    stage_status = str(
+        knowledge_bootstrap_state.get("stage_status")
+        or stage_statuses.get("knowledge_brief_delta_alert")
+        or ""
+    ).strip().lower()
+    if bool(knowledge_bootstrap_state.get("bootstrap_required")) or stage_status == "skipped_bootstrap":
+        return "bootstrap_pending", "derived_stage_status", stage_status
+    if stage_status == "skipped_not_requested":
+        return "not_requested", "derived_stage_status", stage_status
+    if stage_status in {"ok", "warning"}:
+        return "ready", "derived_stage_status", stage_status
+    return "unknown", "unresolved", stage_status
+
+
+def cmd_improvement_knowledge_bootstrap_route(args: argparse.Namespace) -> None:
+    report_path = args.report_path.resolve()
+    loaded = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise ValueError("invalid_report_file:expected_json_object")
+
+    source_report_type = (
+        "operator_cycle_report"
+        if str(loaded.get("operator_report_path") or "").strip()
+        or str(loaded.get("inbox_summary_path") or "").strip()
+        or isinstance(loaded.get("summary"), dict)
+        else (
+            "operator_inbox_summary"
+            if isinstance(loaded.get("knowledge_bootstrap_state"), dict)
+            and isinstance(loaded.get("stage_statuses"), dict)
+            else "unknown_report"
+        )
+    )
+    knowledge_bootstrap_state = dict(loaded.get("knowledge_bootstrap_state") or {})
+    phase, phase_source, stage_status = _resolve_knowledge_bootstrap_phase_from_report(loaded)
+    bootstrap_required = bool(knowledge_bootstrap_state.get("bootstrap_required")) or phase == "bootstrap_pending"
+    next_action_command = str(knowledge_bootstrap_state.get("next_action_command") or "").strip() or None
+    next_action = str(knowledge_bootstrap_state.get("next_action") or "").strip() or None
+
+    status = "ok"
+    route = "noop"
+    route_reason = "Knowledge bootstrap stage was not requested in this report."
+    if phase == "bootstrap_pending":
+        route = "bootstrap"
+        route_reason = "Knowledge bootstrap requires another snapshot before delta comparisons."
+        if not next_action_command:
+            next_action_command = _build_knowledge_route_operator_cycle_command(loaded)
+        if not next_action:
+            next_action = "Capture one more knowledge snapshot, then rerun operator-cycle."
+    elif phase == "ready":
+        route = "run_cycle"
+        route_reason = "Knowledge bootstrap is ready; continue operator-cycle cadence with delta alerts enabled."
+        if not next_action_command:
+            next_action_command = _build_knowledge_route_operator_cycle_command(loaded)
+        if not next_action:
+            next_action = "Knowledge bootstrap ready; continue operator-cycle monitoring cadence."
+    elif phase == "not_requested":
+        route = "noop"
+        route_reason = "Knowledge delta alert stage is currently disabled for this report."
+        if not next_action:
+            next_action = "No knowledge bootstrap action required."
+    else:
+        status = "warning"
+        route = "noop"
+        route_reason = "Unable to resolve knowledge bootstrap phase from report payload."
+        if not next_action_command:
+            next_action_command = _build_knowledge_route_operator_cycle_command(loaded)
+        if not next_action:
+            next_action = "Inspect the report and rerun operator-cycle with knowledge stages enabled."
+
+    payload = {
+        "generated_at": utc_now_iso(),
+        "status": status,
+        "report_path": str(report_path),
+        "source_report_type": source_report_type,
+        "phase": phase,
+        "phase_source": phase_source,
+        "stage_status": stage_status,
+        "route": route,
+        "route_reason": route_reason,
+        "bootstrap_required": bootstrap_required,
+        "next_action": next_action,
+        "next_action_command": next_action_command,
+        "knowledge_bootstrap_state": knowledge_bootstrap_state,
+    }
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if status != "ok" and bool(getattr(args, "strict", False)):
+        raise SystemExit(2)
 
 
 def cmd_improvement_benchmark_frustrations(args: argparse.Namespace) -> None:
@@ -8244,6 +11735,11 @@ def main() -> None:
         help="Show only blocked gate rows in gate_rows output (still scans all reviews)",
     )
     plans_gate_status_all.add_argument(
+        "--only-unlock-ready",
+        action="store_true",
+        help="Show only unlock-ready gate rows in gate_rows output (still scans all reviews)",
+    )
+    plans_gate_status_all.add_argument(
         "--fail-on-blocked",
         action="store_true",
         help="Exit non-zero when blocked steps are present (for CI/automation gating)",
@@ -8262,6 +11758,14 @@ def main() -> None:
         "--fail-on-zero-evaluated",
         action="store_true",
         help="Exit non-zero when no review steps were evaluable (takes precedence over blocked exit)",
+    )
+    plans_gate_status_all.add_argument(
+        "--fail-on-zero-unlock-ready",
+        action="store_true",
+        help=(
+            "Exit non-zero when no unlock-ready steps are available "
+            "(takes precedence over blocked/empty-ack exit)"
+        ),
     )
     plans_gate_status_all.add_argument(
         "--fail-on-empty-ack-commands",
@@ -8291,6 +11795,12 @@ def main() -> None:
         type=int,
         default=4,
         help="Exit code to use with --fail-on-zero-evaluated when no steps are evaluable (min 1)",
+    )
+    plans_gate_status_all.add_argument(
+        "--zero-unlock-ready-exit-code",
+        type=int,
+        default=8,
+        help="Exit code to use with --fail-on-zero-unlock-ready when no unlock-ready steps are found (min 1)",
     )
     plans_gate_status_all.add_argument(
         "--empty-ack-commands-exit-code",
@@ -9015,10 +12525,20 @@ def main() -> None:
         ),
     )
     improvement_operator_cycle.add_argument("--seed-as-of", type=str, default=None)
-    improvement_operator_cycle.add_argument("--seed-lookback-days", type=int, default=7)
+    improvement_operator_cycle.add_argument(
+        "--seed-lookback-days",
+        type=int,
+        default=None,
+        help="Optional leaderboard lookback-days override (when omitted, resolves from config defaults per domain)",
+    )
     improvement_operator_cycle.add_argument("--seed-min-cluster-count", type=int, default=1)
     improvement_operator_cycle.add_argument("--seed-cluster-limit", type=int, default=20)
-    improvement_operator_cycle.add_argument("--seed-leaderboard-limit", type=int, default=12)
+    improvement_operator_cycle.add_argument(
+        "--seed-leaderboard-limit",
+        type=int,
+        default=None,
+        help="Optional leaderboard row-limit override (when omitted, resolves from config defaults per domain)",
+    )
     improvement_operator_cycle.add_argument("--seed-cooling-limit", type=int, default=10)
     improvement_operator_cycle.add_argument(
         "--seed-app-fields",
@@ -9045,7 +12565,12 @@ def main() -> None:
         ),
     )
     improvement_operator_cycle.add_argument("--seed-own-app-aliases", type=str, default=None)
-    improvement_operator_cycle.add_argument("--seed-trend-threshold", type=float, default=0.25)
+    improvement_operator_cycle.add_argument(
+        "--seed-trend-threshold",
+        type=float,
+        default=None,
+        help="Optional leaderboard trend-threshold override (when omitted, resolves from config defaults per domain)",
+    )
     improvement_operator_cycle.add_argument(
         "--seed-timestamp-fields",
         type=str,
@@ -9088,13 +12613,237 @@ def main() -> None:
         help="Optional artifact directory for drafted experiment templates (defaults under output-dir)",
     )
     improvement_operator_cycle.add_argument("--draft-domain", type=str, default=None)
-    improvement_operator_cycle.add_argument("--draft-statuses", type=str, default="queued")
-    improvement_operator_cycle.add_argument("--draft-limit", type=int, default=8)
-    improvement_operator_cycle.add_argument("--draft-lookup-limit", type=int, default=400)
+    improvement_operator_cycle.add_argument(
+        "--draft-statuses",
+        type=str,
+        default=None,
+        help="Optional draft status filter override (when omitted, resolves from config defaults per domain)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-limit",
+        type=int,
+        default=None,
+        help="Optional draft selection limit override (when omitted, resolves from config defaults per domain)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-lookup-limit",
+        type=int,
+        default=None,
+        help="Optional draft lookup limit override (when omitted, resolves from config defaults per domain)",
+    )
     improvement_operator_cycle.add_argument("--draft-include-existing", action="store_true")
     improvement_operator_cycle.add_argument("--draft-overwrite-artifacts", action="store_true")
-    improvement_operator_cycle.add_argument("--draft-environment", type=str, default=None)
-    improvement_operator_cycle.add_argument("--draft-default-sample-size", type=int, default=100)
+    improvement_operator_cycle.add_argument(
+        "--draft-environment",
+        type=str,
+        default=None,
+        help=(
+            "Optional experiment environment override (when omitted, resolves from config defaults "
+            "per domain and then controlled environment inference)"
+        ),
+    )
+    improvement_operator_cycle.add_argument(
+        "--draft-default-sample-size",
+        type=int,
+        default=None,
+        help=(
+            "Optional default sample size override used for drafted artifacts without explicit criteria "
+            "(when omitted, resolves from config defaults per domain)"
+        ),
+    )
+    improvement_operator_cycle.add_argument(
+        "--operator-report-path",
+        type=Path,
+        default=None,
+        help="Optional path for persisted operator-cycle report (defaults under output-dir)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--benchmark-enable",
+        action="store_true",
+        help="Enable benchmark-frustrations stage after retest execution",
+    )
+    improvement_operator_cycle.add_argument(
+        "--benchmark-top-limit",
+        type=int,
+        default=None,
+        help="Optional benchmark row limit override (when omitted, resolves from config defaults)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--benchmark-report-path",
+        type=Path,
+        default=None,
+        help="Optional report path for benchmark-frustrations stage (defaults under output-dir)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--verify-matrix-enable",
+        action="store_true",
+        help="Enable verify-matrix stage after benchmark synthesis",
+    )
+    improvement_operator_cycle.add_argument(
+        "--verify-matrix-path",
+        type=Path,
+        default=None,
+        help=(
+            "Optional controlled experiment matrix path "
+            "(when omitted, resolves from config defaults and runs when available)"
+        ),
+    )
+    improvement_operator_cycle.add_argument(
+        "--verify-matrix-report-path",
+        type=Path,
+        default=None,
+        help="Optional report path for verify-matrix stage (defaults under output-dir)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--verify-matrix-alert-enable",
+        action="store_true",
+        help="Enable verify-matrix-alert stage after verify-matrix",
+    )
+    improvement_operator_cycle.add_argument(
+        "--verify-matrix-alert-domain",
+        type=str,
+        default=None,
+        help="Optional verify-matrix-alert domain override (defaults to config or 'markets')",
+    )
+    improvement_operator_cycle.add_argument(
+        "--verify-matrix-alert-max-items",
+        type=int,
+        default=None,
+        help="Optional verify-matrix-alert max item count override (defaults to config or 3)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--verify-matrix-alert-urgency",
+        type=float,
+        default=None,
+        help="Optional verify-matrix-alert urgency override (0-1)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--verify-matrix-alert-confidence",
+        type=float,
+        default=None,
+        help="Optional verify-matrix-alert confidence override (0-1)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--verify-matrix-alert-report-path",
+        type=Path,
+        default=None,
+        help="Optional report path for verify-matrix-alert stage (defaults under output-dir)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-brief-enable",
+        action="store_true",
+        help="Enable knowledge-brief snapshot stage prior to knowledge-delta alert evaluation",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-brief-query",
+        type=str,
+        default=None,
+        help="Optional query used to prioritize knowledge-brief friction rows (defaults to config or empty)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-brief-snapshot-label",
+        type=str,
+        default=None,
+        help="Optional snapshot label for operator-cycle knowledge-brief snapshots",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-brief-report-path",
+        type=Path,
+        default=None,
+        help="Optional report path for knowledge-brief stage (defaults under output-dir)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-alert-enable",
+        action="store_true",
+        help="Enable knowledge-brief-delta-alert stage after verify-matrix-alert",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-domains",
+        type=str,
+        default=None,
+        help=(
+            "Optional comma-separated domain list for knowledge-delta alert "
+            "(defaults to config or quant_finance,kalshi_weather,fitness_apps,market_ml)"
+        ),
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-snapshot-dir",
+        type=Path,
+        default=None,
+        help="Optional snapshot directory for knowledge-brief-delta-alert",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-current-snapshot-path",
+        type=Path,
+        default=None,
+        help="Optional explicit current snapshot path for knowledge-brief-delta-alert",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-previous-snapshot-path",
+        type=Path,
+        default=None,
+        help="Optional explicit previous snapshot path for knowledge-brief-delta-alert",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-top-limit",
+        type=int,
+        default=None,
+        help="Optional top-limit override for knowledge-brief-delta rows (defaults to config or 10)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-alert-domain",
+        type=str,
+        default=None,
+        help="Optional knowledge-delta alert domain override (defaults to config or 'operations')",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-alert-max-items",
+        type=int,
+        default=None,
+        help="Optional max mitigation items for knowledge-delta alert (defaults to config or 3)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-alert-urgency",
+        type=float,
+        default=None,
+        help="Optional knowledge-delta alert urgency override (0-1)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-alert-confidence",
+        type=float,
+        default=None,
+        help="Optional knowledge-delta alert confidence override (0-1)",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-min-worsening-score",
+        type=int,
+        default=None,
+        help="Optional minimum worsening-score threshold for knowledge-delta alerts",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-min-urgency-delta",
+        type=float,
+        default=None,
+        help="Optional minimum urgency-delta threshold for knowledge-delta alerts",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-min-failure-rate-delta",
+        type=float,
+        default=None,
+        help="Optional minimum failure-rate delta threshold for knowledge-delta alerts",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-delta-min-blocked-guardrail-delta",
+        type=int,
+        default=None,
+        help="Optional minimum blocked-guardrail delta threshold for knowledge-delta alerts",
+    )
+    improvement_operator_cycle.add_argument(
+        "--knowledge-brief-delta-alert-report-path",
+        type=Path,
+        default=None,
+        help="Optional report path for knowledge-brief-delta-alert stage (defaults under output-dir)",
+    )
     improvement_operator_cycle.add_argument("--strict", action="store_true")
     improvement_operator_cycle.add_argument("--json-compact", action="store_true")
     improvement_operator_cycle.add_argument("--repo-path", type=Path, default=_default_repo_path())
@@ -9170,6 +12919,171 @@ def main() -> None:
     improvement_benchmark_frustrations.add_argument("--output-path", type=Path, default=None)
     improvement_benchmark_frustrations.add_argument("--strict", action="store_true")
     improvement_benchmark_frustrations.add_argument("--json-compact", action="store_true")
+    improvement_benchmark_frustrations.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_benchmark_frustrations.add_argument("--db-path", type=Path, default=_default_db_path())
+
+    improvement_knowledge_brief = improvement_sub.add_parser(
+        "knowledge-brief",
+        help=(
+            "Summarize cross-domain knowledge capacity across frictions, hypotheses, experiments, "
+            "debug hotspots, and controlled test candidates"
+        ),
+    )
+    improvement_knowledge_brief.add_argument(
+        "--domains",
+        type=str,
+        default=DEFAULT_IMPROVEMENT_KNOWLEDGE_DOMAINS_CSV,
+        help="Comma-separated domains (defaults: quant_finance,kalshi_weather,fitness_apps,market_ml)",
+    )
+    improvement_knowledge_brief.add_argument(
+        "--query",
+        type=str,
+        default="",
+        help="Optional query string used to prioritize matching knowledge rows",
+    )
+    improvement_knowledge_brief.add_argument("--displeasure-limit", type=int, default=8)
+    improvement_knowledge_brief.add_argument("--hypothesis-limit", type=int, default=80)
+    improvement_knowledge_brief.add_argument("--experiment-limit", type=int, default=120)
+    improvement_knowledge_brief.add_argument("--controlled-test-limit", type=int, default=5)
+    improvement_knowledge_brief.add_argument("--min-cluster-count", type=int, default=2)
+    improvement_knowledge_brief.add_argument(
+        "--snapshot-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional directory for versioned knowledge snapshots "
+            "(defaults to <repo>/analysis/improvement/knowledge_snapshots)"
+        ),
+    )
+    improvement_knowledge_brief.add_argument(
+        "--snapshot-label",
+        type=str,
+        default=None,
+        help="Optional label included in snapshot metadata and filename hint",
+    )
+    improvement_knowledge_brief.add_argument(
+        "--write-snapshot",
+        dest="write_snapshot",
+        action="store_true",
+        help="Persist a versioned snapshot for this run (default)",
+    )
+    improvement_knowledge_brief.add_argument(
+        "--no-write-snapshot",
+        dest="write_snapshot",
+        action="store_false",
+        help="Skip snapshot persistence for this run",
+    )
+    improvement_knowledge_brief.add_argument("--output-path", type=Path, default=None)
+    improvement_knowledge_brief.add_argument("--strict", action="store_true")
+    improvement_knowledge_brief.add_argument("--json-compact", action="store_true")
+    improvement_knowledge_brief.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_knowledge_brief.add_argument("--db-path", type=Path, default=_default_db_path())
+    improvement_knowledge_brief.set_defaults(write_snapshot=True)
+
+    improvement_knowledge_brief_delta = improvement_sub.add_parser(
+        "knowledge-brief-delta",
+        help=(
+            "Compare two knowledge-brief snapshots and surface domain regressions, accelerating frictions, "
+            "and debug-risk deltas"
+        ),
+    )
+    improvement_knowledge_brief_delta.add_argument(
+        "--domains",
+        type=str,
+        default=DEFAULT_IMPROVEMENT_KNOWLEDGE_DOMAINS_CSV,
+        help="Comma-separated domains to include in delta comparisons",
+    )
+    improvement_knowledge_brief_delta.add_argument(
+        "--snapshot-dir",
+        type=Path,
+        default=None,
+        help="Snapshot directory (defaults to <repo>/analysis/improvement/knowledge_snapshots)",
+    )
+    improvement_knowledge_brief_delta.add_argument(
+        "--current-snapshot-path",
+        type=Path,
+        default=None,
+        help="Optional explicit current snapshot JSON path (defaults to latest snapshot alias)",
+    )
+    improvement_knowledge_brief_delta.add_argument(
+        "--previous-snapshot-path",
+        type=Path,
+        default=None,
+        help="Optional explicit previous snapshot JSON path (defaults to snapshot preceding current)",
+    )
+    improvement_knowledge_brief_delta.add_argument("--top-limit", type=int, default=10)
+    improvement_knowledge_brief_delta.add_argument("--output-path", type=Path, default=None)
+    improvement_knowledge_brief_delta.add_argument("--strict", action="store_true")
+    improvement_knowledge_brief_delta.add_argument("--json-compact", action="store_true")
+    improvement_knowledge_brief_delta.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_knowledge_brief_delta.add_argument("--db-path", type=Path, default=_default_db_path())
+
+    improvement_knowledge_brief_delta_alert = improvement_sub.add_parser(
+        "knowledge-brief-delta-alert",
+        help="Run knowledge-brief delta and create a delivered interrupt when regression thresholds are exceeded",
+    )
+    improvement_knowledge_brief_delta_alert.add_argument(
+        "--domains",
+        type=str,
+        default=DEFAULT_IMPROVEMENT_KNOWLEDGE_DOMAINS_CSV,
+        help="Comma-separated domains to include in delta alert evaluation",
+    )
+    improvement_knowledge_brief_delta_alert.add_argument(
+        "--snapshot-dir",
+        type=Path,
+        default=None,
+        help="Snapshot directory (defaults to <repo>/analysis/improvement/knowledge_snapshots)",
+    )
+    improvement_knowledge_brief_delta_alert.add_argument(
+        "--current-snapshot-path",
+        type=Path,
+        default=None,
+        help="Optional explicit current snapshot JSON path",
+    )
+    improvement_knowledge_brief_delta_alert.add_argument(
+        "--previous-snapshot-path",
+        type=Path,
+        default=None,
+        help="Optional explicit previous snapshot JSON path",
+    )
+    improvement_knowledge_brief_delta_alert.add_argument("--top-limit", type=int, default=10)
+    improvement_knowledge_brief_delta_alert.add_argument("--alert-domain", type=str, default="operations")
+    improvement_knowledge_brief_delta_alert.add_argument(
+        "--alert-urgency",
+        type=float,
+        default=None,
+        help="Optional override (0-1). Defaults to severity-based automatic value.",
+    )
+    improvement_knowledge_brief_delta_alert.add_argument(
+        "--alert-confidence",
+        type=float,
+        default=None,
+        help="Optional override (0-1). Defaults to severity-based automatic value.",
+    )
+    improvement_knowledge_brief_delta_alert.add_argument("--alert-max-items", type=int, default=3)
+    improvement_knowledge_brief_delta_alert.add_argument("--min-worsening-score", type=int, default=2)
+    improvement_knowledge_brief_delta_alert.add_argument("--min-urgency-delta", type=float, default=0.25)
+    improvement_knowledge_brief_delta_alert.add_argument("--min-failure-rate-delta", type=float, default=0.05)
+    improvement_knowledge_brief_delta_alert.add_argument("--min-blocked-guardrail-delta", type=int, default=1)
+    improvement_knowledge_brief_delta_alert.add_argument("--output-path", type=Path, default=None)
+    improvement_knowledge_brief_delta_alert.add_argument("--strict", action="store_true")
+    improvement_knowledge_brief_delta_alert.add_argument("--json-compact", action="store_true")
+    improvement_knowledge_brief_delta_alert.add_argument("--repo-path", type=Path, default=_default_repo_path())
+    improvement_knowledge_brief_delta_alert.add_argument("--db-path", type=Path, default=_default_db_path())
+
+    improvement_knowledge_bootstrap_route = improvement_sub.add_parser(
+        "knowledge-bootstrap-route",
+        help="Resolve a stable automation route from operator-cycle knowledge bootstrap state",
+    )
+    improvement_knowledge_bootstrap_route.add_argument(
+        "--report-path",
+        type=Path,
+        required=True,
+        help="Path to operator-cycle report or operator inbox summary report",
+    )
+    improvement_knowledge_bootstrap_route.add_argument("--output-path", type=Path, default=None)
+    improvement_knowledge_bootstrap_route.add_argument("--strict", action="store_true")
+    improvement_knowledge_bootstrap_route.add_argument("--json-compact", action="store_true")
 
     args = parser.parse_args()
 
@@ -9380,6 +13294,18 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "benchmark-frustrations":
         cmd_improvement_benchmark_frustrations(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "knowledge-brief":
+        cmd_improvement_knowledge_brief(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "knowledge-brief-delta":
+        cmd_improvement_knowledge_brief_delta(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "knowledge-brief-delta-alert":
+        cmd_improvement_knowledge_brief_delta_alert(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "knowledge-bootstrap-route":
+        cmd_improvement_knowledge_bootstrap_route(args)
         return
 
     raise ValueError("Unsupported command")

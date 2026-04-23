@@ -1,0 +1,282 @@
+name: improvement-knowledge-bootstrap-route
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "25 13 * * 1-5"
+
+jobs:
+  knowledge-route:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Run operator cycle + knowledge route
+        run: |
+          mkdir -p output/ci
+          ./scripts/run_improvement_operator_cycle.sh \
+            ./configs/improvement_operator_knowledge_stack.json \
+            --output-dir output/ci/operator_cycle \
+            --seed-enable \
+            --seed-domains quant_finance,kalshi_weather,fitness_apps,market_ml \
+            --draft-enable \
+            --benchmark-enable \
+            --verify-matrix-enable \
+            --verify-matrix-path ./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json \
+            --verify-matrix-alert-enable \
+            --knowledge-route-enable \
+            --knowledge-route-output-path output/ci/knowledge_bootstrap_route.json
+
+      - name: Extract initial knowledge route outputs
+        id: route_initial
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          artifact_path = Path("output/ci/knowledge_bootstrap_route.json").resolve()
+          if artifact_path.exists():
+            payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+          else:
+            payload = {
+              "status": "warning",
+              "phase": "unknown",
+              "route": "noop",
+              "next_action": "knowledge bootstrap route artifact missing",
+              "next_action_command": None,
+            }
+
+          status = str(payload.get("status") or "warning").strip() or "warning"
+          phase = str(payload.get("phase") or "unknown").strip() or "unknown"
+          route = str(payload.get("route") or "noop").strip() or "noop"
+          next_action = str(payload.get("next_action") or "").strip() or "none"
+          next_action_command = str(payload.get("next_action_command") or "").strip() or "none"
+          route_blocking = status == "warning" and route != "bootstrap"
+
+          print(f"artifact_path={artifact_path}")
+          print(f"status={status}")
+          print(f"phase={phase}")
+          print(f"route={route}")
+          print(f"route_blocking={int(route_blocking)}")
+          print(f"next_action={next_action}")
+          print(f"next_action_command={next_action_command}")
+
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as handle:
+            handle.write(f"artifact_path={artifact_path}\n")
+            handle.write(f"status={status}\n")
+            handle.write(f"phase={phase}\n")
+            handle.write(f"route={route}\n")
+            handle.write(f"route_blocking={int(route_blocking)}\n")
+            handle.write(f"next_action={next_action}\n")
+            handle.write(f"next_action_command={next_action_command}\n")
+
+          github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+          if github_step_summary:
+            summary_path = Path(github_step_summary).expanduser()
+            summary_lines = [
+              "## Knowledge Bootstrap Route",
+              "",
+              f"- status: `{status}`",
+              f"- phase: `{phase}`",
+              f"- route: `{route}`",
+              f"- route_blocking: `{int(route_blocking)}`",
+              f"- next_action: `{next_action}`",
+              f"- next_action_command: `{next_action_command}`",
+              "",
+            ]
+            with summary_path.open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(summary_lines) + "\n")
+          PY
+
+      - name: Bootstrap follow-up rerun
+        if: ${{ steps.route_initial.outputs.route == 'bootstrap' && steps.route_initial.outputs.next_action_command != 'none' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import shlex
+          import subprocess
+          from pathlib import Path
+
+          route_artifact_path = Path("output/ci/knowledge_bootstrap_route.json").resolve()
+          if not route_artifact_path.exists():
+            raise SystemExit(f"missing_initial_route_artifact:{route_artifact_path}")
+
+          route_payload = json.loads(route_artifact_path.read_text(encoding="utf-8"))
+          next_action_command = str(route_payload.get("next_action_command") or "").strip()
+          if not next_action_command:
+            raise SystemExit("missing_bootstrap_next_action_command")
+
+          print(f"bootstrap_followup_command={next_action_command}")
+          subprocess.run(["bash", "-lc", next_action_command], check=True)
+
+          operator_report_path = Path("output/ci/operator_cycle/operator_cycle_report.json").resolve()
+          if not operator_report_path.exists():
+            raise SystemExit(f"missing_operator_report_after_bootstrap_followup:{operator_report_path}")
+
+          post_route_artifact_path = Path("output/ci/knowledge_bootstrap_route_post_bootstrap.json").resolve()
+          subprocess.run(
+            [
+              "python3",
+              "-m",
+              "jarvis.cli",
+              "improvement",
+              "knowledge-bootstrap-route",
+              "--report-path",
+              str(operator_report_path),
+              "--output-path",
+              str(post_route_artifact_path),
+              "--json-compact",
+            ],
+            check=True,
+          )
+
+          post_payload = json.loads(post_route_artifact_path.read_text(encoding="utf-8"))
+          post_status = str(post_payload.get("status") or "warning").strip() or "warning"
+          post_phase = str(post_payload.get("phase") or "unknown").strip() or "unknown"
+          post_route = str(post_payload.get("route") or "noop").strip() or "noop"
+          print(f"bootstrap_followup_status={post_status}")
+          print(f"bootstrap_followup_phase={post_phase}")
+          print(f"bootstrap_followup_route={post_route}")
+
+          github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+          if github_step_summary:
+            summary_path = Path(github_step_summary).expanduser()
+            summary_lines = [
+              "## Bootstrap Follow-Up",
+              "",
+              f"- command: `{next_action_command}`",
+              f"- post_status: `{post_status}`",
+              f"- post_phase: `{post_phase}`",
+              f"- post_route: `{post_route}`",
+              "",
+            ]
+            with summary_path.open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(summary_lines) + "\n")
+          PY
+
+      - name: Extract effective knowledge route outputs
+        id: route
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          post_artifact_path = Path("output/ci/knowledge_bootstrap_route_post_bootstrap.json").resolve()
+          initial_artifact_path = Path("output/ci/knowledge_bootstrap_route.json").resolve()
+          if post_artifact_path.exists():
+            artifact_path = post_artifact_path
+            artifact_source = "post_bootstrap"
+          elif initial_artifact_path.exists():
+            artifact_path = initial_artifact_path
+            artifact_source = "initial"
+          else:
+            artifact_path = initial_artifact_path
+            artifact_source = "missing"
+
+          if artifact_path.exists():
+            payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+          else:
+            payload = {
+              "status": "warning",
+              "phase": "unknown",
+              "route": "noop",
+              "next_action": "knowledge bootstrap route artifact missing",
+              "next_action_command": None,
+            }
+
+          status = str(payload.get("status") or "warning").strip() or "warning"
+          phase = str(payload.get("phase") or "unknown").strip() or "unknown"
+          route = str(payload.get("route") or "noop").strip() or "noop"
+          next_action = str(payload.get("next_action") or "").strip() or "none"
+          next_action_command = str(payload.get("next_action_command") or "").strip() or "none"
+          route_blocking = status == "warning" and route != "bootstrap"
+
+          print(f"artifact_path={artifact_path}")
+          print(f"artifact_source={artifact_source}")
+          print(f"status={status}")
+          print(f"phase={phase}")
+          print(f"route={route}")
+          print(f"route_blocking={int(route_blocking)}")
+          print(f"next_action={next_action}")
+          print(f"next_action_command={next_action_command}")
+
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as handle:
+            handle.write(f"artifact_path={artifact_path}\n")
+            handle.write(f"artifact_source={artifact_source}\n")
+            handle.write(f"status={status}\n")
+            handle.write(f"phase={phase}\n")
+            handle.write(f"route={route}\n")
+            handle.write(f"route_blocking={int(route_blocking)}\n")
+            handle.write(f"next_action={next_action}\n")
+            handle.write(f"next_action_command={next_action_command}\n")
+
+          github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+          if github_step_summary:
+            summary_path = Path(github_step_summary).expanduser()
+            summary_lines = [
+              "## Knowledge Bootstrap Route (Effective)",
+              "",
+              f"- artifact_source: `{artifact_source}`",
+              f"- status: `{status}`",
+              f"- phase: `{phase}`",
+              f"- route: `{route}`",
+              f"- route_blocking: `{int(route_blocking)}`",
+              f"- next_action: `{next_action}`",
+              f"- next_action_command: `{next_action_command}`",
+              "",
+            ]
+            with summary_path.open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(summary_lines) + "\n")
+          PY
+
+      - name: Warning route branch
+        if: ${{ steps.route.outputs.status == 'warning' }}
+        run: |
+          echo "Knowledge bootstrap routing is unresolved (status=${{ steps.route.outputs.status }}, phase=${{ steps.route.outputs.phase }}, route=${{ steps.route.outputs.route }}). Review route artifact before promoting automated actions."
+
+      - name: Bootstrap route branch
+        if: ${{ steps.route.outputs.route == 'bootstrap' }}
+        run: |
+          echo "Bootstrap route detected. Collect another knowledge snapshot before expecting delta comparisons."
+
+      - name: Run-cycle route branch
+        if: ${{ steps.route.outputs.route == 'run_cycle' }}
+        run: |
+          echo "Knowledge bootstrap is ready. Continue regular operator-cycle cadence."
+
+      - name: No-op route branch
+        if: ${{ steps.route.outputs.route == 'noop' }}
+        run: |
+          echo "Knowledge delta stage not requested or unresolved for this run."
+
+      - name: Upload route artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: knowledge-bootstrap-route
+          path: output/ci/
+
+      - name: Fail workflow on warning status
+        if: ${{ steps.route.outputs.route_blocking == '1' }}
+        run: |
+          echo "Knowledge route is blocking (status=${{ steps.route.outputs.status }}, phase=${{ steps.route.outputs.phase }}, route=${{ steps.route.outputs.route }})."
+          exit 1
