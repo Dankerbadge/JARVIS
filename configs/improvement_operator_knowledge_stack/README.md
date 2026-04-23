@@ -24,6 +24,39 @@ python3 -m jarvis.cli improvement operator-cycle \
   --strict
 ```
 
+The operator-cycle wrapper automatically follows this run with
+`improvement knowledge-bootstrap-route`, writing
+`knowledge_bootstrap_route.json` so automation can branch on:
+
+- `bootstrap`
+- `run_cycle`
+- `noop`
+
+Wrapper:
+
+```bash
+./scripts/run_improvement_operator_cycle.sh \
+  ./configs/improvement_operator_knowledge_stack.json \
+  --output-dir ./configs/improvement_operator_knowledge_stack/output \
+  --strict
+```
+
+## 2b) Resolve knowledge bootstrap route (standalone)
+
+```bash
+python3 -m jarvis.cli improvement knowledge-bootstrap-route \
+  --report-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_report.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/knowledge_bootstrap_route.json
+```
+
+Wrapper:
+
+```bash
+./scripts/run_improvement_knowledge_bootstrap_route.sh \
+  ./configs/improvement_operator_knowledge_stack/output/operator_cycle_report.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/knowledge_bootstrap_route.json
+```
+
 ## 3) Controlled matrix expectations
 
 `matrices/controlled_experiment_matrix.json` defines scenario-level expected verdicts and artifact references.
@@ -110,11 +143,20 @@ Use `--emit-ci-json-path` when automation needs a compact JSON artifact for bran
 GitHub Actions template for compact JSON branching:
 
 - `./configs/improvement_operator_knowledge_stack/github-actions-gate-status-compact.yml`
+- `./configs/improvement_operator_knowledge_stack/github-actions-knowledge-bootstrap-route.yml`
 
 Active workflow in this repo:
 
 - `./.github/workflows/improvement-gate-status-compact.yml`
+- `./.github/workflows/improvement-knowledge-bootstrap-route.yml`
 - `./.github/workflows/reconcile-codeowner-review-gate.yml`
+
+`improvement-knowledge-bootstrap-route.yml` runs on weekdays at `13:25 UTC`
+and fails only when `steps.route.outputs.route_blocking == '1'`.
+When initial route is `bootstrap`, it executes one follow-up rerun from
+`next_action_command`, regenerates
+`output/ci/knowledge_bootstrap_route_post_bootstrap.json`, and then branches on
+the effective post-follow-up route payload.
 
 Copy that file into `.github/workflows/` to run `plans gate-status-all`, read
 `output/ci/gate_status_all_compact.json`, and branch on:
