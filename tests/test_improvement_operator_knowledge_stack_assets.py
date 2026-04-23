@@ -186,7 +186,14 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         )
         self.assertTrue(workflow_path.exists())
         content = workflow_path.read_text(encoding="utf-8")
+        self.assertIn("--fail-on-zero-unlock-ready", content)
+        self.assertIn("--zero-unlock-ready-exit-code", content)
         self.assertIn("--emit-ci-json-path", content)
+        self.assertIn("unlock_ready_step_count", content)
+        self.assertIn("acknowledge_command_count", content)
+        self.assertIn("first_acknowledge_command", content)
+        self.assertIn("Zero unlock-ready branch", content)
+        self.assertIn("zero_unlock_ready_steps", content)
         self.assertIn("steps.gate.outputs.blocked_step_count", content)
         self.assertIn("steps.gate.outputs.exit_reason", content)
 
@@ -204,7 +211,16 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("--required-label jarvis", content)
         self.assertIn("--required-label needs-review", content)
         self.assertIn("--required-label protected-change", content)
+        self.assertIn("--fail-on-zero-unlock-ready", content)
+        self.assertIn("--zero-unlock-ready-exit-code", content)
         self.assertIn("--emit-ci-json-path", content)
+        self.assertIn("unlock_ready_step_count", content)
+        self.assertIn("acknowledge_command_count", content)
+        self.assertIn("first_acknowledge_command", content)
+        self.assertIn("Zero unlock-ready branch", content)
+        self.assertIn("zero_unlock_ready_steps", content)
+        self.assertIn("compact_artifact_missing", content)
+        self.assertIn("output/ci/gate_status_all_summary.md", content)
 
     def test_knowledge_bootstrap_route_workflow_template_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

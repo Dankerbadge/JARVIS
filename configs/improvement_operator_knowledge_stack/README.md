@@ -201,11 +201,13 @@ python3 -m jarvis.cli plans gate-status-all \
   --fail-on-errors \
   --fail-on-zero-scanned \
   --fail-on-zero-evaluated \
+  --fail-on-zero-unlock-ready \
   --fail-on-empty-ack-commands \
   --blocked-exit-code 7 \
   --error-exit-code 11 \
   --zero-scanned-exit-code 17 \
   --zero-evaluated-exit-code 13 \
+  --zero-unlock-ready-exit-code 23 \
   --empty-ack-commands-exit-code 19 \
   --emit-ci-summary-path ./configs/improvement_operator_knowledge_stack/output/gate_status_all_summary.md \
   --emit-ci-json-path ./configs/improvement_operator_knowledge_stack/output/gate_status_all_compact.json \
@@ -332,6 +334,13 @@ Copy that file into `.github/workflows/` to run `plans gate-status-all`, read
 
 - `steps.gate.outputs.exit_reason`
 - `steps.gate.outputs.blocked_step_count`
+- `steps.gate.outputs.unlock_ready_step_count`
+- `steps.gate.outputs.acknowledge_command_count`
+- `steps.gate.outputs.first_acknowledge_command`
+
+The compact gate workflow now enforces `--fail-on-zero-unlock-ready` with
+`--zero-unlock-ready-exit-code 23`, so it fails fast when no unlock-ready
+promotion candidates are visible.
 
 Single-maintainer safety reconciler (auto-toggle code-owner review gate by collaborator count):
 

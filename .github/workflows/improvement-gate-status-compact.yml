@@ -43,9 +43,11 @@ jobs:
             --only-blocked \
             --fail-on-blocked \
             --fail-on-errors \
+            --fail-on-zero-unlock-ready \
             --fail-on-empty-ack-commands \
             --blocked-exit-code 7 \
             --error-exit-code 11 \
+            --zero-unlock-ready-exit-code 23 \
             --empty-ack-commands-exit-code 19 \
             --emit-ci-json-path output/ci/gate_status_all_compact.json \
             --output text
@@ -67,18 +69,32 @@ jobs:
           else:
               payload = {
                   "blocked_step_count": 0,
+                  "unlock_ready_step_count": 0,
+                  "acknowledge_commands": [],
                   "error_count": 1,
                   "exit_reason": "compact_artifact_missing",
                   "exit_code": 98,
               }
 
           blocked_step_count = int(payload.get("blocked_step_count") or 0)
+          unlock_ready_step_count = int(payload.get("unlock_ready_step_count") or 0)
+          acknowledge_commands = [
+              str(command).strip()
+              for command in list(payload.get("acknowledge_commands") or [])
+              if str(command).strip()
+          ]
+          acknowledge_command_count = len(acknowledge_commands)
+          first_acknowledge_command = acknowledge_commands[0] if acknowledge_commands else "none"
+          first_acknowledge_command_output = first_acknowledge_command.replace("\n", " ").strip() or "none"
           error_count = int(payload.get("error_count") or 0)
           exit_reason = str(payload.get("exit_reason") or "none").strip() or "none"
           exit_code = int(payload.get("exit_code") or 0)
 
           print(f"artifact_path={artifact_path}")
           print(f"blocked_step_count={blocked_step_count}")
+          print(f"unlock_ready_step_count={unlock_ready_step_count}")
+          print(f"acknowledge_command_count={acknowledge_command_count}")
+          print(f"first_acknowledge_command={first_acknowledge_command_output}")
           print(f"error_count={error_count}")
           print(f"exit_reason={exit_reason}")
           print(f"exit_code={exit_code}")
@@ -87,9 +103,33 @@ jobs:
           with github_output.open("a", encoding="utf-8") as handle:
               handle.write(f"artifact_path={artifact_path}\n")
               handle.write(f"blocked_step_count={blocked_step_count}\n")
+              handle.write(f"unlock_ready_step_count={unlock_ready_step_count}\n")
+              handle.write(f"acknowledge_command_count={acknowledge_command_count}\n")
+              handle.write(f"first_acknowledge_command={first_acknowledge_command_output}\n")
               handle.write(f"error_count={error_count}\n")
               handle.write(f"exit_reason={exit_reason}\n")
               handle.write(f"exit_code={exit_code}\n")
+
+          github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+          if github_step_summary:
+              summary_path = Path(github_step_summary).expanduser()
+              summary_lines = [
+                  "## Gate Status Compact",
+                  "",
+                  f"- blocked_step_count: `{blocked_step_count}`",
+                  f"- unlock_ready_step_count: `{unlock_ready_step_count}`",
+                  f"- acknowledge_command_count: `{acknowledge_command_count}`",
+                  f"- first_acknowledge_command: `{first_acknowledge_command_output}`",
+                  f"- error_count: `{error_count}`",
+                  f"- exit_reason: `{exit_reason}`",
+                  f"- exit_code: `{exit_code}`",
+                  "",
+              ]
+              with summary_path.open("a", encoding="utf-8") as handle:
+                  handle.write("\n".join(summary_lines) + "\n")
+              ci_summary_path = Path("output/ci/gate_status_all_summary.md").resolve()
+              ci_summary_path.parent.mkdir(parents=True, exist_ok=True)
+              ci_summary_path.write_text(summary_path.read_text(encoding="utf-8"), encoding="utf-8")
           PY
 
       - name: Upload gate artifacts
@@ -102,15 +142,20 @@ jobs:
       - name: Blocked queue branch
         if: ${{ steps.gate.outputs.blocked_step_count != '0' }}
         run: |
-          echo "Blocked review steps detected. Check the compact artifact and markdown summary for acknowledge commands."
+          echo "Blocked review steps detected (blocked=${{ steps.gate.outputs.blocked_step_count }}, unlock_ready=${{ steps.gate.outputs.unlock_ready_step_count }}). First acknowledge command: ${{ steps.gate.outputs.first_acknowledge_command }}. Check the compact artifact and markdown summary for full acknowledge commands."
 
       - name: Healthy queue branch
         if: ${{ steps.gate.outputs.blocked_step_count == '0' && steps.gate.outputs.exit_reason == 'none' }}
         run: |
-          echo "No blocking critical drift alerts across scanned review steps."
+          echo "No blocking critical drift alerts across scanned review steps (unlock_ready=${{ steps.gate.outputs.unlock_ready_step_count }})."
+
+      - name: Zero unlock-ready branch
+        if: ${{ steps.gate.outputs.exit_reason == 'zero_unlock_ready_steps' }}
+        run: |
+          echo "No unlock-ready steps were found (blocked=${{ steps.gate.outputs.blocked_step_count }}, unlock_ready=${{ steps.gate.outputs.unlock_ready_step_count }}). Review blocker acknowledgements and rerun gate-status-all after promotion candidates are unblocked."
 
       - name: Fail workflow on non-none exit reason
         if: ${{ steps.gate.outputs.exit_reason != 'none' }}
         run: |
-          echo "Gate evaluation failed with exit_reason=${{ steps.gate.outputs.exit_reason }} exit_code=${{ steps.gate.outputs.exit_code }}"
+          echo "Gate evaluation failed with exit_reason=${{ steps.gate.outputs.exit_reason }} exit_code=${{ steps.gate.outputs.exit_code }} blocked=${{ steps.gate.outputs.blocked_step_count }} unlock_ready=${{ steps.gate.outputs.unlock_ready_step_count }}"
           exit 1
