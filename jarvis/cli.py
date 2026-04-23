@@ -8787,6 +8787,60 @@ def cmd_improvement_verify_matrix_guardrail_gate(args: argparse.Namespace) -> No
         output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         payload["output_path"] = str(output_path)
 
+    if bool(getattr(args, "emit_github_output", False)):
+        guardrail_gate_report = str(payload.get("guardrail_gate_report") or payload.get("report_path") or "").strip()
+        guardrail_gate_report = guardrail_gate_report or str(report_path)
+        guardrail_gate_operator_status = (
+            str(payload.get("guardrail_gate_operator_status") or payload.get("operator_status") or "unknown")
+            .strip()
+            .lower()
+            or "unknown"
+        )
+        guardrail_gate_stage_error_count = _coerce_int(
+            payload.get("guardrail_gate_stage_error_count")
+            if payload.get("guardrail_gate_stage_error_count") is not None
+            else payload.get("stage_error_count"),
+            default=0,
+        )
+        guardrail_gate_verify_matrix_status = (
+            str(
+                payload.get("guardrail_gate_verify_matrix_status")
+                if payload.get("guardrail_gate_verify_matrix_status") is not None
+                else payload.get("verify_matrix_status")
+                or "unknown"
+            )
+            .strip()
+            .lower()
+            or "unknown"
+        )
+        output_lines = [
+            f"guardrail_gate_report={guardrail_gate_report}",
+            f"guardrail_gate_operator_status={guardrail_gate_operator_status}",
+            f"guardrail_gate_stage_error_count={guardrail_gate_stage_error_count}",
+            f"guardrail_gate_verify_matrix_status={guardrail_gate_verify_matrix_status}",
+        ]
+
+        github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(output_lines) + "\n")
+
+        summary_heading_raw = str(getattr(args, "summary_heading", "") or "").strip()
+        if summary_heading_raw:
+            github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
+            if github_step_summary:
+                summary_path = Path(github_step_summary).expanduser()
+                summary_lines = [
+                    f"## {summary_heading_raw}",
+                    "",
+                    f"- operator_status: `{guardrail_gate_operator_status}`",
+                    f"- stage_error_count: `{guardrail_gate_stage_error_count}`",
+                    f"- verify_matrix_status: `{guardrail_gate_verify_matrix_status}`",
+                    "",
+                ]
+                with summary_path.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(summary_lines) + "\n")
+
     _print_json_payload(
         payload,
         compact=bool(getattr(args, "json_compact", False)),
@@ -13781,6 +13835,17 @@ def main() -> None:
         type=Path,
         default=Path("output/ci/operator_cycle/verify_matrix_guardrail_gate.json"),
         help="Path for guardrail gate output payload",
+    )
+    improvement_verify_matrix_guardrail_gate.add_argument(
+        "--emit-github-output",
+        action="store_true",
+        help="Emit guardrail gate fields to GITHUB_OUTPUT and optional step-summary heading",
+    )
+    improvement_verify_matrix_guardrail_gate.add_argument(
+        "--summary-heading",
+        type=str,
+        default=None,
+        help="Optional heading text appended to GITHUB_STEP_SUMMARY when emit-github-output is enabled",
     )
     improvement_verify_matrix_guardrail_gate.add_argument("--strict", action="store_true")
     improvement_verify_matrix_guardrail_gate.add_argument("--json-compact", action="store_true")

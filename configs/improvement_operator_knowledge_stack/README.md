@@ -255,6 +255,13 @@ fully command-driven via `improvement knowledge-bootstrap-route-outputs`, which
 emits step outputs with `--emit-github-output` and writes route step summaries
 via `--summary-heading` (effective route also uses
 `--summary-include-artifact-source`).
+Guardrail gate is also command-driven via
+`improvement verify-matrix-guardrail-gate`, which emits guardrail outputs
+(`guardrail_gate_report`, `guardrail_gate_operator_status`,
+`guardrail_gate_stage_error_count`, `guardrail_gate_verify_matrix_status`) via
+`--emit-github-output`, writes the `Operator Guardrail Gate` step summary via
+`--summary-heading`, and preserves strict failure semantics via `--strict`
+using the command-provided `failure_reason`.
 Before guardrail checks, it builds compact verify-matrix coverage artifacts:
 
 - `output/ci/operator_cycle/verify_matrix_compact.json`

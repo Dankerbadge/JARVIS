@@ -8329,6 +8329,74 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 str(written.get("failure_reason") or ""),
             )
 
+    def test_verify_matrix_guardrail_gate_emits_github_outputs_and_summary_before_strict_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report_path = root / "reports" / "operator_cycle_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "stage_error_count": 2,
+                        "verify_matrix": {
+                            "status": "warning",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            output_path = root / "artifacts" / "verify_matrix_guardrail_gate.json"
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            args = argparse.Namespace(
+                report_path=report_path,
+                output_path=output_path,
+                emit_github_output=True,
+                summary_heading="Operator Guardrail Gate",
+                strict=True,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with self.assertRaises(SystemExit) as raised:
+                    with redirect_stdout(out):
+                        cmd_improvement_verify_matrix_guardrail_gate(args)
+            self.assertIn(
+                "operator_guardrail_gate_failed:stage_error_count>0",
+                str(raised.exception),
+            )
+
+            payload = json.loads(out.getvalue())
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(int(payload.get("stage_error_count") or 0), 2)
+            self.assertEqual(str(payload.get("verify_matrix_status") or ""), "warning")
+            self.assertTrue(output_path.exists())
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"guardrail_gate_report={report_path.resolve()}", output_lines)
+            self.assertIn("guardrail_gate_operator_status=warning", output_lines)
+            self.assertIn("guardrail_gate_stage_error_count=2", output_lines)
+            self.assertIn("guardrail_gate_verify_matrix_status=warning", output_lines)
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Operator Guardrail Gate", summary)
+            self.assertIn("- operator_status: `warning`", summary)
+            self.assertIn("- stage_error_count: `2`", summary)
+            self.assertIn("- verify_matrix_status: `warning`", summary)
+
     def test_verify_matrix_alert_creates_delivered_interrupt_on_warning(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
