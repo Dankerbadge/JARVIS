@@ -102,6 +102,18 @@ jobs:
             echo "No prior benchmark stale fallback history artifact found."
           fi
 
+      - name: Restore prior evidence lookup runtime history artifact
+        run: |
+          set -euo pipefail
+          PRIOR_HISTORY_PATH="$(pwd)/output/ci/prior_route_artifact/operator_cycle/evidence_lookup_runtime_history.jsonl"
+          TARGET_HISTORY_PATH="$(pwd)/output/ci/operator_cycle/evidence_lookup_runtime_history.jsonl"
+          if [[ -f "${PRIOR_HISTORY_PATH}" ]]; then
+            cp "${PRIOR_HISTORY_PATH}" "${TARGET_HISTORY_PATH}"
+            echo "Restored prior evidence lookup runtime history artifact: ${PRIOR_HISTORY_PATH}"
+          else
+            echo "No prior evidence lookup runtime history artifact found."
+          fi
+
       - name: Seed baseline hypothesis templates
         run: |
           set -euo pipefail
@@ -245,16 +257,34 @@ jobs:
           bash -lc "${EVIDENCE_LOOKUP_COMMAND}"
 
       - name: Open evidence lookup runtime alert
-        if: ${{ steps.evidence_lookup_batch.outputs.evidence_lookup_ready == '1' && steps.evidence_lookup_batch.outputs.evidence_lookup_command != 'none' }}
         id: evidence_lookup_runtime_alert
         env:
+          EVIDENCE_LOOKUP_READY: ${{ steps.evidence_lookup_batch.outputs.evidence_lookup_ready }}
           EVIDENCE_LOOKUP_REPORT_PATH: ${{ steps.evidence_lookup_batch.outputs.evidence_lookup_report_path }}
           EVIDENCE_LOOKUP_COMMAND: ${{ steps.evidence_lookup_batch.outputs.evidence_lookup_command }}
         run: |
           set -euo pipefail
 
-          REPORT_PATH="${EVIDENCE_LOOKUP_REPORT_PATH:-$(pwd)/output/ci/operator_cycle/evidence_lookup_report.json}"
+          BATCH_OUTPUT_PATH="$(pwd)/output/ci/operator_cycle/evidence_lookup_batch_outputs.json"
+          DEFAULT_REPORT_PATH="$(pwd)/output/ci/operator_cycle/evidence_lookup_report.json"
+          if [[ "${EVIDENCE_LOOKUP_READY:-0}" != "1" || "${EVIDENCE_LOOKUP_COMMAND:-none}" == "none" ]]; then
+            if [[ ! -f "${BATCH_OUTPUT_PATH}" ]]; then
+              echo "Missing evidence lookup batch output report: ${BATCH_OUTPUT_PATH}"
+              exit 1
+            fi
+            REPORT_PATH="${BATCH_OUTPUT_PATH}"
+          else
+            REPORT_PATH="${EVIDENCE_LOOKUP_REPORT_PATH:-}"
+            if [[ -z "${REPORT_PATH}" || "${REPORT_PATH}" == "none" ]]; then
+              REPORT_PATH="${DEFAULT_REPORT_PATH}"
+            fi
+            if [[ ! -f "${REPORT_PATH}" ]]; then
+              echo "Missing evidence lookup report: ${REPORT_PATH}"
+              exit 1
+            fi
+          fi
           ALERT_PATH="$(pwd)/output/ci/operator_cycle/evidence_lookup_runtime_alert.json"
+          HISTORY_PATH="$(pwd)/output/ci/operator_cycle/evidence_lookup_runtime_history.jsonl"
           DB_PATH="$(pwd)/output/ci/operator_cycle/jarvis.db"
 
           export JARVIS_REPO_PATH="$(pwd)"
@@ -262,6 +292,7 @@ jobs:
           ./scripts/run_improvement_evidence_lookup_runtime_alert.sh \
             "${REPORT_PATH}" \
             --output-path "${ALERT_PATH}" \
+            --history-path "${HISTORY_PATH}" \
             --rerun-command "${EVIDENCE_LOOKUP_COMMAND}" \
             --emit-github-output \
             --summary-heading "Evidence Lookup Runtime Alert" \
