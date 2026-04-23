@@ -13,6 +13,8 @@ from unittest.mock import patch
 import jarvis.cli as cli_module
 from jarvis.cli import (
     cmd_improvement_benchmark_frustrations,
+    cmd_improvement_controlled_matrix_compact,
+    cmd_improvement_controlled_matrix_runtime_alert,
     cmd_improvement_daily_pipeline,
     cmd_improvement_draft_experiment_jobs,
     cmd_improvement_execute_retests,
@@ -8859,6 +8861,242 @@ class CliImprovementPipelineTests(unittest.TestCase):
             alert = dict(payload.get("alert") or {})
             self.assertEqual(float(alert.get("urgency_score") or 0.0), 0.9)
             self.assertEqual(float(alert.get("confidence") or 0.0), 0.86)
+
+    def test_controlled_matrix_compact_emits_github_outputs_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            artifact_root = root / "artifacts"
+            artifact_root.mkdir(parents=True, exist_ok=True)
+            daily_report_path = artifact_root / "daily_pipeline_report.json"
+            daily_report_path.write_text(
+                json.dumps({"status": "warning"}, indent=2),
+                encoding="utf-8",
+            )
+            verify_alert_path = artifact_root / "verify_matrix_alert_report.json"
+            acknowledge_command = (
+                "python3 -m jarvis.cli interrupts acknowledge "
+                "int_matrix_alert_1 --actor operator"
+            )
+            rerun_command = (
+                "./scripts/run_improvement_verify_matrix_alert.sh "
+                "./configs/improvement_operator_knowledge_stack/matrices/controlled_experiment_matrix.json "
+                "output/ci/controlled_matrix/daily_pipeline_report.json "
+                "--output-path output/ci/controlled_matrix/verify_matrix_alert_report.json "
+                "--json-compact --alert-domain operations --alert-max-items 4"
+            )
+            verify_alert_path.write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "drift_severity": "critical",
+                        "severity_profile": {
+                            "mismatch_count": 1,
+                            "missing_count": 2,
+                            "invalid_count": 0,
+                            "guardrail_mismatch_count": 1,
+                            "score": 6,
+                        },
+                        "alert_created": True,
+                        "alert": {
+                            "interrupt_id": "int_matrix_alert_1",
+                            "top_scenarios": [
+                                "market_ml_expected_promote",
+                                "kalshi_weather_expected_iteration",
+                            ],
+                        },
+                        "acknowledge_commands": [acknowledge_command],
+                        "mitigation_actions": [
+                            "Escalate immediately: freeze affected promotions until matrix drift is resolved.",
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            summary_path = artifact_root / "controlled_matrix_summary.json"
+            summary_markdown_path = artifact_root / "controlled_matrix_summary.md"
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            args = argparse.Namespace(
+                artifact_root=artifact_root,
+                daily_report_path=daily_report_path,
+                verify_alert_path=verify_alert_path,
+                output_path=summary_path,
+                markdown_path=summary_markdown_path,
+                rerun_command=rerun_command,
+                emit_github_output=True,
+                summary_heading="Controlled Matrix Drift Summary",
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_controlled_matrix_compact(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(str(payload.get("drift_severity") or ""), "critical")
+            self.assertEqual(str(payload.get("matrix_interrupt_id") or ""), "int_matrix_alert_1")
+            self.assertEqual(str(payload.get("first_repair_command") or ""), acknowledge_command)
+            self.assertEqual(str(payload.get("rerun_command") or ""), rerun_command)
+            self.assertTrue(summary_path.exists())
+            self.assertTrue(summary_markdown_path.exists())
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"matrix_summary_path={summary_path.resolve()}", output_lines)
+            self.assertIn(f"matrix_summary_markdown_path={summary_markdown_path.resolve()}", output_lines)
+            self.assertIn("matrix_status=warning", output_lines)
+            self.assertIn("drift_severity=critical", output_lines)
+            self.assertIn("drift_score=6", output_lines)
+            self.assertIn("mismatch_count=1", output_lines)
+            self.assertIn("missing_count=2", output_lines)
+            self.assertIn("invalid_count=0", output_lines)
+            self.assertIn("guardrail_mismatch_count=1", output_lines)
+            self.assertIn("alert_created=1", output_lines)
+            self.assertIn("matrix_interrupt_id=int_matrix_alert_1", output_lines)
+            self.assertIn("acknowledge_command_count=1", output_lines)
+            self.assertIn(f"first_acknowledge_command={acknowledge_command}", output_lines)
+            self.assertIn("repair_command_count=2", output_lines)
+            self.assertIn(f"first_repair_command={acknowledge_command}", output_lines)
+            self.assertIn("mitigation_action_count=1", output_lines)
+            self.assertIn("top_scenario_count=2", output_lines)
+            self.assertIn("first_top_scenario=market_ml_expected_promote", output_lines)
+            self.assertIn(f"rerun_command={rerun_command}", output_lines)
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Controlled Matrix Drift Summary", summary)
+            self.assertIn("- status: `warning`", summary)
+            self.assertIn("- drift_severity: `critical`", summary)
+            self.assertIn("- drift_score: `6`", summary)
+            self.assertIn("- mismatch_count: `1`", summary)
+            self.assertIn("- missing_count: `2`", summary)
+            self.assertIn("- guardrail_mismatch_count: `1`", summary)
+            self.assertIn("- interrupt_id: `int_matrix_alert_1`", summary)
+            self.assertIn("- acknowledge_command_count: `1`", summary)
+            self.assertIn(f"- first_acknowledge_command: `{acknowledge_command}`", summary)
+            self.assertIn("- repair_command_count: `2`", summary)
+            self.assertIn(f"- first_repair_command: `{acknowledge_command}`", summary)
+            self.assertIn(f"- rerun_command: `{rerun_command}`", summary)
+
+    def test_controlled_matrix_runtime_alert_creates_interrupt_updates_summary_and_emits_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, db = self._make_repo(root)
+            artifact_root = root / "artifacts"
+            artifact_root.mkdir(parents=True, exist_ok=True)
+
+            rerun_command = (
+                "python3 -m jarvis.cli improvement verify-matrix-alert "
+                "--matrix-path matrix.json --report-path daily_pipeline_report.json"
+            )
+            summary_path = artifact_root / "controlled_matrix_summary.json"
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "status": "warning",
+                        "drift_severity": "critical",
+                        "acknowledge_commands": [],
+                        "repair_commands": [],
+                        "suggested_actions": [],
+                        "first_repair_command": rerun_command,
+                        "first_suggested_action": f"rerun controlled matrix triage: {rerun_command}",
+                        "rerun_command": rerun_command,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            alert_path = artifact_root / "controlled_matrix_runtime_alert.json"
+            github_output_path = root / "ci" / "github_output.txt"
+            github_step_summary_path = root / "ci" / "github_step_summary.md"
+            github_output_path.parent.mkdir(parents=True, exist_ok=True)
+            args = argparse.Namespace(
+                summary_path=summary_path,
+                output_path=alert_path,
+                daily_outcome="failure",
+                matrix_status="warning",
+                drift_severity="critical",
+                first_repair_command=None,
+                first_suggested_action=None,
+                rerun_command=None,
+                emit_github_output=True,
+                summary_heading="Controlled Matrix Runtime Interrupt Alert",
+                strict=False,
+                json_compact=False,
+                repo_path=repo,
+                db_path=db,
+            )
+
+            out = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(github_output_path),
+                    "GITHUB_STEP_SUMMARY": str(github_step_summary_path),
+                },
+                clear=False,
+            ):
+                with redirect_stdout(out):
+                    cmd_improvement_controlled_matrix_runtime_alert(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(int(payload.get("matrix_runtime_alert_created") or 0), 1)
+            interrupt_id = str(payload.get("matrix_runtime_interrupt_id") or "").strip()
+            self.assertTrue(bool(interrupt_id))
+            acknowledge_command = str(payload.get("matrix_runtime_acknowledge_command") or "").strip()
+            self.assertIn(interrupt_id, acknowledge_command)
+            self.assertIn(str(db.resolve()), acknowledge_command)
+            self.assertEqual(str(payload.get("matrix_runtime_first_repair_command") or ""), rerun_command)
+            self.assertEqual(str(payload.get("matrix_runtime_error") or ""), "none")
+            self.assertTrue(alert_path.exists())
+
+            updated_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            self.assertTrue(bool(updated_summary.get("runtime_alert_created")))
+            self.assertEqual(str(updated_summary.get("runtime_interrupt_id") or ""), interrupt_id)
+            self.assertEqual(str(updated_summary.get("runtime_first_repair_command") or ""), rerun_command)
+            self.assertIn(acknowledge_command, list(updated_summary.get("acknowledge_commands") or []))
+            self.assertGreaterEqual(int(updated_summary.get("repair_command_count") or 0), 1)
+            self.assertGreaterEqual(int(updated_summary.get("suggested_action_count") or 0), 1)
+
+            output_lines = github_output_path.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"matrix_runtime_alert_path={alert_path.resolve()}", output_lines)
+            self.assertIn(f"matrix_runtime_interrupt_id={interrupt_id}", output_lines)
+            self.assertIn("matrix_runtime_alert_created=1", output_lines)
+            self.assertIn(f"matrix_runtime_acknowledge_command={acknowledge_command}", output_lines)
+            self.assertIn(f"matrix_runtime_first_repair_command={rerun_command}", output_lines)
+            self.assertIn("matrix_runtime_error=none", output_lines)
+
+            summary = github_step_summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Controlled Matrix Runtime Interrupt Alert", summary)
+            self.assertIn(f"- interrupt_id: `{interrupt_id}`", summary)
+            self.assertIn("- alert_created: `1`", summary)
+            self.assertIn("- daily_outcome: `failure`", summary)
+            self.assertIn("- matrix_status: `warning`", summary)
+            self.assertIn("- drift_severity: `critical`", summary)
+            self.assertIn(f"- acknowledge_command: `{acknowledge_command}`", summary)
+            self.assertIn(f"- first_repair_command: `{rerun_command}`", summary)
+            self.assertIn("- runtime_error: `none`", summary)
+
+            runtime = JarvisRuntime(db_path=db, repo_path=repo)
+            try:
+                interrupts = runtime.list_interrupts(status="all", limit=20)
+                self.assertEqual(len(interrupts), 1)
+                self.assertEqual(str((interrupts[0] or {}).get("status") or ""), "delivered")
+                self.assertEqual(str((interrupts[0] or {}).get("interrupt_id") or ""), interrupt_id)
+            finally:
+                runtime.close()
 
     def test_knowledge_bootstrap_followup_rerun_executes_next_action_and_regenerates_post_route(self) -> None:
         with tempfile.TemporaryDirectory() as td:

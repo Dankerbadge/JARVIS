@@ -333,6 +333,10 @@ executes `run_improvement_daily_pipeline.sh` in strict mode, and then runs
 `run_improvement_verify_matrix_alert.sh` against
 `matrices/controlled_experiment_matrix.json` using the freshly generated
 `daily_pipeline_report.json`.
+The compact summary adapter is command-driven via
+`python3 -m jarvis.cli improvement controlled-matrix-compact --emit-github-output --summary-heading "Controlled Matrix Drift Summary"`,
+and the runtime interrupt adapter is command-driven via
+`python3 -m jarvis.cli improvement controlled-matrix-runtime-alert --emit-github-output --summary-heading "Controlled Matrix Runtime Interrupt Alert"`.
 It writes compact controlled-validation artifacts to
 `output/ci/controlled_matrix/`:
 
