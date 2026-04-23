@@ -80,6 +80,7 @@ Generate a week-over-week fitness frustration leaderboard (current week vs prior
 python3 -m jarvis.cli improvement fitness-leaderboard \
   --input-path ./analysis/fitness_market_feedback.jsonl \
   --lookback-days 7 \
+  --evidence-sample-limit 3 \
   --app-fields app_name,app,product,source_context.app \
   --own-app-aliases myapp,my_app_ios,my_app_android \
   --min-cross-app-count 2 \
@@ -90,6 +91,7 @@ The leaderboard now includes:
 - `shared_market_displeasures`: frustrations seen across multiple competitor apps.
 - `white_space_candidates`: market pains not currently present in your own app aliases.
 - `top_apps_current` per cluster plus window-level app coverage diagnostics (`app_resolution`).
+- `evidence_samples_current` / `evidence_samples_previous`: stable record-level drilldown rows for debugging.
 
 App identity extraction now falls back to `source_context` when explicit app fields are missing,
 so single-string provider tags still count toward known app coverage.
@@ -131,6 +133,8 @@ python3 -m jarvis.cli improvement seed-from-leaderboard \
 
 `--min-signal-count-current` is useful for controlled validation lanes: it avoids auto-seeding
 hypotheses from low-volume one-off complaints.
+`seed-from-leaderboard` also persists `seed_evidence_record_ids` in hypothesis metadata
+when leaderboard entries provide evidence samples.
 
 Scheduling-friendly wrapper:
 

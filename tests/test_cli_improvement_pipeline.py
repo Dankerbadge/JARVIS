@@ -389,6 +389,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 cluster_limit=20,
                 leaderboard_limit=12,
                 cooling_limit=10,
+                evidence_sample_limit=2,
                 trend_threshold=0.25,
                 include_untimed_current=False,
                 strict=False,
@@ -406,6 +407,7 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(counts.get("current_window_records") or 0), 3)
             self.assertEqual(int(counts.get("previous_window_records") or 0), 2)
             self.assertEqual(int(counts.get("older_records") or 0), 1)
+            self.assertEqual(int(payload.get("evidence_sample_limit") or 0), 2)
 
             leaderboard = list(payload.get("leaderboard") or [])
             self.assertGreaterEqual(len(leaderboard), 2)
@@ -422,6 +424,24 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(int(paywall_entry.get("signal_count_current") or 0), 2)
             self.assertEqual(int(paywall_entry.get("signal_count_previous") or 0), 1)
             self.assertGreater(float(paywall_entry.get("impact_score_delta") or 0.0), 0.0)
+            current_evidence = [
+                dict(item)
+                for item in list(paywall_entry.get("evidence_samples_current") or [])
+                if isinstance(item, dict)
+            ]
+            previous_evidence = [
+                dict(item)
+                for item in list(paywall_entry.get("evidence_samples_previous") or [])
+                if isinstance(item, dict)
+            ]
+            self.assertEqual(len(current_evidence), 2)
+            self.assertEqual(len(previous_evidence), 1)
+            self.assertTrue(
+                {"cur-1", "cur-2"}.issubset(
+                    {str(item.get("record_id") or "") for item in current_evidence}
+                )
+            )
+            self.assertIn("prev-1", {str(item.get("record_id") or "") for item in previous_evidence})
 
             cooling = list(payload.get("cooling_clusters") or [])
             self.assertTrue(
@@ -649,6 +669,20 @@ class CliImprovementPipelineTests(unittest.TestCase):
                                 ],
                                 "example_summary": "Users hit paywall before completing a meaningful workout.",
                                 "top_tags": [{"tag": "paywall", "count": 12}],
+                                "evidence_samples_current": [
+                                    {
+                                        "record_id": "rv_paywall_1",
+                                        "record_id_field": "id",
+                                        "signal_id": "frc_paywall_1",
+                                        "app_identifier": "fitnova",
+                                    },
+                                    {
+                                        "record_id": "rv_paywall_2",
+                                        "record_id_field": "id",
+                                        "signal_id": "frc_paywall_2",
+                                        "app_identifier": "pulsepro",
+                                    },
+                                ],
                             },
                             {
                                 "rank": 2,
@@ -666,6 +700,14 @@ class CliImprovementPipelineTests(unittest.TestCase):
                                 ],
                                 "example_summary": "Beginner plan intensity causes early drop-off.",
                                 "top_tags": [{"tag": "onboarding", "count": 6}],
+                                "evidence_samples_current": [
+                                    {
+                                        "record_id": "rv_onboard_1",
+                                        "record_id_field": "id",
+                                        "signal_id": "frc_onboard_1",
+                                        "app_identifier": "fitnova",
+                                    }
+                                ],
                             },
                             {
                                 "rank": 3,
@@ -729,10 +771,24 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 keys = {str((item or {}).get("friction_key") or "") for item in hypotheses}
                 self.assertIn("paywall_before_core_workout_trial", keys)
                 self.assertIn("onboarding_plan_too_rigid_for_beginner_adherence", keys)
-                metadata = dict((hypotheses[0] or {}).get("metadata") or {})
-                self.assertEqual(str(metadata.get("seed_source") or ""), "fitness_leaderboard")
-                self.assertGreaterEqual(int(metadata.get("seed_cross_app_count_current") or 0), 2)
-                self.assertTrue(bool(list(metadata.get("seed_top_apps_current") or [])))
+                metadata_by_key = {
+                    str((row or {}).get("friction_key") or ""): dict((row or {}).get("metadata") or {})
+                    for row in hypotheses
+                    if isinstance(row, dict)
+                }
+                paywall_metadata = dict(metadata_by_key.get("paywall_before_core_workout_trial") or {})
+                onboarding_metadata = dict(metadata_by_key.get("onboarding_plan_too_rigid_for_beginner_adherence") or {})
+                self.assertEqual(str(paywall_metadata.get("seed_source") or ""), "fitness_leaderboard")
+                self.assertGreaterEqual(int(paywall_metadata.get("seed_cross_app_count_current") or 0), 2)
+                self.assertTrue(bool(list(paywall_metadata.get("seed_top_apps_current") or [])))
+                self.assertEqual(
+                    list(paywall_metadata.get("seed_evidence_record_ids") or []),
+                    ["rv_paywall_1", "rv_paywall_2"],
+                )
+                self.assertEqual(
+                    list(onboarding_metadata.get("seed_evidence_record_ids") or []),
+                    ["rv_onboard_1"],
+                )
             finally:
                 runtime.close()
 

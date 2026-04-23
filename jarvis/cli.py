@@ -2735,6 +2735,89 @@ def _collect_cluster_app_counters(signals: list[dict[str, Any]]) -> dict[str, Co
     return counters
 
 
+def _resolve_signal_record_id(signal: dict[str, Any]) -> tuple[str | None, str | None]:
+    evidence = dict(signal.get("evidence") or {}) if isinstance(signal.get("evidence"), dict) else {}
+    for key in ("id", "record_id", "review_id", "ticket_id"):
+        value = evidence.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text, key
+    return None, None
+
+
+def _build_signal_evidence_sample(signal: dict[str, Any]) -> dict[str, Any]:
+    evidence = dict(signal.get("evidence") or {}) if isinstance(signal.get("evidence"), dict) else {}
+    metadata = dict(signal.get("metadata") or {}) if isinstance(signal.get("metadata"), dict) else {}
+    source_context = dict(metadata.get("source_context") or {}) if isinstance(metadata.get("source_context"), dict) else {}
+    record_id, record_id_field = _resolve_signal_record_id(signal)
+    app_label = (
+        str(source_context.get("app_label") or source_context.get("app_name") or evidence.get("app_name") or "").strip()
+        or None
+    )
+    summary_text = str(signal.get("summary") or "").strip()
+    if not summary_text:
+        summary_text = str(signal.get("normalized_summary") or "").strip()
+    return {
+        "record_id": record_id,
+        "record_id_field": record_id_field,
+        "signal_id": str(signal.get("friction_id") or "").strip() or None,
+        "app_identifier": _resolve_signal_app_identifier(signal),
+        "app_label": app_label,
+        "source": str(signal.get("source") or "").strip() or None,
+        "segment": str(signal.get("segment") or "").strip() or None,
+        "summary": summary_text or None,
+        "severity": int(signal.get("severity") or 0),
+        "frustration_score": round(float(signal.get("frustration_score") or 0.0), 4),
+        "created_at": evidence.get("created_at") or signal.get("created_at"),
+        "updated_at": signal.get("updated_at"),
+        "rating": evidence.get("rating"),
+        "app_version": evidence.get("app_version"),
+        "platform": evidence.get("platform"),
+        "url": evidence.get("url"),
+    }
+
+
+def _collect_cluster_evidence_samples(
+    *,
+    signals: list[dict[str, Any]],
+    canonical_key: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if not canonical_key:
+        return []
+    selected = [
+        dict(signal)
+        for signal in signals
+        if str(signal.get("canonical_key") or "").strip() == canonical_key
+    ]
+    selected.sort(
+        key=lambda signal: (
+            -float(signal.get("severity") or 0.0),
+            -float(signal.get("frustration_score") or 0.0),
+            str(signal.get("updated_at") or ""),
+        )
+    )
+    evidence_rows: list[dict[str, Any]] = []
+    seen_record_ids: set[str] = set()
+    cap = max(1, int(limit))
+    for signal in selected:
+        sample = _build_signal_evidence_sample(signal)
+        dedupe_key = (
+            str(sample.get("record_id") or "").strip()
+            or str(sample.get("signal_id") or "").strip()
+        )
+        if dedupe_key and dedupe_key in seen_record_ids:
+            continue
+        if dedupe_key:
+            seen_record_ids.add(dedupe_key)
+        evidence_rows.append(sample)
+        if len(evidence_rows) >= cap:
+            break
+    return evidence_rows
+
+
 def _summarize_displeasures_for_records(
     *,
     records: list[dict[str, Any]],
@@ -2879,6 +2962,7 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
     leaderboard_limit = max(1, int(getattr(args, "leaderboard_limit", 12) or 12))
     cooling_limit = max(1, int(getattr(args, "cooling_limit", 10) or 10))
     trend_threshold = max(0.0, float(getattr(args, "trend_threshold", 0.25) or 0.25))
+    evidence_sample_limit = max(1, int(getattr(args, "evidence_sample_limit", 3) or 3))
 
     current_summary_payload = _summarize_displeasures_for_records(
         records=current_records,
@@ -2993,6 +3077,16 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
                 "example_summary": str(item.get("example_summary") or ""),
                 "top_tags": list(item.get("top_tags") or []),
                 "top_sources": list(item.get("top_sources") or []),
+                "evidence_samples_current": _collect_cluster_evidence_samples(
+                    signals=current_signals,
+                    canonical_key=canonical_key,
+                    limit=evidence_sample_limit,
+                ),
+                "evidence_samples_previous": _collect_cluster_evidence_samples(
+                    signals=previous_signals,
+                    canonical_key=canonical_key,
+                    limit=evidence_sample_limit,
+                ),
                 "last_seen_at": item.get("latest_seen_at"),
             }
         )
@@ -3038,6 +3132,11 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
                 else [],
                 "example_summary": str(item.get("example_summary") or ""),
                 "top_tags": list(item.get("top_tags") or []),
+                "evidence_samples_previous": _collect_cluster_evidence_samples(
+                    signals=previous_signals,
+                    canonical_key=canonical_key,
+                    limit=evidence_sample_limit,
+                ),
                 "last_seen_at": item.get("latest_seen_at"),
             }
         )
@@ -3156,6 +3255,7 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
         },
         "timestamp_fields": list(timestamp_fields),
         "trend_threshold": trend_threshold,
+        "evidence_sample_limit": int(evidence_sample_limit),
         "include_untimed_current": include_untimed_current,
         "app_resolution": {
             "known_app_records": int(app_known_count),
@@ -3429,6 +3529,22 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 )
                 continue
             summary_hint = str(entry.get("example_summary") or "").strip()
+            evidence_samples_current = [
+                dict(item)
+                for item in list(entry.get("evidence_samples_current") or [])
+                if isinstance(item, dict)
+            ]
+            evidence_samples_previous = [
+                dict(item)
+                for item in list(entry.get("evidence_samples_previous") or [])
+                if isinstance(item, dict)
+            ]
+            seed_evidence_record_ids: list[str] = []
+            for sample in [*evidence_samples_current, *evidence_samples_previous]:
+                record_id = str(sample.get("record_id") or "").strip()
+                if not record_id or record_id in seed_evidence_record_ids:
+                    continue
+                seed_evidence_record_ids.append(record_id)
 
             statement = (
                 f"Recent {source} feedback indicates '{canonical_key or friction_key}' is {trend}, "
@@ -3463,6 +3579,7 @@ def cmd_improvement_seed_from_leaderboard(args: argparse.Namespace) -> None:
                 "seed_cross_app_count_current": int(cross_app_count_current),
                 "seed_market_recurrence_score": float(entry.get("market_recurrence_score") or 0.0),
                 "seed_top_apps_current": sorted(set(top_app_names)),
+                "seed_evidence_record_ids": seed_evidence_record_ids,
             }
             risk_level = "high" if trend == "new" and impact_score_current >= 6.0 else "medium"
             if trend in {"new", "rising"} and cross_app_count_current >= 3 and impact_score_current >= 4.0:
@@ -14962,6 +15079,12 @@ def main() -> None:
     improvement_fitness_leaderboard.add_argument("--cluster-limit", type=int, default=20)
     improvement_fitness_leaderboard.add_argument("--leaderboard-limit", type=int, default=12)
     improvement_fitness_leaderboard.add_argument("--cooling-limit", type=int, default=10)
+    improvement_fitness_leaderboard.add_argument(
+        "--evidence-sample-limit",
+        type=int,
+        default=3,
+        help="Maximum evidence drilldown rows to include per cluster and window",
+    )
     improvement_fitness_leaderboard.add_argument(
         "--app-fields",
         type=str,

@@ -75,6 +75,10 @@ Wrapper:
   --output-path ./configs/improvement_operator_knowledge_stack/output/market_ml_leaderboard.json
 ```
 
+Each leaderboard row now includes evidence drilldown payloads
+(`evidence_samples_current` / `evidence_samples_previous`) so seed and debug
+workflows can trace frustrations back to concrete source records.
+
 ## 1e) Run domain smoke loop (pull -> leaderboard -> seed)
 
 ```bash
