@@ -11000,6 +11000,74 @@ def cmd_improvement_knowledge_bootstrap_route(args: argparse.Namespace) -> None:
         raise SystemExit(2)
 
 
+def _build_knowledge_bootstrap_route_outputs_payload(
+    *,
+    artifact_path: Path,
+    artifact_source: str | None = None,
+) -> dict[str, Any]:
+    if artifact_path.exists():
+        loaded = json.loads(artifact_path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise ValueError("invalid_knowledge_bootstrap_route_artifact:expected_json_object")
+        payload = dict(loaded)
+    else:
+        payload = {
+            "status": "warning",
+            "phase": "unknown",
+            "route": "noop",
+            "next_action": "knowledge bootstrap route artifact missing",
+            "next_action_command": None,
+        }
+
+    status = str(payload.get("status") or "warning").strip() or "warning"
+    phase = str(payload.get("phase") or "unknown").strip() or "unknown"
+    route = str(payload.get("route") or "noop").strip() or "noop"
+    next_action = str(payload.get("next_action") or "").strip() or "none"
+    next_action_command = str(payload.get("next_action_command") or "").strip() or "none"
+    route_blocking = status == "warning" and route != "bootstrap"
+
+    result = {
+        "generated_at": utc_now_iso(),
+        "artifact_path": str(artifact_path),
+        "status": status,
+        "phase": phase,
+        "route": route,
+        "route_blocking": int(route_blocking),
+        "next_action": next_action,
+        "next_action_command": next_action_command,
+    }
+    if artifact_source is not None:
+        result["artifact_source"] = str(artifact_source).strip() or "unknown"
+    return result
+
+
+def cmd_improvement_knowledge_bootstrap_route_outputs(args: argparse.Namespace) -> None:
+    artifact_path = args.artifact_path.resolve()
+    artifact_source_value = getattr(args, "artifact_source", None)
+    artifact_source = (
+        str(artifact_source_value).strip()
+        if artifact_source_value is not None and str(artifact_source_value).strip()
+        else None
+    )
+    payload = _build_knowledge_bootstrap_route_outputs_payload(
+        artifact_path=artifact_path,
+        artifact_source=artifact_source,
+    )
+
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if bool(getattr(args, "strict", False)) and int(payload.get("route_blocking") or 0) != 0:
+        raise SystemExit(2)
+
+
 def cmd_improvement_benchmark_frustrations(args: argparse.Namespace) -> None:
     report_path = args.report_path.resolve()
     daily_report, resolved_daily_report_path, operator_payload = _resolve_daily_report_from_improvement_report(
@@ -13756,6 +13824,26 @@ def main() -> None:
     improvement_knowledge_bootstrap_route.add_argument("--strict", action="store_true")
     improvement_knowledge_bootstrap_route.add_argument("--json-compact", action="store_true")
 
+    improvement_knowledge_bootstrap_route_outputs = improvement_sub.add_parser(
+        "knowledge-bootstrap-route-outputs",
+        help="Normalize route outputs from a knowledge bootstrap route artifact",
+    )
+    improvement_knowledge_bootstrap_route_outputs.add_argument(
+        "--artifact-path",
+        type=Path,
+        default=Path("output/ci/knowledge_bootstrap_route.json"),
+        help="Path to knowledge bootstrap route artifact JSON",
+    )
+    improvement_knowledge_bootstrap_route_outputs.add_argument(
+        "--artifact-source",
+        type=str,
+        default=None,
+        help="Optional artifact source label (for example: initial, post_bootstrap)",
+    )
+    improvement_knowledge_bootstrap_route_outputs.add_argument("--output-path", type=Path, default=None)
+    improvement_knowledge_bootstrap_route_outputs.add_argument("--strict", action="store_true")
+    improvement_knowledge_bootstrap_route_outputs.add_argument("--json-compact", action="store_true")
+
     args = parser.parse_args()
 
     if args.cmd == "demo":
@@ -13986,6 +14074,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "knowledge-bootstrap-route":
         cmd_improvement_knowledge_bootstrap_route(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "knowledge-bootstrap-route-outputs":
+        cmd_improvement_knowledge_bootstrap_route_outputs(args)
         return
 
     raise ValueError("Unsupported command")

@@ -19,6 +19,7 @@ from jarvis.cli import (
     cmd_improvement_fitness_leaderboard,
     cmd_improvement_knowledge_brief,
     cmd_improvement_knowledge_bootstrap_route,
+    cmd_improvement_knowledge_bootstrap_route_outputs,
     cmd_improvement_knowledge_brief_delta,
     cmd_improvement_knowledge_brief_delta_alert,
     cmd_improvement_operator_cycle,
@@ -8559,6 +8560,112 @@ class CliImprovementPipelineTests(unittest.TestCase):
             alert = dict(payload.get("alert") or {})
             self.assertEqual(float(alert.get("urgency_score") or 0.0), 0.9)
             self.assertEqual(float(alert.get("confidence") or 0.0), 0.86)
+
+    def test_knowledge_bootstrap_route_outputs_normalizes_bootstrap_artifact_and_writes_output(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            artifact_path = root / "artifacts" / "knowledge_bootstrap_route.json"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "status": " warning ",
+                        "phase": " bootstrap_pending ",
+                        "route": " bootstrap ",
+                        "next_action": " Capture one more snapshot. ",
+                        "next_action_command": " python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable ",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            output_path = root / "artifacts" / "knowledge_bootstrap_route_outputs.json"
+            args = argparse.Namespace(
+                artifact_path=artifact_path,
+                artifact_source=" route_initial ",
+                output_path=output_path,
+                strict=False,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_knowledge_bootstrap_route_outputs(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(str(payload.get("phase") or ""), "bootstrap_pending")
+            self.assertEqual(str(payload.get("route") or ""), "bootstrap")
+            self.assertEqual(int(payload.get("route_blocking") or 0), 0)
+            self.assertEqual(str(payload.get("next_action") or ""), "Capture one more snapshot.")
+            self.assertEqual(
+                str(payload.get("next_action_command") or ""),
+                "python3 -m jarvis.cli improvement operator-cycle --knowledge-brief-enable",
+            )
+            self.assertEqual(str(payload.get("artifact_source") or ""), "route_initial")
+            self.assertEqual(str(payload.get("output_path") or ""), str(output_path.resolve()))
+            self.assertTrue(output_path.exists())
+
+            stored = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(str(stored.get("status") or ""), "warning")
+            self.assertEqual(str(stored.get("route") or ""), "bootstrap")
+            self.assertEqual(int(stored.get("route_blocking") or 0), 0)
+
+    def test_knowledge_bootstrap_route_outputs_missing_artifact_returns_fallback_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            artifact_path = root / "artifacts" / "missing_route.json"
+            args = argparse.Namespace(
+                artifact_path=artifact_path,
+                artifact_source=None,
+                output_path=None,
+                strict=False,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_knowledge_bootstrap_route_outputs(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(str(payload.get("phase") or ""), "unknown")
+            self.assertEqual(str(payload.get("route") or ""), "noop")
+            self.assertEqual(int(payload.get("route_blocking") or 0), 1)
+            self.assertEqual(
+                str(payload.get("next_action") or ""),
+                "knowledge bootstrap route artifact missing",
+            )
+            self.assertEqual(str(payload.get("next_action_command") or ""), "none")
+            self.assertEqual(str(payload.get("artifact_path") or ""), str(artifact_path.resolve()))
+
+    def test_knowledge_bootstrap_route_outputs_strict_raises_when_route_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._make_repo(root)
+
+            artifact_path = root / "artifacts" / "missing_route.json"
+            args = argparse.Namespace(
+                artifact_path=artifact_path,
+                artifact_source=None,
+                output_path=None,
+                strict=True,
+                json_compact=False,
+            )
+
+            out = io.StringIO()
+            with self.assertRaises(SystemExit) as raised:
+                with redirect_stdout(out):
+                    cmd_improvement_knowledge_bootstrap_route_outputs(args)
+            self.assertEqual(int(getattr(raised.exception, "code", 0) or 0), 2)
+
+            payload = json.loads(out.getvalue())
+            self.assertEqual(int(payload.get("route_blocking") or 0), 1)
+            self.assertEqual(str(payload.get("route") or ""), "noop")
 
     def test_improvement_knowledge_bootstrap_route_reports_bootstrap_pending(self) -> None:
         with tempfile.TemporaryDirectory() as td:

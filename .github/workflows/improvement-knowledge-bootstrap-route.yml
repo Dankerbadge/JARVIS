@@ -46,47 +46,59 @@ jobs:
       - name: Extract initial knowledge route outputs
         id: route_initial
         run: |
+          set -euo pipefail
+
+          ROUTE_ARTIFACT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route.json"
+          ROUTE_OUTPUT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route_initial_outputs.json"
+
+          python3 -m jarvis.cli improvement knowledge-bootstrap-route-outputs \
+            --artifact-path "${ROUTE_ARTIFACT_PATH}" \
+            --artifact-source initial \
+            --output-path "${ROUTE_OUTPUT_PATH}" \
+            --json-compact > /dev/null
+
           python3 - <<'PY'
           import json
           import os
           from pathlib import Path
 
-          artifact_path = Path("output/ci/knowledge_bootstrap_route.json").resolve()
-          if artifact_path.exists():
-            payload = json.loads(artifact_path.read_text(encoding="utf-8"))
-          else:
-            payload = {
-              "status": "warning",
-              "phase": "unknown",
-              "route": "noop",
-              "next_action": "knowledge bootstrap route artifact missing",
-              "next_action_command": None,
-            }
+          output_path = Path("output/ci/knowledge_bootstrap_route_initial_outputs.json").resolve()
+          if not output_path.exists():
+            raise SystemExit(f"missing_knowledge_bootstrap_route_initial_outputs:{output_path}")
 
+          payload = json.loads(output_path.read_text(encoding="utf-8"))
+          if not isinstance(payload, dict):
+            raise SystemExit("invalid_knowledge_bootstrap_route_initial_outputs:expected_json_object")
+
+          artifact_path = str(payload.get("artifact_path") or "").strip() or "none"
           status = str(payload.get("status") or "warning").strip() or "warning"
           phase = str(payload.get("phase") or "unknown").strip() or "unknown"
           route = str(payload.get("route") or "noop").strip() or "noop"
+          route_blocking = int(payload.get("route_blocking") or 0)
           next_action = str(payload.get("next_action") or "").strip() or "none"
           next_action_command = str(payload.get("next_action_command") or "").strip() or "none"
-          route_blocking = status == "warning" and route != "bootstrap"
 
           print(f"artifact_path={artifact_path}")
           print(f"status={status}")
           print(f"phase={phase}")
           print(f"route={route}")
-          print(f"route_blocking={int(route_blocking)}")
+          print(f"route_blocking={route_blocking}")
           print(f"next_action={next_action}")
           print(f"next_action_command={next_action_command}")
 
-          github_output = Path(os.environ["GITHUB_OUTPUT"])
-          with github_output.open("a", encoding="utf-8") as handle:
-            handle.write(f"artifact_path={artifact_path}\n")
-            handle.write(f"status={status}\n")
-            handle.write(f"phase={phase}\n")
-            handle.write(f"route={route}\n")
-            handle.write(f"route_blocking={int(route_blocking)}\n")
-            handle.write(f"next_action={next_action}\n")
-            handle.write(f"next_action_command={next_action_command}\n")
+          github_output = str(os.getenv("GITHUB_OUTPUT") or "").strip()
+          if github_output:
+            output_lines = [
+              f"artifact_path={artifact_path}",
+              f"status={status}",
+              f"phase={phase}",
+              f"route={route}",
+              f"route_blocking={route_blocking}",
+              f"next_action={next_action}",
+              f"next_action_command={next_action_command}",
+            ]
+            with Path(github_output).open("a", encoding="utf-8") as handle:
+              handle.write("\n".join(output_lines) + "\n")
 
           github_step_summary = str(os.getenv("GITHUB_STEP_SUMMARY") or "").strip()
           if github_step_summary:
@@ -97,7 +109,7 @@ jobs:
               f"- status: `{status}`",
               f"- phase: `{phase}`",
               f"- route: `{route}`",
-              f"- route_blocking: `{int(route_blocking)}`",
+              f"- route_blocking: `{route_blocking}`",
               f"- next_action: `{next_action}`",
               f"- next_action_command: `{next_action_command}`",
               "",
