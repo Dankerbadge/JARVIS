@@ -9,6 +9,7 @@ jobs:
   knowledge-route:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -24,6 +25,82 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+
+      - name: Prepare benchmark restore paths
+        run: |
+          mkdir -p output/ci/operator_cycle output/ci/prior_route_artifact
+
+      - name: Resolve prior successful route run
+        id: prior_route_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          RUNS_API="https://api.github.com/repos/${{ github.repository }}/actions/workflows/improvement-knowledge-bootstrap-route.yml/runs?branch=${{ github.ref_name }}&status=completed&per_page=20"
+          RUNS_JSON_PATH="$(mktemp)"
+          if ! curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "${RUNS_API}" \
+            -o "${RUNS_JSON_PATH}"; then
+            echo "Unable to resolve prior workflow runs from GitHub API; continuing without prior benchmark restore."
+            echo "run_id=none" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          PRIOR_RUN_ID="$(
+            python3 -c 'import json, os, sys
+payload = json.load(sys.stdin)
+current = str(os.environ.get("CURRENT_RUN_ID") or "")
+value = "none"
+for row in payload.get("workflow_runs", []):
+    run_id = str(row.get("id") or "")
+    conclusion = str(row.get("conclusion") or "").strip().lower()
+    if not run_id or run_id == current:
+        continue
+    if conclusion != "success":
+        continue
+    value = run_id
+    break
+print(value)
+            ' < "${RUNS_JSON_PATH}"
+          )"
+          echo "run_id=${PRIOR_RUN_ID}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download prior route artifacts
+        if: ${{ steps.prior_route_run.outputs.run_id != 'none' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v5
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.prior_route_run.outputs.run_id }}
+          pattern: knowledge-bootstrap-route
+          path: output/ci/prior_route_artifact
+          merge-multiple: true
+
+      - name: Restore prior benchmark report artifact
+        run: |
+          set -euo pipefail
+          PRIOR_BENCHMARK_PATH="$(pwd)/output/ci/prior_route_artifact/operator_cycle/benchmark_frustrations_report.json"
+          TARGET_BENCHMARK_PATH="$(pwd)/output/ci/operator_cycle/benchmark_frustrations_report.json"
+          if [[ -f "${PRIOR_BENCHMARK_PATH}" ]]; then
+            cp "${PRIOR_BENCHMARK_PATH}" "${TARGET_BENCHMARK_PATH}"
+            echo "Restored prior benchmark report artifact: ${PRIOR_BENCHMARK_PATH}"
+          else
+            echo "No prior benchmark report artifact found."
+          fi
+
+      - name: Restore prior benchmark stale fallback history artifact
+        run: |
+          set -euo pipefail
+          PRIOR_HISTORY_PATH="$(pwd)/output/ci/prior_route_artifact/operator_cycle/benchmark_stale_fallback_history.jsonl"
+          TARGET_HISTORY_PATH="$(pwd)/output/ci/operator_cycle/benchmark_stale_fallback_history.jsonl"
+          if [[ -f "${PRIOR_HISTORY_PATH}" ]]; then
+            cp "${PRIOR_HISTORY_PATH}" "${TARGET_HISTORY_PATH}"
+            echo "Restored prior benchmark stale fallback history artifact: ${PRIOR_HISTORY_PATH}"
+          else
+            echo "No prior benchmark stale fallback history artifact found."
+          fi
 
       - name: Run operator cycle + knowledge route
         run: |
@@ -106,10 +183,116 @@ jobs:
             --summary-include-artifact-source \
             --json-compact > /dev/null
 
+      - name: Benchmark stale fallback runtime alert
+        id: benchmark_stale
+        run: |
+          set -euo pipefail
+
+          ROUTE_OUTPUT_PATH="$(pwd)/output/ci/knowledge_bootstrap_route_effective_outputs.json"
+          ALERT_PATH="$(pwd)/output/ci/operator_cycle/benchmark_stale_fallback_runtime_alert.json"
+          HISTORY_PATH="$(pwd)/output/ci/operator_cycle/benchmark_stale_fallback_history.jsonl"
+          DB_PATH="$(pwd)/output/ci/operator_cycle/jarvis.db"
+
+          export JARVIS_REPO_PATH="$(pwd)"
+          export JARVIS_DB_PATH="${DB_PATH}"
+          ./scripts/run_improvement_benchmark_stale_fallback_runtime_alert.sh \
+            "${ROUTE_OUTPUT_PATH}" \
+            --output-path "${ALERT_PATH}" \
+            --history-path "${HISTORY_PATH}" \
+            --history-window "${{ steps.route.outputs.benchmark_stale_history_window }}" \
+            --repeat-threshold "${{ steps.route.outputs.benchmark_stale_repeat_threshold }}" \
+            --rate-ceiling "${{ steps.route.outputs.benchmark_stale_rate_ceiling }}" \
+            --consecutive-runs "${{ steps.route.outputs.benchmark_stale_rate_consecutive_runs }}" \
+            --emit-github-output \
+            --summary-heading "Benchmark Stale Fallback Runtime Alert" \
+            --json-compact > /dev/null
+
+      - name: Extract evidence lookup batch outputs
+        id: evidence_lookup_batch
+        run: |
+          set -euo pipefail
+
+          REPORT_PATH="$(pwd)/output/ci/operator_cycle/operator_cycle_report.json"
+          BATCH_OUTPUT_PATH="$(pwd)/output/ci/operator_cycle/evidence_lookup_batch_outputs.json"
+
+          ./scripts/run_improvement_evidence_lookup_batch_outputs.sh \
+            "${REPORT_PATH}" \
+            --report-source effective_operator_report \
+            --output-path "${BATCH_OUTPUT_PATH}" \
+            --emit-github-output \
+            --summary-heading "Evidence Lookup Batch" \
+            --summary-include-report-source \
+            --strict \
+            --json-compact > /dev/null
+
+      - name: Run evidence lookup batch
+        if: ${{ steps.evidence_lookup_batch.outputs.evidence_lookup_ready == '1' && steps.evidence_lookup_batch.outputs.evidence_lookup_command != 'none' }}
+        env:
+          EVIDENCE_LOOKUP_COMMAND: ${{ steps.evidence_lookup_batch.outputs.evidence_lookup_command }}
+        run: |
+          set -euo pipefail
+          bash -lc "${EVIDENCE_LOOKUP_COMMAND}"
+
+      - name: Open evidence lookup runtime alert
+        if: ${{ steps.evidence_lookup_batch.outputs.evidence_lookup_ready == '1' && steps.evidence_lookup_batch.outputs.evidence_lookup_command != 'none' }}
+        id: evidence_lookup_runtime_alert
+        env:
+          EVIDENCE_LOOKUP_REPORT_PATH: ${{ steps.evidence_lookup_batch.outputs.evidence_lookup_report_path }}
+          EVIDENCE_LOOKUP_COMMAND: ${{ steps.evidence_lookup_batch.outputs.evidence_lookup_command }}
+        run: |
+          set -euo pipefail
+
+          REPORT_PATH="${EVIDENCE_LOOKUP_REPORT_PATH:-$(pwd)/output/ci/operator_cycle/evidence_lookup_report.json}"
+          ALERT_PATH="$(pwd)/output/ci/operator_cycle/evidence_lookup_runtime_alert.json"
+          DB_PATH="$(pwd)/output/ci/operator_cycle/jarvis.db"
+
+          export JARVIS_REPO_PATH="$(pwd)"
+          export JARVIS_DB_PATH="${DB_PATH}"
+          ./scripts/run_improvement_evidence_lookup_runtime_alert.sh \
+            "${REPORT_PATH}" \
+            --output-path "${ALERT_PATH}" \
+            --rerun-command "${EVIDENCE_LOOKUP_COMMAND}" \
+            --emit-github-output \
+            --summary-heading "Evidence Lookup Runtime Alert" \
+            --json-compact > /dev/null
+
+      - name: Fail on unresolved evidence lookup IDs
+        if: ${{ steps.evidence_lookup_batch.outputs.evidence_lookup_ready == '1' && steps.evidence_lookup_runtime_alert.outputs.evidence_lookup_missing_count != '0' }}
+        run: |
+          echo "Evidence lookup left unresolved IDs (count=${{ steps.evidence_lookup_runtime_alert.outputs.evidence_lookup_missing_count }}, first=${{ steps.evidence_lookup_runtime_alert.outputs.evidence_lookup_first_missing_record_id }}, interrupt_id=${{ steps.evidence_lookup_runtime_alert.outputs.evidence_lookup_runtime_interrupt_id }}, first_repair=${{ steps.evidence_lookup_runtime_alert.outputs.evidence_lookup_runtime_first_repair_command }})."
+          exit 1
+
+      - name: Evidence lookup batch no-op branch
+        if: ${{ steps.evidence_lookup_batch.outputs.evidence_lookup_ready != '1' }}
+        run: |
+          echo "No unresolved blocker/retest evidence IDs detected for batch lookup."
+
+      - name: Fail on benchmark stale fallback alert creation error
+        if: ${{ steps.benchmark_stale.outputs.benchmark_stale_runtime_should_alert == '1' && steps.benchmark_stale.outputs.benchmark_stale_runtime_alert_created != '1' }}
+        run: |
+          echo "Benchmark stale fallback repeat threshold was met but runtime alert was not created (error=${{ steps.benchmark_stale.outputs.benchmark_stale_runtime_error }})."
+          exit 1
+
+      - name: Benchmark stale fallback no-op branch
+        if: ${{ steps.benchmark_stale.outputs.benchmark_stale_runtime_should_alert != '1' }}
+        run: |
+          echo "No repeated benchmark stale fallback trend detected (recent_count=${{ steps.benchmark_stale.outputs.benchmark_stale_recent_count }}, threshold=${{ steps.benchmark_stale.outputs.benchmark_stale_repeat_threshold }})."
+
+      - name: Fail on benchmark stale fallback rate gate
+        if: ${{ steps.benchmark_stale.outputs.benchmark_stale_runtime_rate_gate_blocking == '1' }}
+        run: |
+          echo "Benchmark stale fallback rate gate is blocking (recent_rate=${{ steps.benchmark_stale.outputs.benchmark_stale_recent_rate }}, latest_rolling_rate=${{ steps.benchmark_stale.outputs.benchmark_stale_runtime_latest_rolling_rate }}, consecutive_breach_runs=${{ steps.benchmark_stale.outputs.benchmark_stale_runtime_consecutive_rate_breach_runs }}, required=${{ steps.benchmark_stale.outputs.benchmark_stale_rate_consecutive_runs }}, ceiling=${{ steps.benchmark_stale.outputs.benchmark_stale_rate_ceiling }}, reason=${{ steps.benchmark_stale.outputs.benchmark_stale_runtime_rate_gate_reason }})."
+          exit 1
+
       - name: Warning route branch
         if: ${{ steps.route.outputs.status == 'warning' }}
         run: |
           echo "Knowledge bootstrap routing is unresolved (status=${{ steps.route.outputs.status }}, phase=${{ steps.route.outputs.phase }}, route=${{ steps.route.outputs.route }}). Review route artifact before promoting automated actions."
+
+      - name: Benchmark stale fallback branch
+        if: ${{ steps.route.outputs.benchmark_stale_fallback == '1' }}
+        run: |
+          echo "Draft benchmark auto-reuse stale fallback detected (reason=${{ steps.route.outputs.benchmark_stale_reason }}, age_hours=${{ steps.route.outputs.benchmark_stale_age_hours }}, max_age_hours=${{ steps.route.outputs.benchmark_stale_max_age_hours }}). Action: ${{ steps.route.outputs.benchmark_stale_next_action }}"
 
       - name: Bootstrap route branch
         if: ${{ steps.route.outputs.route == 'bootstrap' }}
