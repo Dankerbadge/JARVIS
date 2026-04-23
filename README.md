@@ -200,6 +200,8 @@ Daily experiment rows and queued/executed retest rows now include
 `seed_evidence_record_ids` when available so triage can jump directly to source records.
 Operator-cycle inbox summaries also emit `evidence_lookup_refs` for blocker/retest/promotion
 rows so operators can follow those IDs without manual cross-referencing.
+Those rows now also include `evidence_lookup_command` (pre-filled with row-specific
+record IDs) for one-command source drilldown.
 Resolve those IDs into concrete snippets/provenance with:
 
 ```bash

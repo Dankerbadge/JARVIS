@@ -2664,6 +2664,19 @@ class CliImprovementPipelineTests(unittest.TestCase):
                     for row in blockers
                 )
             )
+            blocker_with_seed = next(
+                (
+                    row
+                    for row in blockers
+                    if list(row.get("seed_evidence_record_ids") or []) == expected_seed_evidence_record_ids
+                ),
+                {},
+            )
+            blocker_lookup_command = str(blocker_with_seed.get("evidence_lookup_command") or "")
+            self.assertTrue(blocker_lookup_command.startswith("python3 -m jarvis.cli improvement evidence-lookup"))
+            self.assertIn("--record-ids", blocker_lookup_command)
+            self.assertIn(",".join(expected_seed_evidence_record_ids), blocker_lookup_command)
+            self.assertIn(str(config_path), blocker_lookup_command)
             retest_deltas = [dict(item) for item in list(summary.get("retest_deltas") or []) if isinstance(item, dict)]
             self.assertGreaterEqual(len(retest_deltas), 1)
             self.assertEqual(
@@ -2678,6 +2691,10 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 ],
                 expected_seed_evidence_record_ids,
             )
+            retest_lookup_command = str(retest_deltas[0].get("evidence_lookup_command") or "")
+            self.assertTrue(retest_lookup_command.startswith("python3 -m jarvis.cli improvement evidence-lookup"))
+            self.assertIn("--record-ids", retest_lookup_command)
+            self.assertIn(",".join(expected_seed_evidence_record_ids), retest_lookup_command)
             self.assertGreaterEqual(len(list(summary.get("suggested_actions") or [])), 1)
 
     def test_operator_cycle_runs_benchmark_stage_with_cli_top_limit_override(self) -> None:
@@ -3304,6 +3321,10 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 ],
                 expected_seed_evidence_record_ids,
             )
+            blocked_lookup_command = str(blocked_promotions[0].get("evidence_lookup_command") or "")
+            self.assertTrue(blocked_lookup_command.startswith("python3 -m jarvis.cli improvement evidence-lookup"))
+            self.assertIn("--record-ids", blocked_lookup_command)
+            self.assertIn(",".join(expected_seed_evidence_record_ids), blocked_lookup_command)
             unlock_readiness = dict(blocked_promotions[0].get("unlock_readiness") or {})
             self.assertFalse(bool(unlock_readiness.get("unlock_ready")))
             self.assertTrue(bool(unlock_readiness.get("requires_acknowledgement")))
@@ -3379,6 +3400,10 @@ class CliImprovementPipelineTests(unittest.TestCase):
                 ],
                 expected_seed_evidence_record_ids,
             )
+            summary_blocked_lookup_command = str(summary_blocked_promotions[0].get("evidence_lookup_command") or "")
+            self.assertTrue(summary_blocked_lookup_command.startswith("python3 -m jarvis.cli improvement evidence-lookup"))
+            self.assertIn("--record-ids", summary_blocked_lookup_command)
+            self.assertIn(",".join(expected_seed_evidence_record_ids), summary_blocked_lookup_command)
             summary_unlock = dict(summary_blocked_promotions[0].get("unlock_readiness") or {})
             self.assertEqual(str(summary_unlock.get("recheck_command") or ""), recheck_command)
             self.assertEqual(

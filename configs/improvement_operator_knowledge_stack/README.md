@@ -104,6 +104,8 @@ The same IDs now flow through daily-pipeline/retest outputs for faster
 debug-to-source navigation during operator triage.
 Operator-cycle inbox summaries include `evidence_lookup_refs` on blocker/retest/promotion
 rows so triage can pivot into concrete source records quickly.
+Each of those rows now includes `evidence_lookup_command` pre-populated with the row’s
+record IDs for immediate source lookup.
 
 Resolve those references into source snippets/provenance:
 

@@ -6392,6 +6392,28 @@ def _build_operator_cycle_recheck_command(
     return " ".join(shlex.quote(part) for part in command_parts)
 
 
+def _build_operator_evidence_lookup_command(
+    *,
+    config_path: Path,
+    record_ids: Any,
+) -> str:
+    normalized_record_ids = _normalize_record_id_list(record_ids)
+    if not normalized_record_ids:
+        return "none"
+    command_parts = [
+        "python3",
+        "-m",
+        "jarvis.cli",
+        "improvement",
+        "evidence-lookup",
+        "--config-path",
+        str(config_path),
+        "--record-ids",
+        ",".join(normalized_record_ids),
+    ]
+    return " ".join(shlex.quote(part) for part in command_parts)
+
+
 def _build_operator_cycle_knowledge_bootstrap_command(
     *,
     config_path: Path,
@@ -7382,6 +7404,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         verdict = str(row.get("verdict") or "").strip().lower()
         seed_evidence_record_ids = _normalize_record_id_list(row.get("seed_evidence_record_ids"))
         evidence_lookup_refs = _build_evidence_lookup_refs(seed_evidence_record_ids)
+        evidence_lookup_command = _build_operator_evidence_lookup_command(
+            config_path=config_path,
+            record_ids=seed_evidence_record_ids,
+        )
         if verdict in {"blocked_guardrail", "insufficient_data", "needs_iteration", "invalid_measurement"}:
             blockers.append(
                 {
@@ -7392,6 +7418,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "root_cause_hints": list(row.get("root_cause_hints") or []),
                     "seed_evidence_record_ids": list(seed_evidence_record_ids),
                     "evidence_lookup_refs": list(evidence_lookup_refs),
+                    "evidence_lookup_command": evidence_lookup_command,
                 }
             )
     retest_deltas: list[dict[str, Any]] = []
@@ -7406,6 +7433,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         current_verdict = str(transition.get("current") or row.get("verdict") or "").strip().lower() or None
         seed_evidence_record_ids = _normalize_record_id_list(row.get("seed_evidence_record_ids"))
         evidence_lookup_refs = _build_evidence_lookup_refs(seed_evidence_record_ids)
+        evidence_lookup_command = _build_operator_evidence_lookup_command(
+            config_path=config_path,
+            record_ids=seed_evidence_record_ids,
+        )
         retest_deltas.append(
             {
                 "hypothesis_id": row.get("hypothesis_id"),
@@ -7417,6 +7448,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                 "sample_transition": side_by_side.get("sample_transition"),
                 "seed_evidence_record_ids": list(seed_evidence_record_ids),
                 "evidence_lookup_refs": list(evidence_lookup_refs),
+                "evidence_lookup_command": evidence_lookup_command,
             }
         )
         if current_verdict in {"blocked_guardrail", "insufficient_data", "needs_iteration", "invalid_measurement"}:
@@ -7429,6 +7461,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "root_cause_hints": [],
                     "seed_evidence_record_ids": list(seed_evidence_record_ids),
                     "evidence_lookup_refs": list(evidence_lookup_refs),
+                    "evidence_lookup_command": evidence_lookup_command,
                 }
             )
 
@@ -7437,6 +7470,10 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
         if str(row.get("verdict") or "").strip().lower() == "promote":
             seed_evidence_record_ids = _normalize_record_id_list(row.get("seed_evidence_record_ids"))
             evidence_lookup_refs = _build_evidence_lookup_refs(seed_evidence_record_ids)
+            evidence_lookup_command = _build_operator_evidence_lookup_command(
+                config_path=config_path,
+                record_ids=seed_evidence_record_ids,
+            )
             promotion_candidates.append(
                 {
                     "stage": "daily_pipeline",
@@ -7444,12 +7481,17 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "run_id": row.get("run_id"),
                     "seed_evidence_record_ids": list(seed_evidence_record_ids),
                     "evidence_lookup_refs": list(evidence_lookup_refs),
+                    "evidence_lookup_command": evidence_lookup_command,
                 }
             )
     for row in retest_runs:
         if str(row.get("verdict") or "").strip().lower() == "promote":
             seed_evidence_record_ids = _normalize_record_id_list(row.get("seed_evidence_record_ids"))
             evidence_lookup_refs = _build_evidence_lookup_refs(seed_evidence_record_ids)
+            evidence_lookup_command = _build_operator_evidence_lookup_command(
+                config_path=config_path,
+                record_ids=seed_evidence_record_ids,
+            )
             promotion_candidates.append(
                 {
                     "stage": "execute_retests",
@@ -7457,6 +7499,7 @@ def cmd_improvement_operator_cycle(args: argparse.Namespace) -> None:
                     "run_id": row.get("run_id"),
                     "seed_evidence_record_ids": list(seed_evidence_record_ids),
                     "evidence_lookup_refs": list(evidence_lookup_refs),
+                    "evidence_lookup_command": evidence_lookup_command,
                 }
             )
 
