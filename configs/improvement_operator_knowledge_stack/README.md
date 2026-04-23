@@ -105,6 +105,15 @@ debug-to-source navigation during operator triage.
 Operator-cycle inbox summaries include `evidence_lookup_refs` on blocker/retest/promotion
 rows so triage can pivot into concrete source records quickly.
 
+Resolve those references into source snippets/provenance:
+
+```bash
+python3 -m jarvis.cli improvement evidence-lookup \
+  --operator-report-path ./configs/improvement_operator_knowledge_stack/output/operator_cycle_report.json \
+  --config-path ./configs/improvement_operator_knowledge_stack.json \
+  --output-path ./configs/improvement_operator_knowledge_stack/output/evidence_lookup_report.json
+```
+
 ## 2) Run full operator cycle
 
 ```bash

@@ -200,6 +200,16 @@ Daily experiment rows and queued/executed retest rows now include
 `seed_evidence_record_ids` when available so triage can jump directly to source records.
 Operator-cycle inbox summaries also emit `evidence_lookup_refs` for blocker/retest/promotion
 rows so operators can follow those IDs without manual cross-referencing.
+Resolve those IDs into concrete snippets/provenance with:
+
+```bash
+python3 -m jarvis.cli improvement evidence-lookup \
+  --operator-report-path ./output/improvement/operator_cycle_report.json \
+  --config-path ./configs/improvement_pipeline_example.json \
+  --output-path ./output/improvement/evidence_lookup_report.json
+```
+
+You can also pass explicit IDs/files via `--record-ids` and repeated `--input-path` flags.
 It now includes an auto-retest lane: `blocked_guardrail` and `insufficient_data`
 outcomes can be re-queued with recommended cohort-size and guardrail-safety targets,
 plus side-by-side comparison summaries versus previous runs.

@@ -113,6 +113,19 @@ DEFAULT_FITNESS_APP_FIELDS_CSV = (
     "app_name,app,product,provider,source_context.app_identifier,source_context.app_name,source_context.app,source_context,source"
 )
 DEFAULT_IMPROVEMENT_KNOWLEDGE_DOMAINS_CSV = "quant_finance,kalshi_weather,fitness_apps,market_ml"
+DEFAULT_EVIDENCE_LOOKUP_ID_FIELDS_CSV = (
+    "id,record_id,review_id,ticket_id,source_context.id,source_context.record_id,source_context.review_id"
+)
+DEFAULT_EVIDENCE_LOOKUP_SUMMARY_FIELDS_CSV = (
+    "summary,review,text,content,complaint,message,body,title,headline,subject"
+)
+DEFAULT_EVIDENCE_LOOKUP_TIMESTAMP_FIELDS_CSV = (
+    "created_at,at,submission_date,date,timestamp,occurred_at,updated_at,source_context.created_at"
+)
+DEFAULT_EVIDENCE_LOOKUP_CONTEXT_FIELDS_CSV = (
+    "url,rating,score,severity,app_version,platform,app_name,app,provider,"
+    "source_context.app_identifier,source_context.app_label,source_context.app_name,source_context.platform"
+)
 
 
 def _build_demo_repo(repo_path: Path) -> None:
@@ -2572,6 +2585,163 @@ def _resolve_record_path_value(payload: Any, path: Any) -> Any:
     return value
 
 
+def _coerce_scalar_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (dict, list, tuple, set)):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _collect_record_id_candidates(
+    *,
+    record: dict[str, Any],
+    id_fields: list[str],
+) -> list[tuple[str, str]]:
+    candidates: list[tuple[str, str]] = []
+    seen_keys: set[str] = set()
+    for field in id_fields:
+        value = _coerce_scalar_text(_resolve_record_path_value(record, field))
+        if value is None:
+            continue
+        key = f"{field}::{value}"
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        candidates.append((value, field))
+    return candidates
+
+
+def _resolve_first_record_text(
+    *,
+    record: dict[str, Any],
+    field_paths: list[str],
+) -> tuple[str | None, str | None]:
+    for field in field_paths:
+        value = _coerce_scalar_text(_resolve_record_path_value(record, field))
+        if value is not None:
+            return value, field
+    return None, None
+
+
+def _extract_evidence_record_ids_from_payload(payload: Any) -> list[str]:
+    out: list[str] = []
+
+    def _append(value: Any) -> None:
+        text = str(value or "").strip()
+        if not text or text in out:
+            return
+        out.append(text)
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for item in list(node.get("seed_evidence_record_ids") or []):
+                _append(item)
+            raw_refs = node.get("evidence_lookup_refs")
+            if isinstance(raw_refs, list):
+                for raw in raw_refs:
+                    if isinstance(raw, dict):
+                        record_id = str(raw.get("record_id") or "").strip()
+                        if record_id:
+                            _append(record_id)
+                        lookup_key = str(raw.get("lookup_key") or "").strip()
+                        if lookup_key.startswith("record_id:"):
+                            _append(lookup_key.split(":", 1)[1])
+                    else:
+                        text = str(raw or "").strip()
+                        if text.startswith("record_id:"):
+                            _append(text.split(":", 1)[1])
+            for value in node.values():
+                _walk(value)
+            return
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(payload)
+    return out
+
+
+def _collect_evidence_lookup_input_sources(
+    *,
+    config_path: Path | None,
+    input_paths: list[Path],
+    input_format: str | None,
+) -> list[dict[str, Any]]:
+    deduped: dict[str, dict[str, Any]] = {}
+
+    def _upsert(
+        *,
+        path: Path,
+        source_kind: str,
+        source_index: int | None,
+        domain: str | None = None,
+        source: str | None = None,
+        file_format: str | None = None,
+    ) -> None:
+        key = str(path)
+        current = deduped.get(key)
+        if current is None:
+            current = {
+                "input_path": str(path),
+                "input_format": str(file_format or "").strip().lower() or None,
+                "domain": str(domain or "").strip().lower() or None,
+                "source": str(source or "").strip().lower() or None,
+                "origins": [],
+            }
+            deduped[key] = current
+        elif not current.get("input_format") and file_format:
+            current["input_format"] = str(file_format).strip().lower() or None
+        if not current.get("domain") and domain:
+            current["domain"] = str(domain).strip().lower() or None
+        if not current.get("source") and source:
+            current["source"] = str(source).strip().lower() or None
+        current_origins = [dict(item) for item in list(current.get("origins") or []) if isinstance(item, dict)]
+        current_origins.append(
+            {
+                "kind": source_kind,
+                "index": source_index,
+            }
+        )
+        current["origins"] = current_origins
+
+    for index, raw_path in enumerate(input_paths):
+        resolved_path = Path(str(raw_path)).expanduser().resolve()
+        _upsert(
+            path=resolved_path,
+            source_kind="cli_input_path",
+            source_index=index,
+            file_format=input_format,
+        )
+
+    if config_path is not None:
+        loaded = json.loads(config_path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise ValueError("invalid_pipeline_config:expected_json_object")
+        defaults = dict(loaded.get("defaults") or {}) if isinstance(loaded.get("defaults"), dict) else {}
+        feedback_jobs = list(loaded.get("feedback_jobs") or [])
+        for index, raw_job in enumerate(feedback_jobs):
+            if not isinstance(raw_job, dict):
+                continue
+            input_path_raw = raw_job.get("input_path")
+            if input_path_raw is None or not str(input_path_raw).strip():
+                continue
+            resolved_input_path = _resolve_pipeline_path(input_path_raw, config_path=config_path)
+            _upsert(
+                path=resolved_input_path,
+                source_kind="config_feedback_job",
+                source_index=index,
+                domain=str(raw_job.get("domain") or defaults.get("domain") or "").strip().lower() or None,
+                source=str(raw_job.get("source") or defaults.get("source") or "").strip().lower() or None,
+                file_format=raw_job.get("input_format"),
+            )
+
+    rows = [dict(item) for item in deduped.values()]
+    rows.sort(key=lambda row: str(row.get("input_path") or ""))
+    return rows
+
+
 def _parse_timestamp_value(raw_value: Any) -> datetime | None:
     if raw_value is None:
         return None
@@ -3311,6 +3481,229 @@ def cmd_improvement_fitness_leaderboard(args: argparse.Namespace) -> None:
     )
 
     if not top_entries and bool(getattr(args, "strict", False)):
+        raise SystemExit(2)
+
+
+def cmd_improvement_evidence_lookup(args: argparse.Namespace) -> None:
+    requested_record_ids: list[str] = []
+    for item in _parse_csv_items(getattr(args, "record_ids", None)):
+        normalized = str(item).strip()
+        if normalized and normalized not in requested_record_ids:
+            requested_record_ids.append(normalized)
+
+    operator_report_path = (
+        args.operator_report_path.resolve()
+        if getattr(args, "operator_report_path", None) is not None
+        else None
+    )
+    operator_report_extracted_ids: list[str] = []
+    if operator_report_path is not None:
+        loaded_report = json.loads(operator_report_path.read_text(encoding="utf-8"))
+        operator_report_extracted_ids = _extract_evidence_record_ids_from_payload(loaded_report)
+        for record_id in operator_report_extracted_ids:
+            if record_id not in requested_record_ids:
+                requested_record_ids.append(record_id)
+    if not requested_record_ids:
+        raise ValueError("missing_record_ids")
+
+    config_path = args.config_path.resolve() if getattr(args, "config_path", None) is not None else None
+    input_paths = [Path(str(item)).expanduser() for item in list(getattr(args, "input_paths", None) or [])]
+    explicit_input_format = str(getattr(args, "input_format", None) or "").strip().lower() or None
+    sources = _collect_evidence_lookup_input_sources(
+        config_path=config_path,
+        input_paths=input_paths,
+        input_format=explicit_input_format,
+    )
+    if not sources:
+        raise ValueError("missing_input_sources")
+
+    id_fields = _parse_csv_items(getattr(args, "id_fields", None))
+    if not id_fields:
+        id_fields = _parse_csv_items(DEFAULT_EVIDENCE_LOOKUP_ID_FIELDS_CSV)
+    summary_fields = _parse_csv_items(getattr(args, "summary_fields", None))
+    if not summary_fields:
+        summary_fields = _parse_csv_items(DEFAULT_EVIDENCE_LOOKUP_SUMMARY_FIELDS_CSV)
+    timestamp_fields = _parse_csv_items(getattr(args, "timestamp_fields", None))
+    if not timestamp_fields:
+        timestamp_fields = _parse_csv_items(DEFAULT_EVIDENCE_LOOKUP_TIMESTAMP_FIELDS_CSV)
+    context_fields = _parse_csv_items(getattr(args, "context_fields", None))
+    if not context_fields:
+        context_fields = _parse_csv_items(DEFAULT_EVIDENCE_LOOKUP_CONTEXT_FIELDS_CSV)
+
+    snippet_max_chars = max(80, int(getattr(args, "snippet_max_chars", 280) or 280))
+    limit_per_id = max(1, int(getattr(args, "limit_per_id", 5) or 5))
+    include_record = bool(getattr(args, "include_record", False))
+    allow_missing_inputs = bool(getattr(args, "allow_missing_inputs", False))
+
+    requested_id_set = set(requested_record_ids)
+    connector = FeedbackFileConnector()
+    matches_by_record_id: dict[str, list[dict[str, Any]]] = {record_id: [] for record_id in requested_record_ids}
+    source_rows: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for source_index, source in enumerate(sources):
+        input_path = Path(str(source.get("input_path") or "")).expanduser().resolve()
+        source_format = str(source.get("input_format") or "").strip().lower() or None
+        domain = str(source.get("domain") or "").strip().lower() or None
+        source_name = str(source.get("source") or "").strip().lower() or None
+        source_entry = {
+            "index": int(source_index),
+            "input_path": str(input_path),
+            "input_format": source_format,
+            "domain": domain,
+            "source": source_name,
+            "origins": [dict(item) for item in list(source.get("origins") or []) if isinstance(item, dict)],
+            "record_count": 0,
+            "matched_count": 0,
+            "matched_record_ids": [],
+            "status": "ok",
+        }
+        if not input_path.exists():
+            source_entry["status"] = "skipped_missing_input" if allow_missing_inputs else "error_missing_input"
+            if not allow_missing_inputs:
+                errors.append(
+                    {
+                        "source_index": int(source_index),
+                        "input_path": str(input_path),
+                        "error": "input_path_not_found",
+                    }
+                )
+            source_rows.append(source_entry)
+            continue
+        try:
+            loaded = connector.load_records(path=input_path, file_format=source_format)
+        except Exception as exc:
+            source_entry["status"] = "error_load_failed"
+            source_entry["error"] = str(exc)
+            errors.append(
+                {
+                    "source_index": int(source_index),
+                    "input_path": str(input_path),
+                    "error": str(exc),
+                }
+            )
+            source_rows.append(source_entry)
+            continue
+
+        source_entry["input_format"] = str(loaded.get("input_format") or source_entry.get("input_format") or "")
+        records = [dict(item) for item in list(loaded.get("records") or []) if isinstance(item, dict)]
+        source_entry["record_count"] = len(records)
+        matched_record_ids_for_source: set[str] = set()
+        for record_index, record in enumerate(records):
+            id_candidates = _collect_record_id_candidates(
+                record=record,
+                id_fields=id_fields,
+            )
+            matching_candidates: list[tuple[str, str]] = []
+            seen_matching_record_ids: set[str] = set()
+            for record_id, matched_field in id_candidates:
+                if record_id not in requested_id_set or record_id in seen_matching_record_ids:
+                    continue
+                seen_matching_record_ids.add(record_id)
+                matching_candidates.append((record_id, matched_field))
+            if not matching_candidates:
+                continue
+            summary_text, summary_field = _resolve_first_record_text(
+                record=record,
+                field_paths=summary_fields,
+            )
+            timestamp_value, timestamp_field = _resolve_first_record_text(
+                record=record,
+                field_paths=timestamp_fields,
+            )
+            context: dict[str, Any] = {}
+            for field in context_fields:
+                value = _resolve_record_path_value(record, field)
+                if value is None:
+                    continue
+                if isinstance(value, (dict, list, tuple, set)):
+                    continue
+                if field in context:
+                    continue
+                context[field] = value
+
+            snippet = str(summary_text or "").strip()
+            if len(snippet) > snippet_max_chars:
+                snippet = f"{snippet[:snippet_max_chars].rstrip()}..."
+
+            for record_id, matched_field in matching_candidates:
+                match_row = {
+                    "record_id": record_id,
+                    "lookup_key": f"record_id:{record_id}",
+                    "matched_field": matched_field,
+                    "record_index": int(record_index),
+                    "input_path": str(input_path),
+                    "input_format": str(loaded.get("input_format") or ""),
+                    "domain": domain,
+                    "source": source_name,
+                    "summary": summary_text,
+                    "summary_field": summary_field,
+                    "snippet": snippet or None,
+                    "timestamp": timestamp_value,
+                    "timestamp_field": timestamp_field,
+                    "context": context,
+                }
+                if include_record:
+                    match_row["record"] = dict(record)
+                matches_by_record_id.setdefault(record_id, []).append(match_row)
+                matched_record_ids_for_source.add(record_id)
+        source_entry["matched_count"] = len(matched_record_ids_for_source)
+        source_entry["matched_record_ids"] = sorted(matched_record_ids_for_source)
+        source_rows.append(source_entry)
+
+    matches: list[dict[str, Any]] = []
+    missing_record_ids: list[str] = []
+    for record_id in requested_record_ids:
+        rows = [dict(item) for item in list(matches_by_record_id.get(record_id) or []) if isinstance(item, dict)]
+        total_matches = len(rows)
+        if total_matches == 0:
+            missing_record_ids.append(record_id)
+        matches.append(
+            {
+                "record_id": record_id,
+                "lookup_key": f"record_id:{record_id}",
+                "status": "resolved" if total_matches > 0 else "missing",
+                "match_count": int(total_matches),
+                "truncated_count": max(0, total_matches - limit_per_id),
+                "matches": rows[:limit_per_id],
+            }
+        )
+
+    status = "ok" if not errors and not missing_record_ids else "warning"
+    payload = {
+        "generated_at": utc_now_iso(),
+        "status": status,
+        "record_ids": list(requested_record_ids),
+        "requested_count": len(requested_record_ids),
+        "resolved_record_id_count": len(requested_record_ids) - len(missing_record_ids),
+        "missing_record_ids": missing_record_ids,
+        "missing_count": len(missing_record_ids),
+        "operator_report_path": str(operator_report_path) if operator_report_path is not None else None,
+        "operator_report_extracted_record_ids": operator_report_extracted_ids,
+        "config_path": str(config_path) if config_path is not None else None,
+        "input_source_count": len(source_rows),
+        "input_sources": source_rows,
+        "id_fields": list(id_fields),
+        "summary_fields": list(summary_fields),
+        "timestamp_fields": list(timestamp_fields),
+        "context_fields": list(context_fields),
+        "snippet_max_chars": int(snippet_max_chars),
+        "limit_per_id": int(limit_per_id),
+        "matches": matches,
+        "error_count": len(errors),
+        "errors": errors,
+    }
+
+    output_path = args.output_path.resolve() if args.output_path is not None else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        payload["output_path"] = str(output_path)
+
+    _print_json_payload(
+        payload,
+        compact=bool(getattr(args, "json_compact", False)),
+    )
+    if bool(getattr(args, "strict", False)) and (errors or missing_record_ids):
         raise SystemExit(2)
 
 
@@ -15246,6 +15639,93 @@ def main() -> None:
     improvement_fitness_leaderboard.add_argument("--output-path", type=Path, default=None)
     improvement_fitness_leaderboard.add_argument("--json-compact", action="store_true")
 
+    improvement_evidence_lookup = improvement_sub.add_parser(
+        "evidence-lookup",
+        help="Resolve seed evidence record IDs into source snippets/provenance for operator triage",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--record-ids",
+        type=str,
+        default=None,
+        help="Optional CSV record IDs to resolve (can be combined with --operator-report-path extraction)",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--operator-report-path",
+        type=Path,
+        default=None,
+        help="Optional operator-cycle report/summary JSON to extract record IDs from evidence fields",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--config-path",
+        type=Path,
+        default=None,
+        help="Optional pipeline config path used to derive feedback_jobs input sources",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--input-path",
+        dest="input_paths",
+        action="append",
+        type=Path,
+        default=None,
+        help="Optional explicit feedback input path (repeat flag to scan multiple files)",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--input-format",
+        type=str,
+        default=None,
+        choices=("json", "jsonl", "ndjson", "csv"),
+        help="Optional explicit format for --input-path files",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--id-fields",
+        type=str,
+        default=DEFAULT_EVIDENCE_LOOKUP_ID_FIELDS_CSV,
+        help="CSV field-path priority list used to resolve record IDs",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--summary-fields",
+        type=str,
+        default=DEFAULT_EVIDENCE_LOOKUP_SUMMARY_FIELDS_CSV,
+        help="CSV field-path priority list used to extract summary/snippet text",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--timestamp-fields",
+        type=str,
+        default=DEFAULT_EVIDENCE_LOOKUP_TIMESTAMP_FIELDS_CSV,
+        help="CSV field-path priority list used to extract timestamps",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--context-fields",
+        type=str,
+        default=DEFAULT_EVIDENCE_LOOKUP_CONTEXT_FIELDS_CSV,
+        help="CSV field-paths included in match context payloads",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--snippet-max-chars",
+        type=int,
+        default=280,
+        help="Maximum snippet length per matched record",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--limit-per-id",
+        type=int,
+        default=5,
+        help="Maximum match rows emitted per requested record ID",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--include-record",
+        action="store_true",
+        help="Include full matched raw record objects in output payload",
+    )
+    improvement_evidence_lookup.add_argument(
+        "--allow-missing-inputs",
+        action="store_true",
+        help="Skip missing input files instead of counting them as lookup errors",
+    )
+    improvement_evidence_lookup.add_argument("--strict", action="store_true")
+    improvement_evidence_lookup.add_argument("--output-path", type=Path, default=None)
+    improvement_evidence_lookup.add_argument("--json-compact", action="store_true")
+
     improvement_seed_from_leaderboard = improvement_sub.add_parser(
         "seed-from-leaderboard",
         help="Create queued hypotheses from leaderboard rising/new frustrations with dedupe safeguards",
@@ -16718,6 +17198,9 @@ def main() -> None:
         return
     if args.cmd == "improvement" and args.improvement_cmd == "fitness-leaderboard":
         cmd_improvement_fitness_leaderboard(args)
+        return
+    if args.cmd == "improvement" and args.improvement_cmd == "evidence-lookup":
+        cmd_improvement_evidence_lookup(args)
         return
     if args.cmd == "improvement" and args.improvement_cmd == "seed-from-leaderboard":
         cmd_improvement_seed_from_leaderboard(args)

@@ -18,6 +18,7 @@ from jarvis.cli import (
     cmd_improvement_domain_smoke_cross_domain_compact,
     cmd_improvement_domain_smoke_cross_domain_runtime_alert,
     cmd_improvement_daily_pipeline,
+    cmd_improvement_evidence_lookup,
     cmd_improvement_domain_smoke_outputs,
     cmd_improvement_domain_smoke_runtime_alert,
     cmd_improvement_reconcile_codeowner_review_gate_outputs,
@@ -316,6 +317,205 @@ class CliImprovementPipelineTests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(str((rows[0] or {}).get("platform") or ""), "ios")
             self.assertEqual(str((rows[0] or {}).get("id") or ""), "ios-r1")
+
+    def test_improvement_evidence_lookup_resolves_record_ids_from_explicit_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            feedback_path = root / "analysis" / "fitness_feedback.jsonl"
+            feedback_path.parent.mkdir(parents=True, exist_ok=True)
+            feedback_rows = [
+                {
+                    "id": "rv-1",
+                    "summary": "Paywall appears before users can finish a workout.",
+                    "created_at": "2026-04-21T12:00:00Z",
+                    "url": "https://example.test/reviews/rv-1",
+                },
+                {
+                    "id": "rv-2",
+                    "summary": "Wearable sync fails after onboarding.",
+                    "created_at": "2026-04-22T13:30:00Z",
+                },
+            ]
+            feedback_path.write_text(
+                "\n".join(json.dumps(row, sort_keys=True) for row in feedback_rows),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                record_ids="rv-1,rv-missing",
+                operator_report_path=None,
+                config_path=None,
+                input_paths=[feedback_path],
+                input_format=None,
+                id_fields="id,record_id",
+                summary_fields="summary,review",
+                timestamp_fields="created_at",
+                context_fields="url,rating",
+                snippet_max_chars=140,
+                limit_per_id=3,
+                include_record=False,
+                allow_missing_inputs=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_evidence_lookup(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "warning")
+            self.assertEqual(int(payload.get("requested_count") or 0), 2)
+            self.assertEqual(int(payload.get("resolved_record_id_count") or 0), 1)
+            self.assertEqual(list(payload.get("missing_record_ids") or []), ["rv-missing"])
+            self.assertEqual(int(payload.get("input_source_count") or 0), 1)
+            source_row = dict((list(payload.get("input_sources") or []) or [{}])[0] or {})
+            self.assertEqual(int(source_row.get("matched_count") or 0), 1)
+            self.assertEqual(list(source_row.get("matched_record_ids") or []), ["rv-1"])
+
+            matches = [dict(item) for item in list(payload.get("matches") or []) if isinstance(item, dict)]
+            rv1 = next((row for row in matches if str(row.get("record_id") or "") == "rv-1"), {})
+            self.assertEqual(str(rv1.get("status") or ""), "resolved")
+            self.assertEqual(int(rv1.get("match_count") or 0), 1)
+            rv1_rows = [dict(item) for item in list(rv1.get("matches") or []) if isinstance(item, dict)]
+            self.assertEqual(len(rv1_rows), 1)
+            self.assertEqual(str(rv1_rows[0].get("matched_field") or ""), "id")
+            self.assertEqual(str(rv1_rows[0].get("summary") or ""), "Paywall appears before users can finish a workout.")
+            self.assertEqual(str(rv1_rows[0].get("timestamp") or ""), "2026-04-21T12:00:00Z")
+
+    def test_improvement_evidence_lookup_can_extract_ids_from_operator_report_and_config(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            feedback_path = root / "analysis" / "fitness_feedback.jsonl"
+            feedback_path.parent.mkdir(parents=True, exist_ok=True)
+            feedback_path.write_text(
+                json.dumps(
+                    {
+                        "record_id": "seed_lookup_1",
+                        "summary": "Users report that onboarding asks for payment too early.",
+                        "created_at": "2026-04-20T08:00:00Z",
+                        "source_context": {"app_identifier": "fit_competitor", "platform": "ios"},
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config_path = root / "pipeline.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "feedback_jobs": [
+                            {
+                                "domain": "fitness_apps",
+                                "source": "app_store_reviews",
+                                "input_path": "analysis/fitness_feedback.jsonl",
+                                "input_format": "jsonl",
+                            }
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            operator_report_path = root / "reports" / "operator_cycle_report.json"
+            operator_report_path.parent.mkdir(parents=True, exist_ok=True)
+            operator_report_path.write_text(
+                json.dumps(
+                    {
+                        "summary": {
+                            "retest_deltas": [
+                                {
+                                    "seed_evidence_record_ids": ["seed_lookup_1"],
+                                    "evidence_lookup_refs": [
+                                        {
+                                            "lookup_type": "source_record_id",
+                                            "record_id": "seed_lookup_1",
+                                            "lookup_key": "record_id:seed_lookup_1",
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                record_ids=None,
+                operator_report_path=operator_report_path,
+                config_path=config_path,
+                input_paths=None,
+                input_format=None,
+                id_fields=None,
+                summary_fields=None,
+                timestamp_fields=None,
+                context_fields=None,
+                snippet_max_chars=160,
+                limit_per_id=5,
+                include_record=False,
+                allow_missing_inputs=False,
+                strict=False,
+                output_path=None,
+                json_compact=False,
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_improvement_evidence_lookup(args)
+            payload = json.loads(out.getvalue())
+
+            self.assertEqual(str(payload.get("status") or ""), "ok")
+            self.assertEqual(list(payload.get("record_ids") or []), ["seed_lookup_1"])
+            self.assertEqual(list(payload.get("operator_report_extracted_record_ids") or []), ["seed_lookup_1"])
+            self.assertEqual(int(payload.get("resolved_record_id_count") or 0), 1)
+            self.assertEqual(int(payload.get("missing_count") or 0), 0)
+            source_row = dict((list(payload.get("input_sources") or []) or [{}])[0] or {})
+            self.assertEqual(str(source_row.get("domain") or ""), "fitness_apps")
+            self.assertEqual(str(source_row.get("source") or ""), "app_store_reviews")
+            match_rows = [
+                dict(item)
+                for item in list((dict((list(payload.get("matches") or []) or [{}])[0] or {})).get("matches") or [])
+                if isinstance(item, dict)
+            ]
+            self.assertEqual(len(match_rows), 1)
+            self.assertEqual(str(match_rows[0].get("record_id") or ""), "seed_lookup_1")
+            self.assertEqual(str(match_rows[0].get("matched_field") or ""), "record_id")
+
+    def test_improvement_evidence_lookup_strict_fails_when_record_ids_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            feedback_path = root / "analysis" / "fitness_feedback.jsonl"
+            feedback_path.parent.mkdir(parents=True, exist_ok=True)
+            feedback_path.write_text(
+                json.dumps({"id": "rv-1", "summary": "Test row"}, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            args = argparse.Namespace(
+                record_ids="rv-missing",
+                operator_report_path=None,
+                config_path=None,
+                input_paths=[feedback_path],
+                input_format=None,
+                id_fields=None,
+                summary_fields=None,
+                timestamp_fields=None,
+                context_fields=None,
+                snippet_max_chars=120,
+                limit_per_id=2,
+                include_record=False,
+                allow_missing_inputs=False,
+                strict=True,
+                output_path=None,
+                json_compact=False,
+            )
+            with self.assertRaises(SystemExit) as raised:
+                cmd_improvement_evidence_lookup(args)
+            self.assertEqual(int(getattr(raised.exception, "code", 0) or 0), 2)
 
     def test_fitness_leaderboard_reports_week_over_week_trend_deltas(self) -> None:
         with tempfile.TemporaryDirectory() as td:
