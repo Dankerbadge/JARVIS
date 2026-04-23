@@ -75,6 +75,24 @@ Wrapper:
   --output-path ./configs/improvement_operator_knowledge_stack/output/market_ml_leaderboard.json
 ```
 
+## 1e) Run domain smoke loop (pull -> leaderboard -> seed)
+
+```bash
+./scripts/run_improvement_domain_smoke.sh \
+  ./configs/improvement_operator_knowledge_stack.json \
+  kalshi_weather \
+  --output-dir ./configs/improvement_operator_knowledge_stack/output/domain_smoke/kalshi_weather \
+  --allow-missing
+```
+
+The smoke wrapper resolves domain-specific defaults from config, runs:
+
+1. `run_improvement_pull_feeds.sh` (scoped to the domain feed when available)
+2. Domain leaderboard wrapper (`fitness` / `kalshi` / `quant` / `market_ml`)
+3. `run_improvement_seed_from_leaderboard.sh`
+
+and writes `<domain>_smoke_summary.json` under the smoke output directory.
+
 ## 2) Run full operator cycle
 
 ```bash

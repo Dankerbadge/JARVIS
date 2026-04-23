@@ -306,6 +306,21 @@ class ImprovementOperatorKnowledgeStackAssetsTests(unittest.TestCase):
         self.assertIn("ml_incident_log", content)
         self.assertIn("--min-cross-app-count", content)
 
+    def test_domain_smoke_wrapper_present(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        script_path = repo_root / "scripts" / "run_improvement_domain_smoke.sh"
+        self.assertTrue(script_path.exists())
+        content = script_path.read_text(encoding="utf-8")
+        self.assertIn("run_improvement_pull_feeds.sh", content)
+        self.assertIn("run_improvement_seed_from_leaderboard.sh", content)
+        self.assertIn("run_improvement_fitness_leaderboard.sh", content)
+        self.assertIn("run_improvement_kalshi_leaderboard.sh", content)
+        self.assertIn("run_improvement_quant_leaderboard.sh", content)
+        self.assertIn("run_improvement_market_ml_leaderboard.sh", content)
+        self.assertIn("missing_feedback_job_for_domain", content)
+        self.assertIn("domain_smoke_", content)
+        self.assertIn("_smoke_summary.json", content)
+
     def test_active_knowledge_bootstrap_route_workflow_present(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         workflow_path = (
