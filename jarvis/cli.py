@@ -5094,17 +5094,23 @@ def _summarize_evidence_runtime_history(
         lookup_status = str(row.get("lookup_status") or "").strip().lower()
         return lookup_status == "missing_report"
 
+    def _is_noop_seed_row(row: dict[str, Any]) -> bool:
+        return str(row.get("source") or "").strip().lower() == "operator_cycle_noop_batch_seed"
+
     recent_missing_total = sum(_missing_count_from_row(row) for row in recent_rows)
-    previous_missing_total = sum(_missing_count_from_row(row) for row in previous_rows)
     recent_unresolved_runs = sum(1 for row in recent_rows if _is_unresolved_row(row))
-    previous_unresolved_runs = sum(1 for row in previous_rows if _is_unresolved_row(row))
+    previous_rows_seed_only = bool(previous_rows) and all(_is_noop_seed_row(row) for row in previous_rows)
+    previous_effective_rows = [] if previous_rows_seed_only else list(previous_rows)
+    previous_missing_total = sum(_missing_count_from_row(row) for row in previous_effective_rows)
+    previous_unresolved_runs = sum(1 for row in previous_effective_rows if _is_unresolved_row(row))
 
     recent_row_count = len(recent_rows)
     previous_row_count = len(previous_rows)
+    previous_effective_row_count = len(previous_effective_rows)
     recent_missing_avg = float(recent_missing_total) / float(max(1, recent_row_count))
-    previous_missing_avg = float(previous_missing_total) / float(max(1, previous_row_count))
+    previous_missing_avg = float(previous_missing_total) / float(max(1, previous_effective_row_count))
     recent_unresolved_rate = float(recent_unresolved_runs) / float(max(1, recent_row_count))
-    previous_unresolved_rate = float(previous_unresolved_runs) / float(max(1, previous_row_count))
+    previous_unresolved_rate = float(previous_unresolved_runs) / float(max(1, previous_effective_row_count))
     missing_count_delta = recent_missing_avg - previous_missing_avg
     unresolved_rate_delta = recent_unresolved_rate - previous_unresolved_rate
 
@@ -5116,7 +5122,7 @@ def _summarize_evidence_runtime_history(
 
     if recent_unresolved_runs <= 0 and recent_missing_total <= 0:
         trend = "clear"
-    elif previous_row_count <= 0:
+    elif previous_effective_row_count <= 0:
         trend = "insufficient_history"
     elif unresolved_rate_delta >= 0.15 or missing_count_delta >= 0.5:
         trend = "worsening"
@@ -5161,6 +5167,8 @@ def _summarize_evidence_runtime_history(
         "row_count": len(rows),
         "recent_row_count": recent_row_count,
         "previous_row_count": previous_row_count,
+        "previous_effective_row_count": previous_effective_row_count,
+        "previous_rows_seed_only": bool(previous_rows_seed_only),
         "recent_missing_total": int(recent_missing_total),
         "previous_missing_total": int(previous_missing_total),
         "recent_missing_avg": round(float(recent_missing_avg), 4),
